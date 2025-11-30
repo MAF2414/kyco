@@ -15,6 +15,7 @@ use tokio::sync::{mpsc, Mutex};
 
 use super::event::{is_quit_event, AppEvent, EventHandler};
 use super::ui;
+use super::ui::ModePanelState;
 use crate::agent::{get_terminal_session, AgentRegistry};
 use crate::config::Config;
 use crate::git::GitManager;
@@ -82,6 +83,9 @@ pub struct App {
 
     /// Scroll offset for diff view
     diff_scroll: usize,
+
+    /// Mode panel state for viewing/editing modes
+    mode_panel_state: ModePanelState,
 }
 
 impl App {
@@ -120,6 +124,9 @@ impl App {
         // Auto-scan is enabled if file watcher was successfully created
         let auto_scan_enabled = file_watcher.is_some();
 
+        // Initialize mode panel state
+        let mode_panel_state = ModePanelState::new(&config);
+
         Ok(Self {
             work_dir,
             config,
@@ -140,6 +147,7 @@ impl App {
             show_diff: false,
             diff_content: None,
             diff_scroll: 0,
+            mode_panel_state,
         })
     }
 
@@ -248,6 +256,7 @@ impl App {
                 self.diff_scroll,
                 auto_run,
                 auto_scan,
+                &self.mode_panel_state,
             );
         })?;
 
@@ -256,6 +265,23 @@ impl App {
 
     /// Handle a key press
     async fn handle_key(&mut self, code: KeyCode) -> Result<()> {
+        // If mode panel is open, handle its keys first
+        if self.mode_panel_state.visible {
+            match code {
+                KeyCode::Esc | KeyCode::Char('M') => {
+                    self.mode_panel_state.visible = false;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.mode_panel_state.up();
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.mode_panel_state.down();
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         // If diff popup is open, handle its keys first
         if self.show_diff {
             match code {
@@ -338,6 +364,10 @@ impl App {
                 } else {
                     self.logs.push(LogEvent::error("AutoScan unavailable (file watcher failed to start)"));
                 }
+            }
+            KeyCode::Char('M') => {
+                // Toggle mode panel visibility
+                self.mode_panel_state.toggle();
             }
             _ => {}
         }

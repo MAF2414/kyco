@@ -11,6 +11,7 @@ mod colors;
 mod detail_panel;
 mod help_bar;
 mod job_list;
+pub mod mode_panel;
 mod popups;
 
 use ratatui::{
@@ -19,6 +20,8 @@ use ratatui::{
 };
 
 use crate::{config::Config, Job, LogEvent};
+
+pub use mode_panel::ModePanelState;
 
 /// Render the main UI
 pub fn render(
@@ -33,6 +36,7 @@ pub fn render(
     diff_scroll: usize,
     auto_run: bool,
     auto_scan: bool,
+    mode_panel_state: &ModePanelState,
 ) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -68,4 +72,7 @@ pub fn render(
             popups::render_diff(frame, diff, diff_scroll);
         }
     }
+
+    // Render mode panel popup (on top of everything else)
+    mode_panel::render(frame, mode_panel_state, config);
 }
