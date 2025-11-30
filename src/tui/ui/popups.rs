@@ -72,6 +72,14 @@ pub fn render_help(frame: &mut Frame) {
             Span::styled("Scan for new tasks", Style::default().fg(WHITE)),
         ]),
         Line::from(vec![
+            Span::styled("  S        ", Style::default().fg(BLUE)),
+            Span::styled("Toggle AutoScan mode", Style::default().fg(WHITE)),
+        ]),
+        Line::from(vec![
+            Span::styled("  A        ", Style::default().fg(GREEN)),
+            Span::styled("Toggle AutoRun mode", Style::default().fg(WHITE)),
+        ]),
+        Line::from(vec![
             Span::styled("  ?        ", Style::default().fg(MAGENTA)),
             Span::styled("Toggle this help", Style::default().fg(WHITE)),
         ]),

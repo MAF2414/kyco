@@ -71,6 +71,9 @@ pub struct App {
     /// Auto-run new jobs immediately
     auto_run_enabled: bool,
 
+    /// Auto-scan for new tasks (file watcher active)
+    auto_scan_enabled: bool,
+
     /// Whether to show diff popup
     show_diff: bool,
 
@@ -114,6 +117,9 @@ impl App {
         // Auto-run can be enabled via config or CLI flag
         let auto_run_enabled = auto_start || config.settings.auto_run;
 
+        // Auto-scan is enabled if file watcher was successfully created
+        let auto_scan_enabled = file_watcher.is_some();
+
         Ok(Self {
             work_dir,
             config,
@@ -130,6 +136,7 @@ impl App {
             should_quit: false,
             file_watcher,
             auto_run_enabled,
+            auto_scan_enabled,
             show_diff: false,
             diff_content: None,
             diff_scroll: 0,
@@ -166,17 +173,20 @@ impl App {
             }
 
             // Check for file system events - collect first to avoid borrow issues
+            // Only scan if auto_scan is enabled
             let mut should_scan = false;
-            if let Some(ref watcher) = self.file_watcher {
-                while let Some(event) = watcher.try_recv() {
-                    match event {
-                        WatchEvent::FileChanged(path) => {
-                            // Only log at debug level, don't spam
-                            tracing::debug!("File changed: {}", path.display());
-                            should_scan = true;
-                        }
-                        WatchEvent::Error(e) => {
-                            self.logs.push(LogEvent::error(format!("Watcher error: {}", e)));
+            if self.auto_scan_enabled {
+                if let Some(ref watcher) = self.file_watcher {
+                    while let Some(event) = watcher.try_recv() {
+                        match event {
+                            WatchEvent::FileChanged(path) => {
+                                // Only log at debug level, don't spam
+                                tracing::debug!("File changed: {}", path.display());
+                                should_scan = true;
+                            }
+                            WatchEvent::Error(e) => {
+                                self.logs.push(LogEvent::error(format!("Watcher error: {}", e)));
+                            }
                         }
                     }
                 }
@@ -223,7 +233,7 @@ impl App {
         let job_refs: Vec<&Job> = jobs.iter().collect();
 
         let auto_run = self.auto_run_enabled;
-        let auto_scan = self.file_watcher.is_some();
+        let auto_scan = self.auto_scan_enabled;
 
         terminal.draw(|frame| {
             ui::render(
@@ -307,6 +317,27 @@ impl App {
             }
             KeyCode::Char('?') => {
                 self.show_help = !self.show_help;
+            }
+            KeyCode::Char('A') => {
+                self.auto_run_enabled = !self.auto_run_enabled;
+                if self.auto_run_enabled {
+                    self.logs.push(LogEvent::system("AutoRun enabled"));
+                } else {
+                    self.logs.push(LogEvent::system("AutoRun disabled"));
+                }
+            }
+            KeyCode::Char('S') => {
+                // Can only enable auto_scan if file watcher is available
+                if self.file_watcher.is_some() {
+                    self.auto_scan_enabled = !self.auto_scan_enabled;
+                    if self.auto_scan_enabled {
+                        self.logs.push(LogEvent::system("AutoScan enabled"));
+                    } else {
+                        self.logs.push(LogEvent::system("AutoScan disabled"));
+                    }
+                } else {
+                    self.logs.push(LogEvent::error("AutoScan unavailable (file watcher failed to start)"));
+                }
             }
             _ => {}
         }

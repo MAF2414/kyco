@@ -31,15 +31,19 @@ pub fn render(frame: &mut Frame, area: Rect, auto_run: bool, auto_scan: bool) {
         Span::styled(" Quit ", Style::default().fg(GRAY)),
     ];
 
-    // Add mode indicators on the right side
+    // Add mode indicators on the right side with toggle keys
     spans.push(Span::styled("  ", Style::default()));
 
+    // AutoScan toggle (Shift+S)
+    spans.push(Span::styled(" S ", Style::default().fg(Color::Black).bg(BLUE)));
     if auto_scan {
         spans.push(Span::styled(" SCAN ", Style::default().fg(Color::Black).bg(YELLOW)));
     } else {
         spans.push(Span::styled(" scan ", Style::default().fg(DARK_GRAY)));
     }
 
+    // AutoRun toggle (Shift+A)
+    spans.push(Span::styled(" A ", Style::default().fg(Color::Black).bg(GREEN)));
     if auto_run {
         spans.push(Span::styled(" RUN ", Style::default().fg(Color::Black).bg(YELLOW)));
     } else {
