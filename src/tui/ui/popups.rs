@@ -68,6 +68,10 @@ pub fn render_help(frame: &mut Frame) {
             Span::styled("Focus terminal (REPL jobs)", Style::default().fg(WHITE)),
         ]),
         Line::from(vec![
+            Span::styled("  M        ", Style::default().fg(YELLOW)),
+            Span::styled("Open mode panel (view modes)", Style::default().fg(WHITE)),
+        ]),
+        Line::from(vec![
             Span::styled("  s        ", Style::default().fg(BLUE)),
             Span::styled("Scan for new tasks", Style::default().fg(WHITE)),
         ]),
