@@ -85,13 +85,28 @@ pub fn render(frame: &mut Frame, area: Rect, jobs: &[&Job], selected: usize) {
                 Span::styled(&job.target, Style::default().fg(GRAY)),
             ]);
 
-            let style = if is_selected {
-                Style::default().bg(Color::Rgb(80, 80, 100))
+            // High contrast selection: bright cyan background with black text
+            if is_selected {
+                let content = Line::from(vec![
+                    Span::styled(
+                        format!("{}{} ", status_icon, queue_suffix),
+                        Style::default().fg(Color::Black).bg(CYAN),
+                    ),
+                    Span::styled(format!("#{} ", job.id), Style::default().fg(Color::Black).bg(CYAN)),
+                    Span::styled(
+                        &job.mode,
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(CYAN)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(" ", Style::default().bg(CYAN)),
+                    Span::styled(&job.target, Style::default().fg(Color::Black).bg(CYAN)),
+                ]);
+                ListItem::new(content)
             } else {
-                Style::default()
-            };
-
-            ListItem::new(content).style(style)
+                ListItem::new(content)
+            }
         })
         .collect();
 
