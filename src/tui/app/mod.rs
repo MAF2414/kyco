@@ -222,6 +222,9 @@ impl App {
         };
         let job_refs: Vec<&Job> = jobs.iter().collect();
 
+        let auto_run = self.auto_run_enabled;
+        let auto_scan = self.file_watcher.is_some();
+
         terminal.draw(|frame| {
             ui::render(
                 frame,
@@ -233,6 +236,8 @@ impl App {
                 self.show_diff,
                 self.diff_content.as_deref(),
                 self.diff_scroll,
+                auto_run,
+                auto_scan,
             );
         })?;
 
