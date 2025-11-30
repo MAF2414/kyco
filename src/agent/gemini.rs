@@ -9,7 +9,7 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 
 use super::runner::{AgentResult, AgentRunner};
-use crate::{AgentConfig, Job, LogEvent, Scope};
+use crate::{AgentConfig, Job, LogEvent};
 
 /// Gemini CLI agent adapter
 ///
@@ -32,22 +32,10 @@ impl GeminiAdapter {
     fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
         let template = config.get_mode_template(&job.mode);
 
-        let scope_type = match job.scope.scope {
-            Scope::Line => "line",
-            Scope::Block => "block",
-            Scope::Function => "function",
-            Scope::Impl => "impl block",
-            Scope::File => "file",
-            Scope::Module => "module",
-            Scope::Dir => "directory",
-            Scope::Project => "project",
-        };
-
         let description = job.description.as_deref().unwrap_or("");
 
         template
             .prompt_template
-            .replace("{scope_type}", scope_type)
             .replace("{target}", &job.target)
             .replace("{file}", &job.source_file.display().to_string())
             .replace("{line}", &job.source_line.to_string())

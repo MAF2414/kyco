@@ -42,7 +42,7 @@ impl CodexAdapter {
             .replace("{target}", &job.target)
             .replace("{mode}", &job.mode)
             .replace("{description}", description)
-            .replace("{scope_type}", &job.scope.scope.to_string())
+            .replace("{scope_type}", "file")
     }
 
     /// Build command arguments for Codex CLI

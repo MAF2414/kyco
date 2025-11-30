@@ -26,7 +26,7 @@ fn build_prompt_preview(job: &Job, config: &Config) -> String {
                 .replace("{target}", &job.target)
                 .replace("{mode}", &job.mode)
                 .replace("{description}", description)
-                .replace("{scope_type}", &job.scope.scope.to_string());
+                .replace("{scope_type}", "file");
         }
     }
 
@@ -85,7 +85,7 @@ pub fn render(
             ]),
             Line::from(vec![
                 Span::styled("Scope    ", Style::default().fg(DARK_GRAY)),
-                Span::styled(job.scope.scope.to_string(), Style::default().fg(WHITE)),
+                Span::styled("file", Style::default().fg(WHITE)),
             ]),
             Line::from(vec![
                 Span::styled("Worktree ", Style::default().fg(DARK_GRAY)),

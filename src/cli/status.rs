@@ -46,11 +46,10 @@ pub async fn status_command(work_dir: &Path, filter: Option<String>) -> Result<(
 
     for job in filtered_jobs {
         println!(
-            "  #{} [{}] {} {} - {}",
+            "  #{} [{}] {} - {}",
             job.id,
             job.status,
             job.mode,
-            job.scope.scope,
             job.target
         );
 

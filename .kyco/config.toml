@@ -405,8 +405,8 @@ OUTPUT: After implementing, briefly explain what you built and any design decisi
 
 [mode.optimize]
 aliases = ["o", "opt"]
-prompt = """
 agent = "xr"
+prompt = """
 TASK: Optimize code at `{file}:{line}` for performance
 FOCUS: {description}
 

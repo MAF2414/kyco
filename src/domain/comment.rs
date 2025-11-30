@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use super::{JobId, JobStatus, Scope, Target};
+use super::{JobId, JobStatus, Target};
 
 /// A status marker found in a comment (e.g., [pending#42])
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,9 +71,6 @@ pub struct CommentTag {
     /// The target - what to process (block, all, comments, etc.)
     pub target: Target,
 
-    /// The parsed scope
-    pub scope: Scope,
-
     /// Optional status marker if present
     pub status_marker: Option<StatusMarker>,
 
@@ -85,7 +82,7 @@ pub struct CommentTag {
 }
 
 impl CommentTag {
-    /// Create a new comment tag with the new simplified syntax (no target/scope)
+    /// Create a new comment tag with the simplified syntax
     pub fn new_simple(
         file_path: PathBuf,
         line_number: usize,
@@ -99,15 +96,14 @@ impl CommentTag {
             raw_line,
             agent,
             mode,
-            target: Target::Block,  // Legacy default
-            scope: Scope::Function, // Legacy default
+            target: Target::Block,
             status_marker: None,
             description: None,
             job_id: None,
         }
     }
 
-    /// Create a new comment tag with the full syntax (legacy)
+    /// Create a new comment tag with target
     pub fn new(
         file_path: PathBuf,
         line_number: usize,
@@ -115,7 +111,6 @@ impl CommentTag {
         agent: String,
         mode: String,
         target: Target,
-        scope: Scope,
     ) -> Self {
         Self {
             file_path,
@@ -124,20 +119,18 @@ impl CommentTag {
             agent,
             mode,
             target,
-            scope,
             status_marker: None,
             description: None,
             job_id: None,
         }
     }
 
-    /// Create a comment tag with defaults (for legacy compatibility)
+    /// Create a comment tag with defaults
     pub fn with_defaults(
         file_path: PathBuf,
         line_number: usize,
         raw_line: String,
         mode: String,
-        scope: Scope,
     ) -> Self {
         Self {
             file_path,
@@ -146,7 +139,6 @@ impl CommentTag {
             agent: "claude".to_string(),
             mode,
             target: Target::Block,
-            scope,
             status_marker: None,
             description: None,
             job_id: None,
@@ -163,16 +155,13 @@ impl CommentTag {
         self.job_id.or(self.status_marker.as_ref().map(|m| m.job_id))
     }
 
-    /// Generate the updated comment line with a status marker (new syntax)
+    /// Generate the updated comment line with a status marker
     pub fn with_status(&self, status: JobStatus, job_id: JobId) -> String {
         let marker = StatusMarker { status, job_id };
-        // Use canonical (short) form: @agent#mode.target.scope [status#id]
         format!(
-            "// @{}#{}.{}.{} {}",
+            "// @{}:{} {}",
             self.agent,
             self.mode,
-            self.target.short(),
-            self.scope.short(),
             marker
         )
     }
@@ -182,19 +171,15 @@ impl CommentTag {
         let desc = self.description.as_deref().unwrap_or("");
         if desc.is_empty() {
             format!(
-                "@{}#{}.{}.{}",
+                "@{}:{}",
                 self.agent,
                 self.mode,
-                self.target.short(),
-                self.scope.short()
             )
         } else {
             format!(
-                "@{}#{}.{}.{} {}",
+                "@{}:{} {}",
                 self.agent,
                 self.mode,
-                self.target.short(),
-                self.scope.short(),
                 desc
             )
         }

@@ -45,30 +45,8 @@ impl JobManager {
     pub fn create_job(&mut self, tag: &CommentTag, agent_id: &str) -> Result<JobId> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
-        // Build scope definition based on the tag
-        let scope_def = match tag.scope {
-            crate::Scope::Line | crate::Scope::Block | crate::Scope::Function => {
-                // For now, use file scope as placeholder for fine-grained scopes
-                // TODO: Parse AST to get actual line/block/function range
-                ScopeDefinition::file(tag.file_path.clone())
-            }
-            crate::Scope::Impl => {
-                // Impl scope - for now treat as file
-                // TODO: Parse AST to get impl block range
-                ScopeDefinition::file(tag.file_path.clone())
-            }
-            crate::Scope::File => ScopeDefinition::file(tag.file_path.clone()),
-            crate::Scope::Module => {
-                // Module scope - for now treat as directory containing the file
-                let dir = tag.file_path.parent().unwrap_or(Path::new("."));
-                ScopeDefinition::dir(dir.to_path_buf())
-            }
-            crate::Scope::Dir => {
-                let dir = tag.file_path.parent().unwrap_or(Path::new("."));
-                ScopeDefinition::dir(dir.to_path_buf())
-            }
-            crate::Scope::Project => ScopeDefinition::project(),
-        };
+        // Always use file scope - the agent will determine the actual scope from context
+        let scope_def = ScopeDefinition::file(tag.file_path.clone());
 
         let target = format!("{}:{}", tag.file_path.display(), tag.line_number);
 
