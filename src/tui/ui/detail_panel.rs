@@ -172,8 +172,55 @@ pub fn render(
     render_activity_log(frame, chunks[2], job, logs);
 }
 
+/// Wrap text to fit within a given width, returning wrapped lines
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 {
+        return vec![text.to_string()];
+    }
+
+    let mut result = Vec::new();
+    let mut current_line = String::new();
+    let mut current_width = 0;
+
+    for word in text.split_whitespace() {
+        let word_width = word.chars().count();
+
+        if current_width == 0 {
+            // First word on line
+            current_line = word.to_string();
+            current_width = word_width;
+        } else if current_width + 1 + word_width <= max_width {
+            // Word fits with space
+            current_line.push(' ');
+            current_line.push_str(word);
+            current_width += 1 + word_width;
+        } else {
+            // Word doesn't fit, start new line
+            result.push(current_line);
+            current_line = word.to_string();
+            current_width = word_width;
+        }
+    }
+
+    if !current_line.is_empty() {
+        result.push(current_line);
+    }
+
+    if result.is_empty() {
+        result.push(String::new());
+    }
+
+    result
+}
+
 /// Render the activity log section
 fn render_activity_log(frame: &mut Frame, area: Rect, job: Option<&Job>, logs: &[LogEvent]) {
+    // Calculate available width for text content
+    // Area width minus borders (2) minus timestamp "HH:MM:SS " (9) minus icon "X " (2)
+    let prefix_width = 11; // "HH:MM:SS " + "X "
+    let border_width = 2;
+    let text_width = area.width.saturating_sub(border_width + prefix_width) as usize;
+
     let selected_job_id = job.map(|j| j.id);
     let log_lines: Vec<Line> = logs
         .iter()
@@ -198,7 +245,7 @@ fn render_activity_log(frame: &mut Frame, area: Rect, job: Option<&Job>, logs: &
 
             let time = event.timestamp.format("%H:%M:%S");
 
-            // Split summary into multiple lines if it contains newlines
+            // Split summary into multiple lines if it contains newlines, then wrap each line
             let summary_lines: Vec<&str> = event.summary.lines().collect();
 
             if summary_lines.is_empty() {
@@ -208,20 +255,31 @@ fn render_activity_log(frame: &mut Frame, area: Rect, job: Option<&Job>, logs: &
                     Span::styled(format!("{} ", kind_icon), Style::default().fg(kind_color)),
                 ])]
             } else {
-                // First line gets timestamp and icon
-                let mut lines = vec![Line::from(vec![
-                    Span::styled(format!("{} ", time), Style::default().fg(DARK_GRAY)),
-                    Span::styled(format!("{} ", kind_icon), Style::default().fg(kind_color)),
-                    Span::styled(summary_lines[0].to_string(), Style::default().fg(WHITE)),
-                ])];
+                let mut lines = Vec::new();
+                let mut is_first = true;
 
-                // Continuation lines get indentation to align with first line's text
-                for continuation in summary_lines.iter().skip(1) {
-                    lines.push(Line::from(vec![
-                        Span::styled("         ", Style::default().fg(DARK_GRAY)), // 9 spaces to align
-                        Span::styled("  ", Style::default().fg(kind_color)), // 2 spaces for icon alignment
-                        Span::styled(continuation.to_string(), Style::default().fg(WHITE)),
-                    ]));
+                for summary_line in &summary_lines {
+                    // Wrap this line of text
+                    let wrapped = wrap_text(summary_line, text_width);
+
+                    for (i, wrapped_line) in wrapped.iter().enumerate() {
+                        if is_first && i == 0 {
+                            // First line of first paragraph gets timestamp and icon
+                            lines.push(Line::from(vec![
+                                Span::styled(format!("{} ", time), Style::default().fg(DARK_GRAY)),
+                                Span::styled(format!("{} ", kind_icon), Style::default().fg(kind_color)),
+                                Span::styled(wrapped_line.clone(), Style::default().fg(WHITE)),
+                            ]));
+                        } else {
+                            // Continuation lines get indentation to align with first line's text
+                            lines.push(Line::from(vec![
+                                Span::styled("         ", Style::default().fg(DARK_GRAY)), // 9 spaces
+                                Span::styled("  ", Style::default().fg(kind_color)), // 2 spaces for icon
+                                Span::styled(wrapped_line.clone(), Style::default().fg(WHITE)),
+                            ]));
+                        }
+                    }
+                    is_first = false;
                 }
 
                 lines
