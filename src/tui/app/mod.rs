@@ -40,8 +40,8 @@ pub struct App {
     /// Agent registry
     agent_registry: AgentRegistry,
 
-    /// Currently selected job index
-    selected_job: usize,
+    /// Currently selected job ID (None if no selection)
+    selected_job_id: Option<u64>,
 
     /// Log events for display
     logs: Vec<LogEvent>,
@@ -126,7 +126,7 @@ impl App {
             job_manager,
             git_manager,
             agent_registry: AgentRegistry::with_defaults(),
-            selected_job: 0,
+            selected_job_id: None,
             logs: Vec::new(),
             show_help: false,
             max_jobs,
@@ -154,6 +154,14 @@ impl App {
 
         // Initial scan
         self.scan_for_tasks(false).await?;
+
+        // Select first job if available
+        if self.selected_job_id.is_none() {
+            let sorted_ids = self.get_sorted_job_ids().await;
+            if !sorted_ids.is_empty() {
+                self.selected_job_id = Some(sorted_ids[0]);
+            }
+        }
 
         // Add initial log
         if self.file_watcher.is_some() {
@@ -239,7 +247,7 @@ impl App {
             ui::render(
                 frame,
                 &job_refs,
-                self.selected_job,
+                self.selected_job_id,
                 &self.logs,
                 self.show_help,
                 &self.config,
@@ -283,15 +291,10 @@ impl App {
 
         match code {
             KeyCode::Up | KeyCode::Char('k') => {
-                if self.selected_job > 0 {
-                    self.selected_job -= 1;
-                }
+                self.select_previous_job().await;
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                let job_count = self.job_manager.lock().await.jobs().len();
-                if self.selected_job + 1 < job_count {
-                    self.selected_job += 1;
-                }
+                self.select_next_job().await;
             }
             KeyCode::Enter => {
                 self.start_selected_job().await?;
@@ -343,6 +346,49 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Get sorted list of job IDs (same order as displayed in UI)
+    async fn get_sorted_job_ids(&self) -> Vec<u64> {
+        let jobs = {
+            let manager = self.job_manager.lock().await;
+            manager.jobs().into_iter().cloned().collect::<Vec<_>>()
+        };
+        let job_refs: Vec<&Job> = jobs.iter().collect();
+        let sorted = ui::sort_jobs(&job_refs);
+        sorted.iter().map(|j| j.id).collect()
+    }
+
+    /// Select the previous job in the sorted list
+    async fn select_previous_job(&mut self) {
+        let sorted_ids = self.get_sorted_job_ids().await;
+        if sorted_ids.is_empty() {
+            return;
+        }
+
+        let current_index = self.selected_job_id
+            .and_then(|id| sorted_ids.iter().position(|&i| i == id))
+            .unwrap_or(0);
+
+        if current_index > 0 {
+            self.selected_job_id = Some(sorted_ids[current_index - 1]);
+        }
+    }
+
+    /// Select the next job in the sorted list
+    async fn select_next_job(&mut self) {
+        let sorted_ids = self.get_sorted_job_ids().await;
+        if sorted_ids.is_empty() {
+            return;
+        }
+
+        let current_index = self.selected_job_id
+            .and_then(|id| sorted_ids.iter().position(|&i| i == id))
+            .unwrap_or(0);
+
+        if current_index + 1 < sorted_ids.len() {
+            self.selected_job_id = Some(sorted_ids[current_index + 1]);
+        }
     }
 
     /// Scan for new tasks in the repository
@@ -420,12 +466,22 @@ impl App {
 
             // Auto-queue jobs if enabled
             if self.auto_run_enabled {
-                for job_id in new_job_ids {
-                    manager.set_status(job_id, JobStatus::Queued);
+                for job_id in &new_job_ids {
+                    manager.set_status(*job_id, JobStatus::Queued);
                     self.logs.push(LogEvent::system(format!(
                         "Auto-queued job #{}",
                         job_id
                     )));
+                }
+            }
+
+            // Auto-select first job if none selected
+            if self.selected_job_id.is_none() {
+                // We need to release the lock before calling get_sorted_job_ids
+                drop(manager);
+                let sorted_ids = self.get_sorted_job_ids().await;
+                if !sorted_ids.is_empty() {
+                    self.selected_job_id = Some(sorted_ids[0]);
                 }
             }
         }
@@ -435,13 +491,7 @@ impl App {
 
     /// Queue the currently selected job for execution
     async fn start_selected_job(&mut self) -> Result<()> {
-        let job_id = {
-            let manager = self.job_manager.lock().await;
-            let jobs = manager.jobs();
-            jobs.get(self.selected_job).map(|j| j.id)
-        };
-
-        let Some(job_id) = job_id else {
+        let Some(job_id) = self.selected_job_id else {
             return Ok(());
         };
 
@@ -643,12 +693,15 @@ impl App {
 
     /// Apply changes from the selected job
     async fn apply_selected_job(&mut self) -> Result<()> {
+        let Some(job_id) = self.selected_job_id else {
+            return Ok(());
+        };
+
         // Get job info in a single lock
-        let (job_id, job_status, worktree_path) = {
+        let (job_status, worktree_path) = {
             let manager = self.job_manager.lock().await;
-            let jobs = manager.jobs();
-            match jobs.get(self.selected_job) {
-                Some(job) => (job.id, job.status, job.git_worktree_path.clone()),
+            match manager.get(job_id) {
+                Some(job) => (job.status, job.git_worktree_path.clone()),
                 None => return Ok(()),
             }
         };
@@ -699,13 +752,7 @@ impl App {
 
     /// Focus the terminal window for the selected job (if running in REPL mode)
     async fn focus_terminal_for_selected_job(&mut self) -> Result<()> {
-        let job_id = {
-            let manager = self.job_manager.lock().await;
-            let jobs = manager.jobs();
-            jobs.get(self.selected_job).map(|j| j.id)
-        };
-
-        let Some(job_id) = job_id else {
+        let Some(job_id) = self.selected_job_id else {
             return Ok(());
         };
 
@@ -741,14 +788,14 @@ impl App {
 
     /// Reject the selected job
     async fn reject_selected_job(&mut self) -> Result<()> {
-        // Get job info in a single lock
-        let (job_id, worktree_path) = {
+        let Some(job_id) = self.selected_job_id else {
+            return Ok(());
+        };
+
+        // Get worktree path
+        let worktree_path = {
             let manager = self.job_manager.lock().await;
-            let jobs = manager.jobs();
-            match jobs.get(self.selected_job) {
-                Some(job) => (job.id, job.git_worktree_path.clone()),
-                None => return Ok(()),
-            }
+            manager.get(job_id).and_then(|j| j.git_worktree_path.clone())
         };
 
         // Update status
@@ -770,14 +817,14 @@ impl App {
 
     /// Show diff for the selected job's worktree
     async fn show_diff_for_selected_job(&mut self) -> Result<()> {
-        // Get job info in a single lock
-        let (job_id, worktree_path) = {
+        let Some(job_id) = self.selected_job_id else {
+            return Ok(());
+        };
+
+        // Get worktree path
+        let worktree_path = {
             let manager = self.job_manager.lock().await;
-            let jobs = manager.jobs();
-            match jobs.get(self.selected_job) {
-                Some(job) => (job.id, job.git_worktree_path.clone()),
-                None => return Ok(()),
-            }
+            manager.get(job_id).and_then(|j| j.git_worktree_path.clone())
         };
 
         let Some(git) = &self.git_manager else {
@@ -824,19 +871,22 @@ impl App {
 
     /// Merge changes from the selected job's worktree into the main branch
     async fn merge_selected_job(&mut self) -> Result<()> {
-        // Single lock acquisition to get job info and validate status
-        let (job_id, worktree_path) = {
+        let Some(job_id) = self.selected_job_id else {
+            return Ok(());
+        };
+
+        // Get job info and validate status
+        let worktree_path = {
             let manager = self.job_manager.lock().await;
-            let jobs = manager.jobs();
-            match jobs.get(self.selected_job) {
+            match manager.get(job_id) {
                 Some(job) if job.status != JobStatus::Done => {
                     self.logs.push(LogEvent::error(format!(
                         "Job #{} is not done (status: {}). Complete the job first.",
-                        job.id, job.status
+                        job_id, job.status
                     )));
                     return Ok(());
                 }
-                Some(job) => (job.id, job.git_worktree_path.clone()),
+                Some(job) => job.git_worktree_path.clone(),
                 None => return Ok(()),
             }
         };
