@@ -330,6 +330,18 @@ impl App {
             .map(|j| (j.source_file.display().to_string(), j.source_line))
             .collect();
 
+        // Also collect raw_tag_lines to detect commands that shifted lines
+        // This prevents duplicate jobs when an agent edits a file and shifts line numbers
+        let existing_raw_tags: std::collections::HashSet<(String, String)> = manager
+            .jobs()
+            .iter()
+            .filter_map(|j| {
+                j.raw_tag_line.as_ref().map(|raw| {
+                    (j.source_file.display().to_string(), raw.trim().to_string())
+                })
+            })
+            .collect();
+
         for tag in tags {
             // Skip if already linked to a job
             if tag.is_linked() {
@@ -339,6 +351,13 @@ impl App {
             // Skip if we already have a job for this file+line
             let location = (tag.file_path.display().to_string(), tag.line_number);
             if existing_locations.contains(&location) {
+                continue;
+            }
+
+            // Skip if we already have a job with the same raw tag content in the same file
+            // This catches commands that shifted to a different line due to file edits
+            let raw_tag_key = (tag.file_path.display().to_string(), tag.raw_line.trim().to_string());
+            if existing_raw_tags.contains(&raw_tag_key) {
                 continue;
             }
 
@@ -465,10 +484,18 @@ impl App {
             if let Some(git) = &self.git_manager {
                 match git.create_worktree(job_id) {
                     Ok(path) => {
+                        // TODO: wenn es failed, weil z.b. job1 worktree schon irgendwie mal existierte dann sollte es weiter hochzählen oder irgendein anderen fallback haben... vllt auch jobid randomizen?
                         self.logs.push(LogEvent::system(format!(
                             "Created worktree: {}",
                             path.display()
                         )));
+                        // Store the worktree path in the job for later use
+                        {
+                            let mut manager = self.job_manager.lock().await;
+                            if let Some(job) = manager.get_mut(job_id) {
+                                job.git_worktree_path = Some(path.clone());
+                            }
+                        }
                         (path, true)
                     }
                     Err(e) => {
@@ -580,62 +607,55 @@ impl App {
 
     /// Apply changes from the selected job
     async fn apply_selected_job(&mut self) -> Result<()> {
-        let job_id = {
+        // Get job info in a single lock
+        let (job_id, job_status, worktree_path) = {
             let manager = self.job_manager.lock().await;
             let jobs = manager.jobs();
-            jobs.get(self.selected_job).map(|j| j.id)
-        };
-
-        let Some(job_id) = job_id else {
-            return Ok(());
+            match jobs.get(self.selected_job) {
+                Some(job) => (job.id, job.status, job.git_worktree_path.clone()),
+                None => return Ok(()),
+            }
         };
 
         // Check if job is done
-        {
-            let manager = self.job_manager.lock().await;
-            if let Some(job) = manager.get(job_id) {
-                if job.status != JobStatus::Done {
-                    self.logs.push(LogEvent::system(format!(
-                        "Job #{} is not done (status: {})",
-                        job_id, job.status
-                    )));
-                    return Ok(());
-                }
-            }
+        if job_status != JobStatus::Done {
+            self.logs.push(LogEvent::system(format!(
+                "Job #{} is not done (status: {})",
+                job_id, job_status
+            )));
+            return Ok(());
         }
 
-        // Apply changes from worktree
-        if let Some(git) = &self.git_manager {
-            let worktree_path = self.work_dir.join(".kyco").join("worktrees").join(format!("job-{}", job_id));
-
-            if worktree_path.exists() {
-                match git.apply_changes(&worktree_path) {
-                    Ok(()) => {
-                        self.logs.push(LogEvent::system(format!(
-                            "Applied changes from job #{}",
-                            job_id
-                        )));
-
-                        // Clean up worktree
-                        if let Err(e) = git.remove_worktree(job_id) {
-                            self.logs.push(LogEvent::error(format!(
-                                "Failed to remove worktree: {}",
-                                e
-                            )));
-                        }
-                    }
-                    Err(e) => {
-                        self.logs.push(LogEvent::error(format!(
-                            "Failed to apply changes: {}",
-                            e
-                        )));
-                    }
-                }
-            } else {
-                self.logs.push(LogEvent::error("No worktree found for this job"));
-            }
-        } else {
+        let Some(git) = &self.git_manager else {
             self.logs.push(LogEvent::error("Git not available"));
+            return Ok(());
+        };
+
+        // Use stored worktree path, fall back to default format for backwards compatibility
+        let worktree_path = worktree_path
+            .unwrap_or_else(|| self.work_dir.join(".kyco").join("worktrees").join(format!("job-{}", job_id)));
+
+        if !worktree_path.exists() {
+            self.logs.push(LogEvent::error("No worktree found for this job"));
+            return Ok(());
+        }
+
+        match git.apply_changes(&worktree_path) {
+            Ok(()) => {
+                self.logs.push(LogEvent::system(format!(
+                    "Applied changes from job #{}",
+                    job_id
+                )));
+
+                // Clean up worktree by path
+                self.cleanup_worktree(&worktree_path);
+            }
+            Err(e) => {
+                self.logs.push(LogEvent::error(format!(
+                    "Failed to apply changes: {}",
+                    e
+                )));
+            }
         }
 
         Ok(())
@@ -685,14 +705,14 @@ impl App {
 
     /// Reject the selected job
     async fn reject_selected_job(&mut self) -> Result<()> {
-        let job_id = {
+        // Get job info in a single lock
+        let (job_id, worktree_path) = {
             let manager = self.job_manager.lock().await;
             let jobs = manager.jobs();
-            jobs.get(self.selected_job).map(|j| j.id)
-        };
-
-        let Some(job_id) = job_id else {
-            return Ok(());
+            match jobs.get(self.selected_job) {
+                Some(job) => (job.id, job.git_worktree_path.clone()),
+                None => return Ok(()),
+            }
         };
 
         // Update status
@@ -705,13 +725,8 @@ impl App {
             .push(LogEvent::system(format!("Rejected job #{}", job_id)));
 
         // Clean up worktree if exists
-        if let Some(git) = &self.git_manager {
-            if let Err(e) = git.remove_worktree(job_id) {
-                self.logs.push(LogEvent::error(format!(
-                    "Failed to remove worktree: {}",
-                    e
-                )));
-            }
+        if let Some(worktree_path) = worktree_path {
+            self.cleanup_worktree(&worktree_path);
         }
 
         Ok(())
@@ -719,14 +734,14 @@ impl App {
 
     /// Show diff for the selected job's worktree
     async fn show_diff_for_selected_job(&mut self) -> Result<()> {
-        let job_id = {
+        // Get job info in a single lock
+        let (job_id, worktree_path) = {
             let manager = self.job_manager.lock().await;
             let jobs = manager.jobs();
-            jobs.get(self.selected_job).map(|j| j.id)
-        };
-
-        let Some(job_id) = job_id else {
-            return Ok(());
+            match jobs.get(self.selected_job) {
+                Some(job) => (job.id, job.git_worktree_path.clone()),
+                None => return Ok(()),
+            }
         };
 
         let Some(git) = &self.git_manager else {
@@ -734,7 +749,9 @@ impl App {
             return Ok(());
         };
 
-        let worktree_path = self.work_dir.join(".kyco").join("worktrees").join(format!("job-{}", job_id));
+        // Use stored worktree path, fall back to default format for backwards compatibility
+        let worktree_path = worktree_path
+            .unwrap_or_else(|| self.work_dir.join(".kyco").join("worktrees").join(format!("job-{}", job_id)));
 
         if !worktree_path.exists() {
             self.logs.push(LogEvent::error(format!(
@@ -771,8 +788,8 @@ impl App {
 
     /// Merge changes from the selected job's worktree into the main branch
     async fn merge_selected_job(&mut self) -> Result<()> {
-        // Single lock acquisition to get job_id and validate status
-        let job_id = {
+        // Single lock acquisition to get job info and validate status
+        let (job_id, worktree_path) = {
             let manager = self.job_manager.lock().await;
             let jobs = manager.jobs();
             match jobs.get(self.selected_job) {
@@ -783,7 +800,7 @@ impl App {
                     )));
                     return Ok(());
                 }
-                Some(job) => job.id,
+                Some(job) => (job.id, job.git_worktree_path.clone()),
                 None => return Ok(()),
             }
         };
@@ -793,7 +810,9 @@ impl App {
             return Ok(());
         };
 
-        let worktree_path = self.work_dir.join(".kyco").join("worktrees").join(format!("job-{}", job_id));
+        // Use stored worktree path, fall back to default format for backwards compatibility
+        let worktree_path = worktree_path
+            .unwrap_or_else(|| self.work_dir.join(".kyco").join("worktrees").join(format!("job-{}", job_id)));
 
         if !worktree_path.exists() {
             self.logs.push(LogEvent::error(format!(
@@ -819,15 +838,9 @@ impl App {
                     }
                 }
 
-                // Clean up worktree
-                if let Err(e) = git.remove_worktree(job_id) {
-                    self.logs.push(LogEvent::error(format!(
-                        "Failed to remove worktree after merge: {}",
-                        e
-                    )));
-                } else {
-                    self.logs.push(LogEvent::system("Worktree cleaned up"));
-                }
+                // Clean up worktree by path
+                self.cleanup_worktree(&worktree_path);
+                self.logs.push(LogEvent::system("Worktree cleaned up"));
             }
             Err(e) => {
                 self.logs.push(LogEvent::error(format!(
@@ -838,6 +851,16 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Clean up a worktree by its path
+    fn cleanup_worktree(&self, worktree_path: &PathBuf) {
+        if let Some(git) = &self.git_manager {
+            if let Err(e) = git.remove_worktree_by_path(worktree_path) {
+                // Log is not available in non-async context, use tracing
+                tracing::warn!("Failed to remove worktree {}: {}", worktree_path.display(), e);
+            }
+        }
     }
 
     /// Remove the @@-tag from the source file before running the agent

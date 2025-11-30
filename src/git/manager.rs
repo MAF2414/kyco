@@ -58,8 +58,16 @@ impl GitManager {
             .unwrap_or(false)
     }
 
-    /// Create a worktree for a job
+    /// Create a worktree for a job with automatic retry on conflicts
+    ///
+    /// If the worktree or branch already exists, this will retry with incrementing
+    /// suffixes (e.g., job-1, job-1-2, job-1-3) up to `max_retries` times.
     pub fn create_worktree(&self, job_id: JobId) -> Result<PathBuf> {
+        self.create_worktree_with_retries(job_id, 10)
+    }
+
+    /// Create a worktree for a job with configurable retry count
+    fn create_worktree_with_retries(&self, job_id: JobId, max_retries: u32) -> Result<PathBuf> {
         // Check if the repository has commits - worktrees require at least one commit
         if !self.has_commits() {
             bail!(
@@ -68,54 +76,103 @@ impl GitManager {
             );
         }
 
-        let worktree_path = self.worktrees_dir.join(format!("job-{}", job_id));
-        let branch_name = format!("kyco/job-{}", job_id);
-
         // Ensure the worktrees directory exists
         std::fs::create_dir_all(&self.worktrees_dir)?;
 
-        // Create a new branch for this job
-        let output = Command::new("git")
-            .args(["branch", &branch_name])
-            .current_dir(&self.root)
-            .output()
-            .context("Failed to create branch")?;
+        // Try creating with base name first, then with suffixes
+        for attempt in 0..=max_retries {
+            let (worktree_path, branch_name) = if attempt == 0 {
+                (
+                    self.worktrees_dir.join(format!("job-{}", job_id)),
+                    format!("kyco/job-{}", job_id),
+                )
+            } else {
+                (
+                    self.worktrees_dir.join(format!("job-{}-{}", job_id, attempt)),
+                    format!("kyco/job-{}-{}", job_id, attempt),
+                )
+            };
 
-        // Branch might already exist, that's okay
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !stderr.contains("already exists") {
+            // Skip if worktree path already exists on disk
+            if worktree_path.exists() {
+                continue;
+            }
+
+            // Try to create the branch
+            let output = Command::new("git")
+                .args(["branch", &branch_name])
+                .current_dir(&self.root)
+                .output()
+                .context("Failed to create branch")?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if stderr.contains("already exists") {
+                    // Branch exists, try next suffix
+                    continue;
+                }
                 bail!("Failed to create branch: {}", stderr);
             }
-        }
 
-        // Create the worktree
-        let output = Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                worktree_path.to_str().unwrap(),
-                &branch_name,
-            ])
-            .current_dir(&self.root)
-            .output()
-            .context("Failed to create worktree")?;
+            // Try to create the worktree
+            let output = Command::new("git")
+                .args([
+                    "worktree",
+                    "add",
+                    worktree_path.to_str().unwrap(),
+                    &branch_name,
+                ])
+                .current_dir(&self.root)
+                .output()
+                .context("Failed to create worktree")?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            // Worktree might already exist
-            if !stderr.contains("already exists") {
-                bail!("Failed to create worktree: {}", stderr);
+            if output.status.success() {
+                return Ok(worktree_path);
             }
+
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("already exists") || stderr.contains("is already checked out") {
+                // Worktree conflict, clean up the branch we just created and try next suffix
+                let _ = Command::new("git")
+                    .args(["branch", "-D", &branch_name])
+                    .current_dir(&self.root)
+                    .output();
+                continue;
+            }
+
+            // Some other error, fail immediately
+            bail!("Failed to create worktree: {}", stderr);
         }
 
-        Ok(worktree_path)
+        bail!(
+            "Failed to create worktree for job {} after {} retries - all suffixes in use",
+            job_id,
+            max_retries
+        );
     }
 
-    /// Remove a worktree for a job
+    /// Remove a worktree for a job (by job ID - legacy method)
     pub fn remove_worktree(&self, job_id: JobId) -> Result<()> {
         let worktree_path = self.worktrees_dir.join(format!("job-{}", job_id));
         let branch_name = format!("kyco/job-{}", job_id);
+        self.remove_worktree_by_path_and_branch(&worktree_path, &branch_name)
+    }
+
+    /// Remove a worktree by its path
+    ///
+    /// This extracts the branch name from the worktree directory name.
+    pub fn remove_worktree_by_path(&self, worktree_path: &Path) -> Result<()> {
+        // Extract branch name from worktree directory name (e.g., "job-1" or "job-1-2")
+        let dir_name = worktree_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        let branch_name = format!("kyco/{}", dir_name);
+        self.remove_worktree_by_path_and_branch(worktree_path, &branch_name)
+    }
+
+    /// Remove a worktree by path and branch name (internal implementation)
+    fn remove_worktree_by_path_and_branch(&self, worktree_path: &Path, branch_name: &str) -> Result<()> {
 
         // Remove the worktree
         if worktree_path.exists() {
