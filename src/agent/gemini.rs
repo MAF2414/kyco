@@ -51,8 +51,15 @@ impl GeminiAdapter {
         config: &AgentConfig,
     ) -> Result<Option<std::path::PathBuf>> {
         let template = config.get_mode_template(&job.mode);
+        let mut system_prompt = template.system_prompt.clone().unwrap_or_default();
 
-        if let Some(system_prompt) = &template.system_prompt {
+        // If running in a worktree, add commit instruction
+        if job.git_worktree_path.is_some() {
+            let commit_instruction = "\n\nIMPORTANT: You are working in an isolated Git worktree. When you have completed the task, commit all your changes with a descriptive commit message. Do NOT push.";
+            system_prompt.push_str(commit_instruction);
+        }
+
+        if !system_prompt.is_empty() {
             let gemini_md_path = worktree.join("GEMINI.md");
 
             // Read existing GEMINI.md if it exists

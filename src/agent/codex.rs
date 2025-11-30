@@ -58,7 +58,15 @@ impl CodexAdapter {
 
         // Build the full prompt with system prompt if configured
         let template = config.get_mode_template(&job.mode);
-        let full_prompt = if let Some(system_prompt) = &template.system_prompt {
+        let mut system_prompt = template.system_prompt.clone().unwrap_or_default();
+
+        // If running in a worktree, add commit instruction
+        if job.git_worktree_path.is_some() {
+            let commit_instruction = "\n\nIMPORTANT: You are working in an isolated Git worktree. When you have completed the task, commit all your changes with a descriptive commit message. Do NOT push.";
+            system_prompt.push_str(commit_instruction);
+        }
+
+        let full_prompt = if !system_prompt.is_empty() {
             format!("{}\n\n{}", system_prompt, prompt)
         } else {
             prompt.to_string()

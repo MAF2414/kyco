@@ -62,6 +62,24 @@ impl PtyAdapter {
             .replace("{description}", description)
             .replace("{scope_type}", "file")
     }
+
+    /// Build the system prompt for a job
+    fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
+        let template = config.get_mode_template(&job.mode);
+        let mut system_prompt = template.system_prompt.unwrap_or_default();
+
+        // If running in a worktree, add commit instruction
+        if job.git_worktree_path.is_some() {
+            let commit_instruction = "\n\nIMPORTANT: You are working in an isolated Git worktree. When you have completed the task, commit all your changes with a descriptive commit message. Do NOT push.";
+            system_prompt.push_str(commit_instruction);
+        }
+
+        if system_prompt.is_empty() {
+            None
+        } else {
+            Some(system_prompt)
+        }
+    }
 }
 
 #[async_trait]
@@ -98,6 +116,15 @@ impl AgentRunner for PtyAdapter {
         // Build command
         let mut cmd = CommandBuilder::new(&config.binary);
         cmd.args(config.get_repl_args());
+
+        // Add system prompt if available (for Claude)
+        if let Some(system_prompt) = self.build_system_prompt(job, config) {
+            if self.cli_type == CliType::Claude {
+                cmd.arg("--append-system-prompt");
+                cmd.arg(&system_prompt);
+            }
+            // For Codex/Gemini, system prompt would need different handling
+        }
 
         // For Claude/Codex in REPL mode, we pass the prompt as argument
         // For truly interactive mode, we'd write to stdin after launch

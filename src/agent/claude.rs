@@ -46,7 +46,19 @@ impl ClaudeAdapter {
     /// Build the system prompt addition for a job
     fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
         let template = config.get_mode_template(&job.mode);
-        template.system_prompt
+        let mut system_prompt = template.system_prompt.unwrap_or_default();
+
+        // If running in a worktree, add commit instruction
+        if job.git_worktree_path.is_some() {
+            let commit_instruction = "\n\nIMPORTANT: You are working in an isolated Git worktree. When you have completed the task, commit all your changes with a descriptive commit message. Do NOT push.";
+            system_prompt.push_str(commit_instruction);
+        }
+
+        if system_prompt.is_empty() {
+            None
+        } else {
+            Some(system_prompt)
+        }
     }
 
     /// Build command arguments
