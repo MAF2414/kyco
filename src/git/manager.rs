@@ -1,6 +1,7 @@
 //! Git manager implementation
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -79,22 +80,56 @@ impl GitManager {
         // Ensure the worktrees directory exists
         std::fs::create_dir_all(&self.worktrees_dir)?;
 
+        let mut existing_worktree_names = HashSet::new();
+        if let Ok(entries) = std::fs::read_dir(&self.worktrees_dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().into_string().ok() {
+                    existing_worktree_names.insert(name);
+                }
+            }
+        }
+
+        let mut existing_branch_names = HashSet::new();
+        if let Ok(output) = Command::new("git")
+            .args(["for-each-ref", "--format=%(refname:short)", "refs/heads/kyco"])
+            .current_dir(&self.root)
+            .output()
+        {
+            if output.status.success() {
+                existing_branch_names.extend(
+                    String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .filter(|line| !line.is_empty())
+                        .map(|line| line.to_string()),
+                );
+            }
+        }
+
+        let base_worktree_name = format!("job-{}", job_id);
+
         // Try creating with base name first, then with suffixes
         for attempt in 0..=max_retries {
-            let (worktree_path, branch_name) = if attempt == 0 {
-                (
-                    self.worktrees_dir.join(format!("job-{}", job_id)),
-                    format!("kyco/job-{}", job_id),
-                )
+            let worktree_dir_name = if attempt == 0 {
+                base_worktree_name.clone()
             } else {
-                (
-                    self.worktrees_dir.join(format!("job-{}-{}", job_id, attempt)),
-                    format!("kyco/job-{}-{}", job_id, attempt),
-                )
+                format!("{}-{}", base_worktree_name, attempt)
             };
+
+            if existing_worktree_names.contains(&worktree_dir_name) {
+                continue;
+            }
+
+            let worktree_path = self.worktrees_dir.join(&worktree_dir_name);
 
             // Skip if worktree path already exists on disk
             if worktree_path.exists() {
+                existing_worktree_names.insert(worktree_dir_name.clone());
+                continue;
+            }
+
+            let branch_name = format!("kyco/{}", worktree_dir_name);
+
+            if existing_branch_names.contains(&branch_name) {
                 continue;
             }
 
@@ -114,12 +149,16 @@ impl GitManager {
                 bail!("Failed to create branch: {}", stderr);
             }
 
+            let worktree_path_str = worktree_path
+                .to_str()
+                .ok_or_else(|| anyhow!("Worktree path contains invalid UTF-8"))?;
+
             // Try to create the worktree
             let output = Command::new("git")
                 .args([
                     "worktree",
                     "add",
-                    worktree_path.to_str().unwrap(),
+                    worktree_path_str,
                     &branch_name,
                 ])
                 .current_dir(&self.root)
@@ -137,6 +176,8 @@ impl GitManager {
                     .args(["branch", "-D", &branch_name])
                     .current_dir(&self.root)
                     .output();
+                existing_worktree_names.insert(worktree_dir_name);
+                existing_branch_names.insert(branch_name);
                 continue;
             }
 
