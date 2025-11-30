@@ -24,7 +24,7 @@ fn get_spinner() -> &'static str {
 }
 
 /// Get sort priority for job status (lower = higher priority, shown first)
-fn status_priority(status: &JobStatus) -> u8 {
+pub fn status_priority(status: &JobStatus) -> u8 {
     match status {
         JobStatus::Running => 0,  // Most important - currently executing
         JobStatus::Queued => 1,   // About to run
@@ -36,18 +36,21 @@ fn status_priority(status: &JobStatus) -> u8 {
     }
 }
 
-/// Render the job list panel
-pub fn render(frame: &mut Frame, area: Rect, jobs: &[&Job], selected: usize) {
-    // Sort jobs: by status priority first, then by ID within each status group
-    let mut sorted_jobs: Vec<&Job> = jobs.to_vec();
-    sorted_jobs.sort_by(|a, b| {
+/// Sort jobs by status priority (most important first), then by ID within each group
+pub fn sort_jobs<'a>(jobs: &[&'a Job]) -> Vec<&'a Job> {
+    let mut sorted: Vec<&Job> = jobs.to_vec();
+    sorted.sort_by(|a, b| {
         status_priority(&a.status)
             .cmp(&status_priority(&b.status))
             .then_with(|| a.id.cmp(&b.id))
     });
+    sorted
+}
 
-    // Get the ID of the selected job from the original order
-    let selected_job_id = jobs.get(selected).map(|j| j.id);
+/// Render the job list panel
+pub fn render(frame: &mut Frame, area: Rect, jobs: &[&Job], selected_job_id: Option<u64>) {
+    // Sort jobs: by status priority first, then by ID within each status group
+    let sorted_jobs = sort_jobs(jobs);
 
     let queued_positions: std::collections::HashMap<u64, usize> = sorted_jobs
         .iter()

@@ -14,6 +14,8 @@ mod job_list;
 pub mod mode_panel;
 mod popups;
 
+pub use job_list::sort_jobs;
+
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     Frame,
@@ -27,7 +29,7 @@ pub use mode_panel::ModePanelState;
 pub fn render(
     frame: &mut Frame,
     jobs: &[&Job],
-    selected_job: usize,
+    selected_job_id: Option<u64>,
     logs: &[LogEvent],
     show_help: bool,
     config: &Config,
@@ -56,9 +58,12 @@ pub fn render(
         .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
         .split(main_chunks[0])[1];
 
-    let selected_job_data = jobs.get(selected_job).copied();
+    // Find the selected job by ID from sorted list for display
+    let sorted_jobs = sort_jobs(jobs);
+    let selected_job_data = selected_job_id
+        .and_then(|id| sorted_jobs.iter().find(|j| j.id == id).copied());
 
-    job_list::render(frame, left_chunks[0], jobs, selected_job);
+    job_list::render(frame, left_chunks[0], jobs, selected_job_id);
     help_bar::render_syntax_reference(frame, left_chunks[1]);
     detail_panel::render(frame, right_area, selected_job_data, logs, config);
     help_bar::render(frame, main_chunks[1], auto_run, auto_scan);
