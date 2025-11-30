@@ -12,3 +12,7 @@ pub const BLUE: Color = Color::LightBlue;
 pub const WHITE: Color = Color::White;
 pub const GRAY: Color = Color::Gray;
 pub const DARK_GRAY: Color = Color::DarkGray;
+
+// Background color - Reset ensures terminal default background is used consistently
+// This prevents visual artifacts (gray veil) from stale buffer content bleeding through
+pub const BG: Color = Color::Reset;

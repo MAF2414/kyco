@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::{Job, JobStatus};
 
-use super::colors::*;
+use super::colors::{BG, *};
 
 /// Get spinner frame based on time
 fn get_spinner() -> &'static str {
@@ -76,8 +76,10 @@ pub fn render(frame: &mut Frame, area: Rect, jobs: &[&Job], selected: usize) {
             Block::default()
                 .title(Span::styled(" Jobs ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(CYAN)),
-        );
+                .border_style(Style::default().fg(CYAN))
+                .style(Style::default().bg(BG)),
+        )
+        .style(Style::default().bg(BG));
 
     frame.render_widget(list, area);
 }
