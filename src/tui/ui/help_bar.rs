@@ -8,7 +8,7 @@ use ratatui::{
     Frame,
 };
 
-use super::colors::*;
+use super::colors::{BG, *};
 
 /// Render the help bar at the bottom
 pub fn render(frame: &mut Frame, area: Rect, auto_run: bool, auto_scan: bool) {
@@ -51,7 +51,7 @@ pub fn render(frame: &mut Frame, area: Rect, auto_run: bool, auto_scan: bool) {
     }
 
     let help = Line::from(spans);
-    frame.render_widget(Paragraph::new(help), area);
+    frame.render_widget(Paragraph::new(help).style(Style::default().bg(BG)), area);
 }
 
 /// Render the syntax reference panel
@@ -84,8 +84,10 @@ pub fn render_syntax_reference(frame: &mut Frame, area: Rect) {
             Block::default()
                 .title(Span::styled(" Syntax ", Style::default().fg(YELLOW)))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(DARK_GRAY)),
-        );
+                .border_style(Style::default().fg(DARK_GRAY))
+                .style(Style::default().bg(BG)),
+        )
+        .style(Style::default().bg(BG));
 
     frame.render_widget(para, area);
 }

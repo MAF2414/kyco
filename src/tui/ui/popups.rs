@@ -94,8 +94,10 @@ pub fn render_help(frame: &mut Frame) {
             Block::default()
                 .title(Span::styled(" Help ", Style::default().fg(CYAN)))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(CYAN)),
-        );
+                .border_style(Style::default().fg(CYAN))
+                .style(Style::default().bg(BG)),
+        )
+        .style(Style::default().bg(BG));
 
     frame.render_widget(Clear, area);
     frame.render_widget(para, area);
@@ -139,8 +141,10 @@ pub fn render_diff(frame: &mut Frame, diff: &str, scroll: usize) {
             Block::default()
                 .title(Span::styled(title, Style::default().fg(GREEN)))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(GREEN)),
-        );
+                .border_style(Style::default().fg(GREEN))
+                .style(Style::default().bg(BG)),
+        )
+        .style(Style::default().bg(BG));
 
     frame.render_widget(Clear, area);
     frame.render_widget(para, area);

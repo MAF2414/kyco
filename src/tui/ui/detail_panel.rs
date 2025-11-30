@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::{config::Config, Job, JobStatus, LogEvent};
 
-use super::colors::*;
+use super::colors::{BG, *};
 
 /// Build the prompt string for a job using the mode template from config
 fn build_prompt_preview(job: &Job, config: &Config) -> String {
@@ -118,8 +118,10 @@ pub fn render(
                 Block::default()
                     .title(Span::styled(" Details ", Style::default().fg(CYAN).add_modifier(Modifier::BOLD)))
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(CYAN)),
-            );
+                    .border_style(Style::default().fg(CYAN))
+                    .style(Style::default().bg(BG)),
+            )
+            .style(Style::default().bg(BG));
 
         frame.render_widget(para, chunks[0]);
 
@@ -135,8 +137,10 @@ pub fn render(
                 Block::default()
                     .title(Span::styled(prompt_title, Style::default().fg(title_color)))
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(title_color)),
+                    .border_style(Style::default().fg(title_color))
+                    .style(Style::default().bg(BG)),
             )
+            .style(Style::default().bg(BG))
             .wrap(Wrap { trim: false });
 
         frame.render_widget(prompt_para, chunks[1]);
@@ -146,8 +150,10 @@ pub fn render(
                 Block::default()
                     .title(Span::styled(" Details ", Style::default().fg(DARK_GRAY)))
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(DARK_GRAY)),
-            );
+                    .border_style(Style::default().fg(DARK_GRAY))
+                    .style(Style::default().bg(BG)),
+            )
+            .style(Style::default().bg(BG));
         frame.render_widget(para, chunks[0]);
 
         let prompt_para = Paragraph::new("")
@@ -155,8 +161,10 @@ pub fn render(
                 Block::default()
                     .title(Span::styled(" Prompt ", Style::default().fg(DARK_GRAY)))
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(DARK_GRAY)),
-            );
+                    .border_style(Style::default().fg(DARK_GRAY))
+                    .style(Style::default().bg(BG)),
+            )
+            .style(Style::default().bg(BG));
         frame.render_widget(prompt_para, chunks[1]);
     }
 
@@ -237,8 +245,10 @@ fn render_activity_log(frame: &mut Frame, area: Rect, job: Option<&Job>, logs: &
             Block::default()
                 .title(Span::styled(log_title, Style::default().fg(WHITE)))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(border_color)),
+                .border_style(Style::default().fg(border_color))
+                .style(Style::default().bg(BG)),
         )
+        .style(Style::default().bg(BG))
         .wrap(Wrap { trim: false });
 
     frame.render_widget(log_para, area);
