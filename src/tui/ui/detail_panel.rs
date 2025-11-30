@@ -88,8 +88,20 @@ pub fn render(
                 Span::styled(job.scope.scope.to_string(), Style::default().fg(WHITE)),
             ]),
             Line::from(vec![
-                Span::styled("Target   ", Style::default().fg(DARK_GRAY)),
-                Span::styled(&job.target, Style::default().fg(GRAY)),
+                Span::styled("Worktree ", Style::default().fg(DARK_GRAY)),
+                Span::styled(
+                    job.git_worktree_path
+                        .as_ref()
+                        .and_then(|p| p.file_name())
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "—".to_string()),
+                    Style::default().fg(GRAY),
+                ),
+                Span::styled("    Changes ", Style::default().fg(DARK_GRAY)),
+                Span::styled(
+                    format!("{}", job.changed_files.len()),
+                    Style::default().fg(if job.changed_files.is_empty() { GRAY } else { GREEN }),
+                ),
             ]),
             Line::from(""),
             Line::from(vec![
