@@ -292,22 +292,58 @@ impl GitManager {
         Ok(files)
     }
 
-    /// Get the diff for a worktree
+    /// Get the diff for a worktree (shows all changes vs base branch)
+    ///
+    /// This shows both committed and uncommitted changes in the worktree
+    /// compared to the base branch (master/main).
     pub fn diff(&self, worktree: &Path) -> Result<String> {
-        let output = Command::new("git")
+        let mut result = String::new();
+
+        // First, get the merge base (common ancestor with master)
+        let base_output = Command::new("git")
+            .args(["merge-base", "HEAD", "master"])
+            .current_dir(worktree)
+            .output();
+
+        let base_ref = match base_output {
+            Ok(output) if output.status.success() => {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            }
+            _ => "master".to_string(), // Fallback to master if merge-base fails
+        };
+
+        // Get diff of committed changes vs base
+        let committed_output = Command::new("git")
+            .args(["diff", &base_ref, "HEAD"])
+            .current_dir(worktree)
+            .output()
+            .context("Failed to run git diff for committed changes")?;
+
+        if committed_output.status.success() {
+            let committed_diff = String::from_utf8_lossy(&committed_output.stdout);
+            if !committed_diff.is_empty() {
+                result.push_str(&committed_diff);
+            }
+        }
+
+        // Also get uncommitted changes (in case agent didn't commit everything)
+        let uncommitted_output = Command::new("git")
             .args(["diff", "HEAD"])
             .current_dir(worktree)
             .output()
-            .context("Failed to run git diff")?;
+            .context("Failed to run git diff for uncommitted changes")?;
 
-        if !output.status.success() {
-            bail!(
-                "git diff failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+        if uncommitted_output.status.success() {
+            let uncommitted_diff = String::from_utf8_lossy(&uncommitted_output.stdout);
+            if !uncommitted_diff.is_empty() {
+                if !result.is_empty() {
+                    result.push_str("\n\n--- Uncommitted changes ---\n\n");
+                }
+                result.push_str(&uncommitted_diff);
+            }
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        Ok(result)
     }
 
     /// Get the diff for a specific file in a worktree
@@ -328,63 +364,71 @@ impl GitManager {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    /// Apply changes from a worktree to the main repo
+    /// Merge a worktree branch into the main branch
+    ///
+    /// This performs a proper git merge of the worktree's branch into master.
+    /// If there are uncommitted changes in the worktree, they are committed first.
     pub fn apply_changes(&self, worktree: &Path) -> Result<()> {
-        use std::io::Write;
-
-        // First, copy new (untracked) files
-        let output = Command::new("git")
-            .args(["ls-files", "--others", "--exclude-standard"])
+        // First, check if there are uncommitted changes and commit them
+        let status_output = Command::new("git")
+            .args(["status", "--porcelain"])
             .current_dir(worktree)
             .output()
-            .context("Failed to run git ls-files")?;
+            .context("Failed to check worktree status")?;
 
-        if output.status.success() {
-            let new_files: Vec<PathBuf> = String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(PathBuf::from)
-                .collect();
+        if !status_output.stdout.is_empty() {
+            // There are uncommitted changes - commit them
+            Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(worktree)
+                .output()
+                .context("Failed to stage changes")?;
 
-            for file in new_files {
-                let src = worktree.join(&file);
-                let dst = self.root.join(&file);
+            let commit_output = Command::new("git")
+                .args(["commit", "-m", "Auto-commit remaining changes before merge"])
+                .current_dir(worktree)
+                .output()
+                .context("Failed to commit remaining changes")?;
 
-                // Create parent directories if needed
-                if let Some(parent) = dst.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-
-                // Copy the new file
-                std::fs::copy(&src, &dst).with_context(|| {
-                    format!("Failed to copy new file: {}", file.display())
-                })?;
+            if !commit_output.status.success() {
+                // Commit might fail if nothing to commit, that's OK
+                tracing::debug!(
+                    "Auto-commit output: {}",
+                    String::from_utf8_lossy(&commit_output.stderr)
+                );
             }
         }
 
-        // Then apply the diff for modified files
-        let diff = self.diff(worktree)?;
+        // Get the branch name of the worktree
+        let branch_output = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(worktree)
+            .output()
+            .context("Failed to get worktree branch name")?;
 
-        if diff.is_empty() {
-            return Ok(());
+        if !branch_output.status.success() {
+            bail!(
+                "Failed to get branch name: {}",
+                String::from_utf8_lossy(&branch_output.stderr)
+            );
         }
 
-        // Apply the diff to the main repo
-        let mut child = Command::new("git")
-            .args(["apply", "-"])
+        let branch_name = String::from_utf8_lossy(&branch_output.stdout)
+            .trim()
+            .to_string();
+
+        // Merge the branch into master from the main repo
+        let merge_output = Command::new("git")
+            .args(["merge", &branch_name, "--no-edit"])
             .current_dir(&self.root)
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .context("Failed to spawn git apply")?;
+            .output()
+            .context("Failed to merge branch")?;
 
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(diff.as_bytes())?;
-        }
-
-        let status = child.wait()?;
-
-        if !status.success() {
-            bail!("git apply failed");
+        if !merge_output.status.success() {
+            bail!(
+                "git merge failed: {}",
+                String::from_utf8_lossy(&merge_output.stderr)
+            );
         }
 
         Ok(())

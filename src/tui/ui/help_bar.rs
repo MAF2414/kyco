@@ -29,6 +29,7 @@ pub fn render(frame: &mut Frame, area: Rect) {
         Span::styled(" Help ", Style::default().fg(GRAY)),
         Span::styled(" q ", Style::default().fg(Color::Black).bg(GRAY)),
         Span::styled(" Quit ", Style::default().fg(GRAY)),
+        // TODO: Add autostart/autoscan mode indicators (see config.toml)
     ]);
 
     frame.render_widget(Paragraph::new(help), area);

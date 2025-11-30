@@ -32,6 +32,7 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
 }
 
 /// Render a help popup
+// TODO: Add mouse wheel scroll support
 pub fn render_help(frame: &mut Frame) {
     let area = centered_rect(55, 55, frame.area());
 
