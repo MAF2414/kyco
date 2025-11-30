@@ -866,11 +866,11 @@ impl App {
                     job_id
                 )));
 
-                // Update job status
+                // Update job status to Merged
                 {
                     let mut manager = self.job_manager.lock().await;
                     if let Some(job) = manager.get_mut(job_id) {
-                        job.set_status(JobStatus::Rejected); // Use Rejected as "merged/closed"
+                        job.set_status(JobStatus::Merged);
                     }
                 }
 

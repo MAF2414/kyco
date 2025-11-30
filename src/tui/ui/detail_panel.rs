@@ -68,6 +68,7 @@ pub fn render(
             JobStatus::Done => (GREEN, "done"),
             JobStatus::Failed => (RED, "failed"),
             JobStatus::Rejected => (DARK_GRAY, "rejected"),
+            JobStatus::Merged => (CYAN, "merged"),
         };
 
         let details = vec![

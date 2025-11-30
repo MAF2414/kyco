@@ -32,6 +32,7 @@ fn status_priority(status: &JobStatus) -> u8 {
         JobStatus::Failed => 3,   // Needs attention
         JobStatus::Done => 4,     // Completed
         JobStatus::Rejected => 5, // Dismissed
+        JobStatus::Merged => 6,   // Already merged
     }
 }
 
@@ -65,6 +66,7 @@ pub fn render(frame: &mut Frame, area: Rect, jobs: &[&Job], selected: usize) {
                 JobStatus::Done => (GREEN, "●"),
                 JobStatus::Failed => (RED, "✗"),
                 JobStatus::Rejected => (DARK_GRAY, "○"),
+                JobStatus::Merged => (CYAN, "✓"),
             };
 
             let queue_suffix = if job.status == JobStatus::Queued {

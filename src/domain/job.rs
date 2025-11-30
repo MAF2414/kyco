@@ -23,6 +23,8 @@ pub enum JobStatus {
     Failed,
     /// Job was rejected by the user
     Rejected,
+    /// Job was merged into main branch
+    Merged,
 }
 
 impl JobStatus {
@@ -35,6 +37,7 @@ impl JobStatus {
             JobStatus::Done => "done",
             JobStatus::Failed => "failed",
             JobStatus::Rejected => "rejected",
+            JobStatus::Merged => "merged",
         }
     }
 }
@@ -167,7 +170,7 @@ impl Job {
     pub fn is_finished(&self) -> bool {
         matches!(
             self.status,
-            JobStatus::Done | JobStatus::Failed | JobStatus::Rejected
+            JobStatus::Done | JobStatus::Failed | JobStatus::Rejected | JobStatus::Merged
         )
     }
 }
