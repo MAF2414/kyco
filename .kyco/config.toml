@@ -25,10 +25,10 @@
 [settings]
 max_concurrent_jobs = 4
 debounce_ms = 500
-auto_run = true
+auto_run = false
 marker_prefix = "###"
 scan_exclude = []
-use_worktree = false
+use_worktree = true
 
 # ============================================================================
 # AGENTS - The AI backends that execute jobs
@@ -240,6 +240,7 @@ CONSTRAINTS:
 
 [mode.review]
 aliases = ["v", "rev"]
+agent = "cr"
 prompt = """
 TASK: Review code at `{file}:{line}`
 CONTEXT: {description}
@@ -405,6 +406,7 @@ OUTPUT: After implementing, briefly explain what you built and any design decisi
 [mode.optimize]
 aliases = ["o", "opt"]
 prompt = """
+agent = "xr"
 TASK: Optimize code at `{file}:{line}` for performance
 FOCUS: {description}
 

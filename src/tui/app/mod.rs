@@ -771,29 +771,22 @@ impl App {
 
     /// Merge changes from the selected job's worktree into the main branch
     async fn merge_selected_job(&mut self) -> Result<()> {
+        // Single lock acquisition to get job_id and validate status
         let job_id = {
             let manager = self.job_manager.lock().await;
             let jobs = manager.jobs();
-            jobs.get(self.selected_job).map(|j| j.id)
-        };
-
-        let Some(job_id) = job_id else {
-            return Ok(());
-        };
-
-        // Check job status - should be Done
-        {
-            let manager = self.job_manager.lock().await;
-            if let Some(job) = manager.get(job_id) {
-                if job.status != JobStatus::Done {
+            match jobs.get(self.selected_job) {
+                Some(job) if job.status != JobStatus::Done => {
                     self.logs.push(LogEvent::error(format!(
                         "Job #{} is not done (status: {}). Complete the job first.",
-                        job_id, job.status
+                        job.id, job.status
                     )));
                     return Ok(());
                 }
+                Some(job) => job.id,
+                None => return Ok(()),
             }
-        }
+        };
 
         let Some(git) = &self.git_manager else {
             self.logs.push(LogEvent::error("Git not available"));
@@ -852,12 +845,10 @@ impl App {
     /// Simply removes the exact line that the scanner found (raw_tag_line).
     /// This is much simpler and more reliable than trying to re-parse.
     fn remove_tag_from_source(&self, job: &Job, work_path: &PathBuf) -> Result<()> {
-        // We need the raw tag line that was scanned
         let Some(raw_tag_line) = &job.raw_tag_line else {
             return Ok(());
         };
 
-        // Calculate the path to the source file in the work directory
         let relative_path = job.source_file.strip_prefix(&self.work_dir)
             .unwrap_or(&job.source_file);
         let target_file = work_path.join(relative_path);
@@ -868,55 +859,58 @@ impl App {
 
         let content = std::fs::read_to_string(&target_file)?;
         let marker_prefix = &self.config.settings.marker_prefix;
-
-        // Check if the raw_tag_line is a standalone comment or inline
         let trimmed_tag = raw_tag_line.trim();
+
+        // Check if standalone comment or inline
         let is_standalone = trimmed_tag.starts_with("//")
             || trimmed_tag.starts_with('#')
             || trimmed_tag.starts_with("/*")
             || trimmed_tag.starts_with("--")
             || trimmed_tag.starts_with(marker_prefix);
 
-        let new_content = if is_standalone {
-            // Standalone: remove the exact line
-            content
-                .lines()
-                .filter(|line| line.trim() != trimmed_tag)
-                .collect::<Vec<_>>()
-                .join("\n")
-        } else {
-            // Inline: remove just the tag comment part, keep the code
-            content
-                .lines()
-                .map(|line| {
-                    if line == raw_tag_line || line.trim() == trimmed_tag {
-                        // Find the comment start before the marker
-                        if let Some(marker_pos) = line.find(marker_prefix) {
-                            let before_marker = &line[..marker_pos];
-                            let comment_start = before_marker.rfind("//")
-                                .or_else(|| before_marker.rfind('#'))
-                                .or_else(|| before_marker.rfind("--"))
-                                .or_else(|| before_marker.rfind("/*"));
+        let has_trailing_newline = content.ends_with('\n');
 
-                            if let Some(start) = comment_start {
-                                return line[..start].trim_end().to_string();
-                            }
-                        }
+        // Single-pass: pre-allocate capacity to avoid reallocations
+        let mut new_content = String::with_capacity(content.len());
+        let mut first_line = true;
+
+        for line in content.lines() {
+            let should_skip = is_standalone && line.trim() == trimmed_tag;
+
+            if should_skip {
+                continue;
+            }
+
+            if !first_line {
+                new_content.push('\n');
+            }
+            first_line = false;
+
+            if !is_standalone && (line == raw_tag_line || line.trim() == trimmed_tag) {
+                // Inline: remove just the tag comment part, keep the code
+                if let Some(marker_pos) = line.find(marker_prefix) {
+                    let before_marker = &line[..marker_pos];
+                    let comment_start = before_marker.rfind("//")
+                        .or_else(|| before_marker.rfind('#'))
+                        .or_else(|| before_marker.rfind("--"))
+                        .or_else(|| before_marker.rfind("/*"));
+
+                    if let Some(start) = comment_start {
+                        new_content.push_str(line[..start].trim_end());
+                        continue;
                     }
-                    line.to_string()
-                })
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
+                }
+            }
+
+            new_content.push_str(line);
+        }
 
         // Preserve trailing newline
-        let final_content = if content.ends_with('\n') && !new_content.ends_with('\n') {
-            format!("{}\n", new_content)
-        } else {
-            new_content
-        };
+        if has_trailing_newline {
+            new_content.push('\n');
+        }
 
-        std::fs::write(&target_file, final_content)?;
+        std::fs::write(&target_file, new_content)?;
         Ok(())
     }
 }
@@ -1019,168 +1013,4 @@ fn remove_tag_from_content(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_remove_standalone_tag_rust() {
-        let content = r#"fn main() {
-    // @@fix handle error
-    println!("hello");
-}
-"#;
-        let result = remove_tag_from_content(content, 2, "@@").unwrap();
-        assert!(!result.contains("@@fix"), "Tag should be removed");
-        assert!(result.contains("println"), "Code should remain");
-        assert!(!result.contains("handle error"), "Description should be removed");
-    }
-
-    #[test]
-    fn test_remove_standalone_tag_python() {
-        let content = r#"def foo():
-    # @@docs add docstrings
-    pass
-"#;
-        let result = remove_tag_from_content(content, 2, "@@").unwrap();
-        assert!(!result.contains("@@docs"), "Tag should be removed");
-        assert!(result.contains("pass"), "Code should remain");
-    }
-
-    #[test]
-    fn test_remove_standalone_tag_with_multiline_description() {
-        let content = r#"// @@refactor clean up this code
-// Make it more readable
-// And add proper error handling
-fn messy_function() {
-    // some code
-}
-"#;
-        let result = remove_tag_from_content(content, 1, "@@").unwrap();
-        assert!(!result.contains("@@refactor"), "Tag should be removed");
-        assert!(!result.contains("Make it more readable"), "Description line 1 should be removed");
-        assert!(!result.contains("And add proper"), "Description line 2 should be removed");
-        assert!(result.contains("fn messy_function"), "Code should remain");
-        assert!(result.contains("// some code"), "Other comments should remain");
-    }
-
-    #[test]
-    fn test_remove_inline_tag_rust() {
-        let content = r#"fn process() {
-    let x = 42; // @@fix this is wrong
-    println!("{}", x);
-}
-"#;
-        let result = remove_tag_from_content(content, 2, "@@").unwrap();
-        assert!(!result.contains("@@fix"), "Tag should be removed");
-        assert!(result.contains("let x = 42;"), "Code should remain");
-        assert!(!result.contains("this is wrong"), "Description should be removed");
-    }
-
-    #[test]
-    fn test_remove_inline_tag_python() {
-        let content = r#"def bar():
-    x = 1  # @@optimize make faster
-    return x
-"#;
-        let result = remove_tag_from_content(content, 2, "@@").unwrap();
-        assert!(!result.contains("@@optimize"), "Tag should be removed");
-        assert!(result.contains("x = 1"), "Code should remain");
-        assert!(!result.contains("make faster"), "Description should be removed");
-    }
-
-    #[test]
-    fn test_remove_tag_preserves_other_comments() {
-        let content = r#"// This is a normal comment
-// @@tests write unit tests
-// Description of what to test
-fn important_function() {
-    // Implementation comment
-}
-"#;
-        let result = remove_tag_from_content(content, 2, "@@").unwrap();
-        assert!(!result.contains("@@tests"), "Tag should be removed");
-        assert!(result.contains("This is a normal comment"), "Previous comment should remain");
-        assert!(result.contains("Implementation comment"), "Other comments should remain");
-    }
-
-    #[test]
-    fn test_remove_tag_at_first_line() {
-        let content = r#"# @@implement create new feature
-# Add authentication support
-def authenticate():
-    pass
-"#;
-        let result = remove_tag_from_content(content, 1, "@@").unwrap();
-        assert!(!result.contains("@@implement"), "Tag should be removed");
-        assert!(!result.contains("Add authentication"), "Description should be removed");
-        assert!(result.contains("def authenticate"), "Code should remain");
-    }
-
-    #[test]
-    fn test_tag_not_found_returns_none() {
-        let content = "fn main() {}\n";
-        let result = remove_tag_from_content(content, 1, "@@");
-        assert!(result.is_none(), "Should return None when tag not found");
-    }
-
-    #[test]
-    fn test_line_out_of_bounds_returns_none() {
-        let content = "fn main() {}\n";
-        let result = remove_tag_from_content(content, 100, "@@");
-        assert!(result.is_none(), "Should return None for invalid line number");
-    }
-
-    #[test]
-    fn test_custom_marker_prefix() {
-        let content = r#"fn foo() {
-    // ::docs add documentation
-    bar();
-}
-"#;
-        let result = remove_tag_from_content(content, 2, "::").unwrap();
-        assert!(!result.contains("::docs"), "Custom marker should be removed");
-        assert!(result.contains("bar()"), "Code should remain");
-    }
-
-    #[test]
-    fn test_preserves_trailing_newline() {
-        let content = "# @@fix\ndef foo():\n    pass\n";
-        let result = remove_tag_from_content(content, 1, "@@").unwrap();
-        assert!(result.ends_with('\n'), "Should preserve trailing newline");
-    }
-
-    #[test]
-    fn test_no_trailing_newline() {
-        let content = "# @@fix\ndef foo():\n    pass";
-        let result = remove_tag_from_content(content, 1, "@@").unwrap();
-        assert!(!result.ends_with('\n'), "Should not add trailing newline");
-    }
-
-    #[test]
-    fn test_sql_comment_style() {
-        let content = r#"SELECT * FROM users
--- @@review check for SQL injection
-WHERE name = 'test';
-"#;
-        let result = remove_tag_from_content(content, 2, "@@").unwrap();
-        assert!(!result.contains("@@review"), "Tag should be removed");
-        assert!(result.contains("SELECT"), "SQL should remain");
-        assert!(result.contains("WHERE"), "SQL should remain");
-    }
-
-    #[test]
-    fn test_description_stops_at_code() {
-        let content = r#"# @@implement new feature
-# First do this
-# Then do that
-x = 1
-# This is a different comment
-"#;
-        let result = remove_tag_from_content(content, 1, "@@").unwrap();
-        assert!(!result.contains("@@implement"), "Tag should be removed");
-        assert!(!result.contains("First do this"), "Description should be removed");
-        assert!(!result.contains("Then do that"), "Description should be removed");
-        assert!(result.contains("x = 1"), "Code should remain");
-        assert!(result.contains("This is a different comment"), "Later comment should remain");
-    }
-}
+mod tests;

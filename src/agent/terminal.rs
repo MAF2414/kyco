@@ -226,6 +226,8 @@ pub struct TerminalAdapter {
     cli_type: CliType,
 }
 
+use crate::SystemPromptMode;
+
 impl TerminalAdapter {
     /// Create a new terminal adapter for a given CLI type
     pub fn new(id: impl Into<String>, cli_type: CliType) -> Self {
@@ -267,6 +269,62 @@ impl TerminalAdapter {
             .replace("{description}", description)
             .replace("{scope_type}", &job.scope.scope.to_string())
     }
+
+    /// Build the system prompt for a job
+    fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
+        let template = config.get_mode_template(&job.mode);
+        template.system_prompt
+    }
+
+    /// Build command arguments including system prompt for REPL mode
+    fn build_repl_args(&self, job: &Job, config: &AgentConfig) -> Vec<String> {
+        let mut args = config.get_repl_args();
+
+        // Add system prompt if configured
+        if let Some(system_prompt) = self.build_system_prompt(job, config) {
+            match config.system_prompt_mode {
+                SystemPromptMode::Append => {
+                    // For Claude in REPL mode
+                    if self.cli_type == CliType::Claude {
+                        args.push("--append-system-prompt".to_string());
+                        args.push(system_prompt);
+                    }
+                }
+                SystemPromptMode::Replace => {
+                    // For Gemini or when explicitly replacing
+                    if self.cli_type == CliType::Claude {
+                        args.push("--system-prompt".to_string());
+                        args.push(system_prompt);
+                    } else if self.cli_type == CliType::Gemini {
+                        // Gemini uses different mechanism (GEMINI.md files)
+                        // System prompt passed differently - for now skip
+                    }
+                }
+                SystemPromptMode::ConfigOverride => {
+                    // For Codex - system prompt is handled via config
+                    // In REPL mode, we can try passing it as append for Claude-like CLIs
+                    if self.cli_type == CliType::Claude {
+                        args.push("--append-system-prompt".to_string());
+                        args.push(system_prompt);
+                    }
+                }
+            }
+        }
+
+        // Add disallowed tools if any
+        if !config.disallowed_tools.is_empty() && self.cli_type == CliType::Claude {
+            args.push("--disallowedTools".to_string());
+            args.push(config.disallowed_tools.join(","));
+        }
+
+        // Add allowed tools if any
+        if !config.allowed_tools.is_empty() && self.cli_type == CliType::Claude {
+            args.push("--allowedTools".to_string());
+            args.push(config.allowed_tools.join(","));
+        }
+
+        args
+    }
 }
 
 #[async_trait]
@@ -286,11 +344,14 @@ impl AgentRunner for TerminalAdapter {
             .send(LogEvent::system(format!("Starting terminal job #{}", job_id)).for_job(job_id))
             .await;
 
+        // Build args with system prompt included
+        let repl_args = self.build_repl_args(job, config);
+
         // Spawn in terminal
         let session = TerminalSession::spawn(
             job_id,
             &config.binary,
-            &config.get_repl_args(),
+            &repl_args,
             &prompt,
             worktree,
         )?;

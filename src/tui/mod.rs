@@ -1,7 +1,7 @@
 //! Terminal User Interface
 
 mod app;
-mod ui;
 mod event;
+mod ui;
 
 pub use app::App;
