@@ -11,8 +11,8 @@ use ratatui::{
 use super::colors::*;
 
 /// Render the help bar at the bottom
-pub fn render(frame: &mut Frame, area: Rect) {
-    let help = Line::from(vec![
+pub fn render(frame: &mut Frame, area: Rect, auto_run: bool, auto_scan: bool) {
+    let mut spans = vec![
         Span::styled(" ↑↓ ", Style::default().fg(Color::Black).bg(WHITE)),
         Span::styled(" Nav ", Style::default().fg(GRAY)),
         Span::styled(" ⏎ ", Style::default().fg(Color::Black).bg(GREEN)),
@@ -29,9 +29,24 @@ pub fn render(frame: &mut Frame, area: Rect) {
         Span::styled(" Help ", Style::default().fg(GRAY)),
         Span::styled(" q ", Style::default().fg(Color::Black).bg(GRAY)),
         Span::styled(" Quit ", Style::default().fg(GRAY)),
-        // TODO: Add autostart/autoscan mode indicators (see config.toml)
-    ]);
+    ];
 
+    // Add mode indicators on the right side
+    spans.push(Span::styled("  ", Style::default()));
+
+    if auto_scan {
+        spans.push(Span::styled(" SCAN ", Style::default().fg(Color::Black).bg(YELLOW)));
+    } else {
+        spans.push(Span::styled(" scan ", Style::default().fg(DARK_GRAY)));
+    }
+
+    if auto_run {
+        spans.push(Span::styled(" RUN ", Style::default().fg(Color::Black).bg(YELLOW)));
+    } else {
+        spans.push(Span::styled(" run ", Style::default().fg(DARK_GRAY)));
+    }
+
+    let help = Line::from(spans);
     frame.render_widget(Paragraph::new(help), area);
 }
 

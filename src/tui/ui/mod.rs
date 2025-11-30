@@ -31,6 +31,8 @@ pub fn render(
     show_diff: bool,
     diff_content: Option<&str>,
     diff_scroll: usize,
+    auto_run: bool,
+    auto_scan: bool,
 ) {
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -55,7 +57,7 @@ pub fn render(
     job_list::render(frame, left_chunks[0], jobs, selected_job);
     help_bar::render_syntax_reference(frame, left_chunks[1]);
     detail_panel::render(frame, right_area, selected_job_data, logs, config);
-    help_bar::render(frame, main_chunks[1]);
+    help_bar::render(frame, main_chunks[1], auto_run, auto_scan);
 
     if show_help {
         popups::render_help(frame);
