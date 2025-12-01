@@ -1,4 +1,4 @@
-//! Agent output stream parsing
+//! Claude Code agent output stream parsing
 
 use serde::{Deserialize, Serialize};
 
@@ -95,12 +95,7 @@ impl StreamEvent {
                 for block in &message.content {
                     match block {
                         ContentBlock::Text { text } => {
-                            let truncated = if text.len() > 100 {
-                                format!("{}...", &text[..100])
-                            } else {
-                                text.clone()
-                            };
-                            parts.push(format!("[text] {}", truncated));
+                            parts.push(format!("[text] {}", text));
                         }
                         ContentBlock::ToolUse { name, .. } => {
                             parts.push(format!("[tool] {}", name));
@@ -117,13 +112,8 @@ impl StreamEvent {
                         content, is_error, ..
                     } = block
                     {
-                        let truncated = if content.len() > 50 {
-                            format!("{}...", &content[..50])
-                        } else {
-                            content.clone()
-                        };
                         let prefix = if *is_error { "error" } else { "result" };
-                        parts.push(format!("[{}] {}", prefix, truncated));
+                        parts.push(format!("[{}] {}", prefix, content));
                     }
                 }
                 parts.join(" | ")

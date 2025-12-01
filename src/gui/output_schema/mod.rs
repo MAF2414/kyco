@@ -6,7 +6,7 @@
 
 use eframe::egui::{self, RichText};
 
-use super::app::{BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::app::{BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 
 /// State for output schema settings UI
 pub struct OutputSchemaState<'a> {

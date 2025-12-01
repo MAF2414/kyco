@@ -1,5 +1,7 @@
 //! Codex CLI agent adapter
 
+mod parser;
+
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::path::Path;
@@ -10,6 +12,7 @@ use tokio::sync::mpsc;
 
 use super::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
+use parser::{parse_codex_event, CodexEventResult};
 
 /// Codex CLI agent adapter
 ///
@@ -105,10 +108,9 @@ impl AgentRunner for CodexAdapter {
         // Send start event with full prompt
         let job_id = job.id;
         let _ = event_tx
-            .send(LogEvent::system(format!(
-                "Starting job #{} with prompt:",
-                job_id
-            )).for_job(job_id))
+            .send(
+                LogEvent::system(format!("Starting job #{} with prompt:", job_id)).for_job(job_id),
+            )
             .await;
         let _ = event_tx
             .send(LogEvent::system(format!(">>> {}", prompt)).for_job(job_id))
@@ -201,130 +203,5 @@ impl AgentRunner for CodexAdapter {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
-    }
-}
-
-/// Result from parsing a Codex event
-enum CodexEventResult {
-    /// A log event to display
-    Log(LogEvent),
-    /// No event to display
-    None,
-}
-
-/// Parse a Codex JSON output line
-///
-/// Codex exec --json output format:
-/// - `item.started` / `item.completed` - individual steps
-/// - `turn.completed` - task finished (with usage stats)
-/// - `message` - assistant messages
-/// - `error` - errors
-fn parse_codex_event(line: &str) -> CodexEventResult {
-    let json: serde_json::Value = match serde_json::from_str(line) {
-        Ok(v) => v,
-        Err(_) => return CodexEventResult::None,
-    };
-
-    let event_type = match json.get("type").and_then(|t| t.as_str()) {
-        Some(t) => t,
-        None => return CodexEventResult::None,
-    };
-
-    match event_type {
-        // Turn completed = success
-        "turn.completed" => {
-            // Extract usage info if available
-            let usage = json.get("usage");
-            let input_tokens = usage
-                .and_then(|u| u.get("input_tokens"))
-                .and_then(|t| t.as_u64())
-                .unwrap_or(0);
-            let output_tokens = usage
-                .and_then(|u| u.get("output_tokens"))
-                .and_then(|t| t.as_u64())
-                .unwrap_or(0);
-
-            CodexEventResult::Log(LogEvent::system(format!(
-                "Completed (tokens: {} in, {} out)",
-                input_tokens, output_tokens
-            )))
-        }
-
-        // Item events - show reasoning and commands
-        "item.completed" | "item.started" => {
-            let item = match json.get("item") {
-                Some(i) => i,
-                None => return CodexEventResult::None,
-            };
-
-            let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
-
-            match item_type {
-                "reasoning" => {
-                    let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
-                    // Only show first line of reasoning
-                    let first_line = text.lines().next().unwrap_or("");
-                    CodexEventResult::Log(LogEvent::thought(truncate(first_line, 100)))
-                }
-                "command_execution" => {
-                    let cmd = item.get("command").and_then(|c| c.as_str()).unwrap_or("");
-                    if event_type == "item.started" {
-                        CodexEventResult::Log(LogEvent::tool_call("bash", truncate(cmd, 80)))
-                    } else {
-                        // For completed, we could show output but it's often long
-                        CodexEventResult::None
-                    }
-                }
-                "agent_message" => {
-                    let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
-                    let first_line = text.lines().next().unwrap_or("");
-                    CodexEventResult::Log(LogEvent::text(truncate(first_line, 150)))
-                }
-                "file_edit" | "file_create" => {
-                    let path = item.get("path").and_then(|p| p.as_str()).unwrap_or("file");
-                    CodexEventResult::Log(LogEvent::tool_call(item_type, path.to_string()))
-                }
-                _ => CodexEventResult::None,
-            }
-        }
-
-        // Legacy message format
-        "message" => {
-            let content = match json.get("content").and_then(|c| c.as_str()) {
-                Some(c) => c,
-                None => return CodexEventResult::None,
-            };
-            let role = json.get("role").and_then(|r| r.as_str()).unwrap_or("unknown");
-
-            if role == "assistant" {
-                CodexEventResult::Log(LogEvent::text(truncate(content, 200)))
-            } else {
-                CodexEventResult::Log(LogEvent::system(format!("[{}] {}", role, truncate(content, 100))))
-            }
-        }
-
-        // Error events
-        "error" => {
-            let message = json.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
-            CodexEventResult::Log(LogEvent::error(message.to_string()))
-        }
-
-        // Ignore other event types silently
-        "session.created" | "session.updated" | "item.input_audio_transcription.completed" => {
-            CodexEventResult::None
-        }
-
-        _ => CodexEventResult::None,
-    }
-}
-
-/// Truncate a string to a maximum length
-fn truncate(s: &str, max_chars: usize) -> String {
-    let char_count = s.chars().count();
-    if char_count <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars).collect();
-        format!("{}...", truncated)
     }
 }

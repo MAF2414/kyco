@@ -8,8 +8,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-use super::runner::{AgentResult, AgentRunner};
+use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
+
+use super::parser::parse_gemini_event;
 
 /// Gemini CLI agent adapter
 ///
@@ -185,69 +187,5 @@ impl AgentRunner for GeminiAdapter {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
-    }
-}
-
-/// Parse a Gemini output line into a LogEvent
-///
-/// Gemini CLI output format may vary. This provides a best-effort parsing.
-fn parse_gemini_event(line: &str) -> LogEvent {
-    // Try to parse as JSON first
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-        if let Some(event_type) = json.get("type").and_then(|t| t.as_str()) {
-            match event_type {
-                "text" | "message" => {
-                    let content = json
-                        .get("content")
-                        .or_else(|| json.get("text"))
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("");
-                    return LogEvent::text(truncate(content, 200));
-                }
-                "tool_call" | "function_call" => {
-                    let name = json
-                        .get("name")
-                        .or_else(|| json.get("tool"))
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("unknown");
-                    return LogEvent::tool_call(name.to_string(), format!("Calling {}", name));
-                }
-                "tool_result" | "function_result" => {
-                    let output = json
-                        .get("output")
-                        .or_else(|| json.get("result"))
-                        .and_then(|o| o.as_str())
-                        .unwrap_or("");
-                    return LogEvent::tool_output("result", truncate(output, 100));
-                }
-                "error" => {
-                    let message = json
-                        .get("message")
-                        .or_else(|| json.get("error"))
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Unknown error");
-                    return LogEvent::error(message.to_string());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    // Fall back to treating as plain text
-    if line.trim().is_empty() {
-        LogEvent::system("")
-    } else {
-        LogEvent::text(truncate(line, 200))
-    }
-}
-
-/// Truncate a string to a maximum length
-fn truncate(s: &str, max_chars: usize) -> String {
-    let char_count = s.chars().count();
-    if char_count <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars).collect();
-        format!("{}...", truncated)
     }
 }

@@ -11,6 +11,26 @@ use super::gemini::GeminiAdapter;
 use super::terminal::TerminalAdapter;
 use super::runner::AgentRunner;
 
+/// Default suffix for terminal/REPL mode adapter IDs
+/// Used to distinguish print mode adapters (e.g., "claude") from
+/// REPL mode adapters (e.g., "claude-terminal")
+pub const DEFAULT_TERMINAL_SUFFIX: &str = "-terminal";
+
+/// Map a CLI type to its corresponding adapter ID for print mode
+fn cli_type_to_id(cli_type: CliType) -> Option<&'static str> {
+    match cli_type {
+        CliType::Claude => Some("claude"),
+        CliType::Codex => Some("codex"),
+        CliType::Gemini => Some("gemini"),
+        CliType::Custom => None,
+    }
+}
+
+/// Map a CLI type to its corresponding adapter ID for REPL/terminal mode
+fn cli_type_to_terminal_id(cli_type: CliType) -> Option<String> {
+    cli_type_to_id(cli_type).map(|id| format!("{}{}", id, DEFAULT_TERMINAL_SUFFIX))
+}
+
 /// Registry for agent adapters
 ///
 /// The registry manages all available agent adapters and provides
@@ -71,24 +91,12 @@ impl AgentRegistry {
 
     /// Get an adapter for a CLI type (print mode)
     pub fn get_for_cli_type(&self, cli_type: CliType) -> Option<Arc<dyn AgentRunner>> {
-        let id = match cli_type {
-            CliType::Claude => "claude",
-            CliType::Codex => "codex",
-            CliType::Gemini => "gemini",
-            CliType::Custom => return None,
-        };
-        self.get(id)
+        cli_type_to_id(cli_type).and_then(|id| self.get(id))
     }
 
     /// Get a REPL adapter for a CLI type
     pub fn get_repl_for_cli_type(&self, cli_type: CliType) -> Option<Arc<dyn AgentRunner>> {
-        let id = match cli_type {
-            CliType::Claude => "claude-terminal",
-            CliType::Codex => "codex-terminal",
-            CliType::Gemini => "gemini-terminal",
-            CliType::Custom => return None,
-        };
-        self.get_repl(id)
+        cli_type_to_terminal_id(cli_type).and_then(|id| self.get_repl(&id))
     }
 
     /// Get or create an adapter for a config
@@ -106,8 +114,8 @@ impl AgentRegistry {
                 self.get_for_cli_type(config.cli_type)
             }
             AgentMode::Repl => {
-                // First try by ID with -terminal suffix
-                let terminal_id = format!("{}-terminal", config.id);
+                // First try by ID with terminal suffix
+                let terminal_id = format!("{}{}", config.id, DEFAULT_TERMINAL_SUFFIX);
                 if let Some(adapter) = self.get_repl(&terminal_id) {
                     return Some(adapter);
                 }

@@ -13,7 +13,7 @@ pub use alias::AliasConfig;
 pub use chain::{ChainStep, ModeChain, ModeOrChain};
 pub use mode::ModeConfig;
 pub use scope::ScopeConfig;
-pub use settings::{GuiSettings, Settings, VoiceSettings};
+pub use settings::{GuiSettings, RegistrySettings, Settings, VoiceSettings};
 pub use target::TargetConfig;
 
 use std::collections::HashMap;

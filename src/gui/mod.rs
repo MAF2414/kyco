@@ -25,14 +25,13 @@ pub mod jobs;
 pub mod modes;
 pub mod output_schema;
 pub mod runner;
-pub mod selection_popup;
+pub mod selection;
 pub mod settings;
 pub mod status_bar;
 pub mod voice;
-pub mod voice_install;
-pub mod voice_settings;
 
-pub use app::{Agent, KycoApp, Mode, SelectionContext};
+pub use app::{Agent, KycoApp, Mode};
+pub use selection::SelectionContext;
 pub use executor::{start_executor, ExecutorEvent};
 pub use http_server::SelectionRequest;
 pub use runner::run_gui;

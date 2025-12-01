@@ -10,6 +10,7 @@ use super::diff::DiffState;
 use super::executor::ExecutorEvent;
 use super::http_server::SelectionRequest;
 use super::jobs;
+use super::selection::{AutocompleteState, SelectionContext};
 use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager};
 use crate::config::Config;
 use crate::job::JobManager;
@@ -19,34 +20,6 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use tracing::info;
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Selection Context - Information about the current selection from IDE
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Information about the current selection context (received from IDE extensions)
-#[derive(Debug, Clone, Default)]
-pub struct SelectionContext {
-    /// Name of the focused application (e.g., "Visual Studio Code", "IntelliJ IDEA")
-    pub app_name: Option<String>,
-    /// Path to the current file (if detectable)
-    pub file_path: Option<String>,
-    /// The selected text
-    pub selected_text: Option<String>,
-    /// Start line number (if available)
-    pub line_number: Option<usize>,
-    /// End line number (if available)
-    pub line_end: Option<usize>,
-    /// Multiple file matches (when file_path couldn't be determined uniquely)
-    pub possible_files: Vec<String>,
-}
-
-impl SelectionContext {
-    /// Check if we have any useful selection data
-    pub fn has_selection(&self) -> bool {
-        self.selected_text.as_ref().map_or(false, |s| !s.is_empty())
-    }
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // THEME: "Terminal Phosphor" - Retro CRT monitor aesthetic
@@ -86,14 +59,6 @@ pub(super) const ACCENT_PURPLE: Color32 = Color32::from_rgb(200, 120, 255);
 // REMOVED: Hardcoded MODES and AGENTS constants
 // Modes and agents are now dynamically loaded from config.toml
 // via self.config.mode and self.config.agent in update_suggestions()
-
-/// Autocomplete suggestion
-#[derive(Debug, Clone)]
-pub struct Suggestion {
-    pub text: String,
-    pub description: String,
-    pub category: &'static str,
-}
 
 /// View mode for the app
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,14 +102,8 @@ pub struct KycoApp {
     view_mode: ViewMode,
     /// Selection popup input
     popup_input: String,
-    /// Autocomplete suggestions
-    suggestions: Vec<Suggestion>,
-    /// Selected suggestion index
-    selected_suggestion: usize,
-    /// Show suggestions dropdown
-    show_suggestions: bool,
-    /// Request cursor to move to end of input
-    cursor_to_end: bool,
+    /// Autocomplete state (suggestions, selection, etc.)
+    autocomplete: AutocompleteState,
     /// Status message for popup
     popup_status: Option<(String, bool)>,
     /// Diff view state
@@ -301,13 +260,10 @@ impl KycoApp {
             selection: SelectionContext::default(),
             view_mode: ViewMode::JobList,
             popup_input: String::new(),
-            suggestions: Vec::new(),
-            selected_suggestion: 0,
-            show_suggestions: false,
-            cursor_to_end: false,
+            autocomplete: AutocompleteState::default(),
             popup_status: None,
             diff_state: DiffState::new(),
-            auto_run: false,
+            auto_run: settings_auto_run,
             auto_scan: true,
             log_scroll_to_bottom: true,
             extension_status: None,
@@ -505,137 +461,19 @@ impl KycoApp {
 
     /// Update autocomplete suggestions based on input
     fn update_suggestions(&mut self) {
-        self.suggestions.clear();
-        self.selected_suggestion = 0;
-
-        let input_lower = self.popup_input.to_lowercase();
-        let input_trimmed = input_lower.trim();
-
-        // Get default agent from config
-        let default_agent = &self.config.settings.gui.default_agent;
-
-        if input_trimmed.is_empty() {
-            // Show agents first, then modes when empty
-            for (agent_name, agent_config) in &self.config.agent {
-                let desc = format!("{} ({})", agent_config.binary, agent_config.aliases.join(", "));
-                self.suggestions.push(Suggestion {
-                    text: format!("{}:", agent_name),
-                    description: desc,
-                    category: "agent",
-                });
-            }
-            for (mode_name, mode_config) in &self.config.mode {
-                let aliases = if mode_config.aliases.is_empty() {
-                    String::new()
-                } else {
-                    format!(" ({})", mode_config.aliases.join(", "))
-                };
-                let agent_hint = mode_config.agent.as_deref().unwrap_or(default_agent);
-                self.suggestions.push(Suggestion {
-                    text: mode_name.to_string(),
-                    description: format!("default: {}{}", agent_hint, aliases),
-                    category: "mode",
-                });
-            }
-            self.show_suggestions = true;
-            return;
-        }
-
-        // Check if we have "agent:" prefix - show modes after colon
-        if let Some(colon_pos) = input_trimmed.find(':') {
-            let agent_part = &input_trimmed[..colon_pos];
-            let mode_part = &input_trimmed[colon_pos + 1..];
-
-            // After colon, show matching modes
-            for (mode_name, mode_config) in &self.config.mode {
-                let mode_lower = mode_name.to_lowercase();
-                let matches_mode = mode_lower.starts_with(mode_part) || mode_part.is_empty();
-                let matches_alias = mode_config.aliases.iter().any(|a| a.to_lowercase().starts_with(mode_part));
-
-                if matches_mode || matches_alias {
-                    let aliases = if mode_config.aliases.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", mode_config.aliases.join(", "))
-                    };
-                    self.suggestions.push(Suggestion {
-                        text: format!("{}:{}", agent_part, mode_name),
-                        description: aliases,
-                        category: "mode",
-                    });
-                }
-            }
-        } else {
-            // No colon yet - show matching agents and modes
-            // First show matching agents (by name or alias)
-            for (agent_name, agent_config) in &self.config.agent {
-                let name_lower = agent_name.to_lowercase();
-                let matches_name = name_lower.starts_with(input_trimmed);
-                let matches_alias = agent_config.aliases.iter().any(|a| a.to_lowercase().starts_with(input_trimmed));
-
-                if matches_name || matches_alias {
-                    let desc = format!("{} ({})", agent_config.binary, agent_config.aliases.join(", "));
-                    self.suggestions.push(Suggestion {
-                        text: format!("{}:", agent_name),
-                        description: desc,
-                        category: "agent",
-                    });
-                }
-            }
-
-            // Then show matching modes (uses default agent)
-            for (mode_name, mode_config) in &self.config.mode {
-                let mode_lower = mode_name.to_lowercase();
-                let matches_mode = mode_lower.starts_with(input_trimmed);
-                let matches_alias = mode_config.aliases.iter().any(|a| a.to_lowercase().starts_with(input_trimmed));
-
-                if matches_mode || matches_alias {
-                    let aliases = if mode_config.aliases.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", mode_config.aliases.join(", "))
-                    };
-                    let agent_hint = mode_config.agent.as_deref().unwrap_or(default_agent);
-                    self.suggestions.push(Suggestion {
-                        text: mode_name.to_string(),
-                        description: format!("default: {}{}", agent_hint, aliases),
-                        category: "mode",
-                    });
-                }
-            }
-        }
-
-        self.show_suggestions = !self.suggestions.is_empty();
+        self.autocomplete.update_suggestions(&self.popup_input, &self.config);
     }
 
     /// Apply selected suggestion
     fn apply_suggestion(&mut self) {
-        if let Some(suggestion) = self.suggestions.get(self.selected_suggestion) {
-            if suggestion.text.ends_with(':') {
-                self.popup_input = suggestion.text.clone();
-            } else {
-                self.popup_input = format!("{} ", suggestion.text);
-            }
-            self.show_suggestions = false;
-            self.cursor_to_end = true; // Request cursor move to end
+        if let Some(new_input) = self.autocomplete.apply_suggestion(&self.popup_input) {
+            self.popup_input = new_input;
         }
     }
 
     /// Parse the popup input into agent, mode, and prompt
     fn parse_input(&self) -> (String, String, String) {
-        let input = self.popup_input.trim();
-
-        let (command, prompt) = match input.find(' ') {
-            Some(pos) => (&input[..pos], input[pos + 1..].trim()),
-            None => (input, ""),
-        };
-
-        let (agent, mode) = match command.find(':') {
-            Some(pos) => (&command[..pos], &command[pos + 1..]),
-            None => ("claude", command),
-        };
-
-        (agent.to_string(), mode.to_string(), prompt.to_string())
+        super::selection::autocomplete::parse_input(&self.popup_input)
     }
 
     /// Execute the task from selection popup
@@ -710,16 +548,16 @@ impl KycoApp {
 
     /// Render the selection popup
     fn render_selection_popup(&mut self, ctx: &egui::Context) {
-        use super::selection_popup::{render_selection_popup, SelectionPopupAction, SelectionPopupState};
+        use super::selection::{render_selection_popup, SelectionPopupAction, SelectionPopupState};
 
         let mut state = SelectionPopupState {
             selection: &self.selection,
             popup_input: &mut self.popup_input,
             popup_status: &self.popup_status,
-            suggestions: &self.suggestions,
-            selected_suggestion: self.selected_suggestion,
-            show_suggestions: self.show_suggestions,
-            cursor_to_end: &mut self.cursor_to_end,
+            suggestions: &self.autocomplete.suggestions,
+            selected_suggestion: self.autocomplete.selected_suggestion,
+            show_suggestions: self.autocomplete.show_suggestions,
+            cursor_to_end: &mut self.autocomplete.cursor_to_end,
             voice_state: self.voice_manager.state,
             voice_mode: self.voice_manager.config.mode,
             voice_last_error: self.voice_manager.last_error.as_deref(),
@@ -731,7 +569,7 @@ impl KycoApp {
                     self.update_suggestions();
                 }
                 SelectionPopupAction::SuggestionClicked(idx) => {
-                    self.selected_suggestion = idx;
+                    self.autocomplete.selected_suggestion = idx;
                     self.apply_suggestion();
                     self.update_suggestions();
                 }
@@ -759,6 +597,28 @@ impl eframe::App for KycoApp {
         // Check for HTTP selection events from IDE extensions
         while let Ok(req) = self.http_rx.try_recv() {
             self.on_selection_received(req, ctx);
+        }
+
+        // Auto-run: Queue pending jobs automatically when auto_run is enabled
+        if self.auto_run {
+            let pending_job_ids: Vec<u64> = self
+                .cached_jobs
+                .iter()
+                .filter(|j| j.status == crate::JobStatus::Pending)
+                .map(|j| j.id)
+                .collect();
+
+            if !pending_job_ids.is_empty() {
+                if let Ok(mut manager) = self.job_manager.lock() {
+                    for job_id in pending_job_ids {
+                        manager.set_status(job_id, crate::JobStatus::Queued);
+                        self.logs.push(crate::LogEvent::system(format!(
+                            "Auto-queued job #{}",
+                            job_id
+                        )));
+                    }
+                }
+            }
         }
 
         // Check for executor events (job status updates, logs)
@@ -856,15 +716,15 @@ impl eframe::App for KycoApp {
                     if i.key_pressed(Key::Escape) {
                         self.view_mode = ViewMode::JobList;
                     }
-                    if i.key_pressed(Key::Tab) && self.show_suggestions && !self.suggestions.is_empty() {
+                    if i.key_pressed(Key::Tab) && self.autocomplete.show_suggestions && !self.autocomplete.suggestions.is_empty() {
                         self.apply_suggestion();
                         self.update_suggestions();
                     }
-                    if i.key_pressed(Key::ArrowDown) && self.show_suggestions {
-                        self.selected_suggestion = (self.selected_suggestion + 1) % self.suggestions.len().max(1);
+                    if i.key_pressed(Key::ArrowDown) && self.autocomplete.show_suggestions {
+                        self.autocomplete.select_next();
                     }
-                    if i.key_pressed(Key::ArrowUp) && self.show_suggestions {
-                        self.selected_suggestion = self.selected_suggestion.saturating_sub(1);
+                    if i.key_pressed(Key::ArrowUp) && self.autocomplete.show_suggestions {
+                        self.autocomplete.select_previous();
                     }
                     if i.key_pressed(Key::Enter) {
                         self.execute_popup_task();
@@ -989,7 +849,9 @@ impl eframe::App for KycoApp {
             ViewMode::JobList => {
                 egui::SidePanel::left("job_list")
                     .default_width(280.0)
-                    .resizable(true)
+                    .min_width(280.0)
+                    .max_width(280.0)
+                    .resizable(false)
                     .frame(egui::Frame::none().fill(BG_PRIMARY).inner_margin(8.0))
                     .show(ctx, |ui| {
                         self.render_job_list(ui);

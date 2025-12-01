@@ -14,6 +14,12 @@
 //! - Uses `sox` (rec command) for audio recording
 //! - Uses `whisper-cpp` (whisper CLI) for transcription
 
+pub mod install;
+pub mod settings;
+
+pub use install::{install_voice_dependencies, VoiceInstallResult};
+pub use settings::{render_voice_settings, VoiceSettingsState};
+
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};

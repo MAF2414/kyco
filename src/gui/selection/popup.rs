@@ -6,11 +6,13 @@
 use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 
-use super::app::{
-    SelectionContext, Suggestion, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED,
-    BG_HIGHLIGHT, BG_SECONDARY, STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+use super::context::SelectionContext;
+use super::autocomplete::Suggestion;
+use crate::gui::app::{
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, BG_HIGHLIGHT, BG_SECONDARY,
+    STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
-use super::voice::{VoiceInputMode, VoiceState};
+use crate::gui::voice::{VoiceInputMode, VoiceState};
 
 /// Actions that can be triggered from the selection popup
 #[derive(Debug, Clone)]

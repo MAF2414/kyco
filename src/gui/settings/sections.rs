@@ -1,177 +1,22 @@
-//! Settings component for the GUI
+//! Settings section render functions
 //!
-//! Renders the settings configuration view where users can:
-//! - Configure general settings (max concurrent jobs, debounce, etc.)
-//! - Configure output schema for agent prompts
-//! - Install IDE extensions
-//! - Configure voice input settings
-//! - View HTTP server status
+//! Each function renders a distinct section of the settings panel.
 
-use eframe::egui::{self, Color32, RichText, ScrollArea};
-use std::path::Path;
+use eframe::egui::{self, Color32, RichText};
 
-use super::app::{
-    ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_PRIMARY, BG_SECONDARY, TEXT_DIM,
-    TEXT_MUTED, TEXT_PRIMARY,
+use crate::gui::app::{
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
-use crate::config::Config;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// State struct for settings UI
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// State for settings editing UI
-pub struct SettingsState<'a> {
-    // General settings
-    pub settings_max_concurrent: &'a mut String,
-    pub settings_debounce_ms: &'a mut String,
-    pub settings_auto_run: &'a mut bool,
-    pub settings_marker_prefix: &'a mut String,
-    pub settings_use_worktree: &'a mut bool,
-    pub settings_scan_exclude: &'a mut String,
-    pub settings_output_schema: &'a mut String,
-    pub settings_status: &'a mut Option<(String, bool)>,
-
-    // Voice settings
-    pub voice_settings_mode: &'a mut String,
-    pub voice_settings_keywords: &'a mut String,
-    pub voice_settings_model: &'a mut String,
-    pub voice_settings_language: &'a mut String,
-    pub voice_settings_silence_threshold: &'a mut String,
-    pub voice_settings_silence_duration: &'a mut String,
-    pub voice_settings_max_duration: &'a mut String,
-    pub voice_install_status: &'a mut Option<(String, bool)>,
-    pub voice_install_in_progress: &'a mut bool,
-
-    // Extension status
-    pub extension_status: &'a mut Option<(String, bool)>,
-
-    // Common state
-    pub view_mode: &'a mut ViewMode,
-    pub config: &'a mut Config,
-    pub work_dir: &'a Path,
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// UI Helper Functions
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Render a labeled text input field
-fn render_text_field(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut String,
-    width: f32,
-    hint: Option<&str>,
-) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(TEXT_MUTED));
-        let mut edit = egui::TextEdit::singleline(value)
-            .font(egui::TextStyle::Monospace)
-            .text_color(TEXT_PRIMARY)
-            .desired_width(width);
-        if let Some(h) = hint {
-            edit = edit.hint_text(h);
-        }
-        ui.add(edit);
-    });
-}
-
-/// Render a labeled text input field with a description on the same line
-fn render_text_field_with_desc(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut String,
-    width: f32,
-    description: &str,
-) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(TEXT_MUTED));
-        ui.add(
-            egui::TextEdit::singleline(value)
-                .font(egui::TextStyle::Monospace)
-                .text_color(TEXT_PRIMARY)
-                .desired_width(width),
-        );
-        ui.label(RichText::new(description).small().color(TEXT_MUTED));
-    });
-}
-
-/// Render a labeled checkbox with description
-fn render_checkbox_field(ui: &mut egui::Ui, value: &mut bool, label: &str, description: &str) {
-    ui.horizontal(|ui| {
-        ui.checkbox(value, "");
-        ui.label(RichText::new(label).color(TEXT_DIM));
-        ui.label(RichText::new(description).small().color(TEXT_MUTED));
-    });
-}
-
-/// Render a status message (success or error)
-fn render_status_message(ui: &mut egui::Ui, status: &Option<(String, bool)>) {
-    if let Some((msg, is_error)) = status {
-        let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };
-        ui.label(RichText::new(msg).color(color));
-    }
-}
-
-/// Render a section frame with secondary background
-fn render_section_frame<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    egui::Frame::none()
-        .fill(BG_SECONDARY)
-        .corner_radius(4.0)
-        .inner_margin(12.0)
-        .show(ui, add_contents)
-        .inner
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Main render function
-// ═══════════════════════════════════════════════════════════════════════════
-
-/// Render the settings configuration view
-pub fn render_settings(ctx: &egui::Context, state: &mut SettingsState<'_>) {
-    egui::CentralPanel::default()
-        .frame(egui::Frame::none().fill(BG_PRIMARY).inner_margin(16.0))
-        .show(ctx, |ui| {
-            ui.vertical(|ui| {
-                // Header
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("⚙ SETTINGS")
-                            .monospace()
-                            .size(18.0)
-                            .color(TEXT_PRIMARY),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(RichText::new("✕ Close").color(TEXT_DIM))
-                            .clicked()
-                        {
-                            *state.view_mode = ViewMode::JobList;
-                        }
-                    });
-                });
-                ui.add_space(16.0);
-
-                ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        render_settings_general(ui, state);
-                        render_settings_output_schema(ui, state);
-                        render_settings_ide_extensions(ui, state);
-                        render_settings_voice(ui, state);
-                        render_settings_http_server(ui);
-                    });
-            });
-        });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Section render functions
-// ═══════════════════════════════════════════════════════════════════════════
+use super::helpers::{
+    render_checkbox_field, render_section_frame, render_status_message, render_text_field,
+    render_text_field_with_desc,
+};
+use super::save::save_settings_to_config;
+use super::state::SettingsState;
 
 /// Render General Settings section
-fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
+pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.label(RichText::new("General Settings").monospace().color(TEXT_PRIMARY));
     ui.add_space(8.0);
 
@@ -252,7 +97,7 @@ fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
 }
 
 /// Render Output Schema section
-fn render_settings_output_schema(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
+pub fn render_settings_output_schema(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.label(
         RichText::new("Agent Output Schema")
             .monospace()
@@ -287,7 +132,7 @@ fn render_settings_output_schema(ui: &mut egui::Ui, state: &mut SettingsState<'_
 }
 
 /// Render IDE Extensions section
-fn render_settings_ide_extensions(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
+pub fn render_settings_ide_extensions(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.label(RichText::new("IDE Extensions").monospace().color(TEXT_PRIMARY));
     ui.add_space(8.0);
     ui.label(
@@ -361,7 +206,7 @@ fn render_settings_ide_extensions(ui: &mut egui::Ui, state: &mut SettingsState<'
 }
 
 /// Render Voice Input Settings section
-fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
+pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.label(RichText::new("Voice Input").monospace().color(TEXT_PRIMARY));
     ui.add_space(8.0);
     ui.label(
@@ -636,7 +481,7 @@ fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
 }
 
 /// Render HTTP Server info section
-fn render_settings_http_server(ui: &mut egui::Ui) {
+pub fn render_settings_http_server(ui: &mut egui::Ui) {
     ui.label(RichText::new("HTTP Server").monospace().color(TEXT_PRIMARY));
     ui.add_space(8.0);
     ui.horizontal(|ui| {
@@ -659,13 +504,9 @@ fn render_settings_http_server(ui: &mut egui::Ui) {
     );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Helper Functions
-// ═══════════════════════════════════════════════════════════════════════════
-
 /// Install VS Code extension
 fn install_vscode_extension(state: &mut SettingsState<'_>) {
-    let result = super::install::install_vscode_extension(state.work_dir);
+    let result = crate::gui::install::install_vscode_extension(state.work_dir);
     *state.extension_status = Some((result.message, result.is_error));
 }
 
@@ -674,107 +515,8 @@ fn install_voice_dependencies(state: &mut SettingsState<'_>) {
     *state.voice_install_in_progress = true;
     *state.voice_install_status = Some(("Installing voice dependencies...".to_string(), false));
 
-    let result = super::voice_install::install_voice_dependencies(state.work_dir);
+    let result = crate::gui::voice::install::install_voice_dependencies(state.work_dir);
 
     *state.voice_install_status = Some((result.message, result.is_error));
     *state.voice_install_in_progress = result.in_progress;
-}
-
-/// Save settings to config file
-///
-/// Uses proper TOML serialization to avoid config file corruption.
-fn save_settings_to_config(state: &mut SettingsState<'_>) {
-    // Parse and validate values
-    let max_concurrent = match state.settings_max_concurrent.trim().parse::<usize>() {
-        Ok(n) if n > 0 => n,
-        _ => {
-            *state.settings_status =
-                Some(("Invalid max concurrent jobs (must be > 0)".to_string(), true));
-            return;
-        }
-    };
-
-    let debounce_ms = match state.settings_debounce_ms.trim().parse::<u64>() {
-        Ok(n) => n,
-        _ => {
-            *state.settings_status = Some(("Invalid debounce ms".to_string(), true));
-            return;
-        }
-    };
-
-    let scan_exclude: Vec<String> = state
-        .settings_scan_exclude
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    // Parse voice settings
-    let silence_threshold = match state.voice_settings_silence_threshold.trim().parse::<f32>() {
-        Ok(n) if (0.0..=1.0).contains(&n) => n,
-        _ => {
-            *state.settings_status = Some((
-                "Invalid silence threshold (must be 0.0-1.0)".to_string(),
-                true,
-            ));
-            return;
-        }
-    };
-
-    let silence_duration = match state.voice_settings_silence_duration.trim().parse::<f32>() {
-        Ok(n) if n > 0.0 => n,
-        _ => {
-            *state.settings_status =
-                Some(("Invalid silence duration (must be > 0)".to_string(), true));
-            return;
-        }
-    };
-
-    let max_duration = match state.voice_settings_max_duration.trim().parse::<f32>() {
-        Ok(n) if n > 0.0 => n,
-        _ => {
-            *state.settings_status = Some(("Invalid max duration (must be > 0)".to_string(), true));
-            return;
-        }
-    };
-
-    let voice_keywords: Vec<String> = state
-        .voice_settings_keywords
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    // Update the in-memory config with new values
-    state.config.settings.max_concurrent_jobs = max_concurrent;
-    state.config.settings.debounce_ms = debounce_ms;
-    state.config.settings.auto_run = *state.settings_auto_run;
-    state.config.settings.marker_prefix = state.settings_marker_prefix.clone();
-    state.config.settings.scan_exclude = scan_exclude;
-    state.config.settings.use_worktree = *state.settings_use_worktree;
-    state.config.settings.gui.output_schema = state.settings_output_schema.clone();
-
-    // Update voice settings
-    state.config.settings.gui.voice.mode = state.voice_settings_mode.clone();
-    state.config.settings.gui.voice.keywords = voice_keywords;
-    state.config.settings.gui.voice.whisper_model = state.voice_settings_model.clone();
-    state.config.settings.gui.voice.language = state.voice_settings_language.clone();
-    state.config.settings.gui.voice.silence_threshold = silence_threshold;
-    state.config.settings.gui.voice.silence_duration = silence_duration;
-    state.config.settings.gui.voice.max_duration = max_duration;
-
-    // Serialize entire config using proper TOML serialization
-    let config_path = state.work_dir.join(".kyco").join("config.toml");
-    match toml::to_string_pretty(state.config) {
-        Ok(toml_content) => {
-            if let Err(e) = std::fs::write(&config_path, &toml_content) {
-                *state.settings_status = Some((format!("Failed to write config: {}", e), true));
-                return;
-            }
-            *state.settings_status = Some(("Settings saved!".to_string(), false));
-        }
-        Err(e) => {
-            *state.settings_status = Some((format!("Failed to serialize config: {}", e), true));
-        }
-    }
 }

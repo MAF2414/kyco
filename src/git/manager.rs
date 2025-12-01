@@ -218,8 +218,11 @@ impl GitManager {
 
         // Remove the worktree
         if worktree_path.exists() {
+            let worktree_path_str = worktree_path
+                .to_str()
+                .ok_or_else(|| anyhow!("Worktree path contains invalid UTF-8"))?;
             let output = Command::new("git")
-                .args(["worktree", "remove", "--force", worktree_path.to_str().unwrap()])
+                .args(["worktree", "remove", "--force", worktree_path_str])
                 .current_dir(&self.root)
                 .output()
                 .context("Failed to remove worktree")?;

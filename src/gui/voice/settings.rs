@@ -9,7 +9,7 @@
 
 use eframe::egui::{self, Color32, RichText};
 
-use super::app::{
+use crate::gui::app::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
 

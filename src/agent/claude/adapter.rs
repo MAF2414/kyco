@@ -9,7 +9,7 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 
 use super::output::{ContentBlock, StreamEvent};
-use super::runner::{AgentResult, AgentRunner};
+use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
 
 /// Claude Code agent adapter
@@ -195,7 +195,7 @@ impl AgentRunner for ClaudeAdapter {
                                     // Collect text output for parsing ---kyco blocks
                                     output_text.push_str(text);
                                     output_text.push('\n');
-                                    events.push(LogEvent::text(truncate(text, 200)));
+                                    events.push(LogEvent::text(text.clone()));
                                 }
                                 ContentBlock::ToolUse { name, input, .. } => {
                                     let summary = format_tool_call(name, input);
@@ -215,9 +215,9 @@ impl AgentRunner for ClaudeAdapter {
                         for block in &message.content {
                             if let ContentBlock::ToolResult { content, is_error, .. } = block {
                                 summary = if *is_error {
-                                    format!("Error: {}", truncate(content, 100))
+                                    format!("Error: {}", content)
                                 } else {
-                                    truncate(content, 100)
+                                    content.clone()
                                 };
                             }
                         }
@@ -277,17 +277,6 @@ impl AgentRunner for ClaudeAdapter {
     }
 }
 
-/// Truncate a string to a maximum length
-fn truncate(s: &str, max_chars: usize) -> String {
-    let char_count = s.chars().count();
-    if char_count <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars).collect();
-        format!("{}...", truncated)
-    }
-}
-
 /// Format a tool call for display
 fn format_tool_call(name: &str, input: &serde_json::Value) -> String {
     match name {
@@ -314,7 +303,7 @@ fn format_tool_call(name: &str, input: &serde_json::Value) -> String {
         }
         "Bash" => {
             if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                format!("Bash: {}", truncate(cmd, 50))
+                format!("Bash: {}", cmd)
             } else {
                 "Bash command".to_string()
             }
@@ -328,7 +317,7 @@ fn format_tool_call(name: &str, input: &serde_json::Value) -> String {
         }
         "Grep" => {
             if let Some(pattern) = input.get("pattern").and_then(|v| v.as_str()) {
-                format!("Grep: {}", truncate(pattern, 30))
+                format!("Grep: {}", pattern)
             } else {
                 "Grep search".to_string()
             }

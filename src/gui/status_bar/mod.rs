@@ -1,11 +1,11 @@
-//! Status bar component for the GUI
+//! Status bar module for the GUI
 //!
 //! Renders the bottom status bar with auto-run/auto-scan toggles,
 //! settings button, modes button, and agents button.
 
 use eframe::egui::{self, RichText};
 
-use super::app::{
+use crate::gui::app::{
     ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, BG_SECONDARY, TEXT_MUTED, TEXT_PRIMARY,
 };
 
