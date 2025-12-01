@@ -173,6 +173,77 @@ impl Config {
             },
         );
 
+        // Add default modes
+        config.mode.insert(
+            "review".to_string(),
+            ModeConfig {
+                agent: None,
+                target_default: Some("code".to_string()),
+                scope_default: Some("file".to_string()),
+                prompt: Some("Review the code in `{file}` for issues, bugs, and improvements. {description}".to_string()),
+                system_prompt: Some("You are a code reviewer. Focus on bugs, security issues, performance problems, and code quality. Be thorough but constructive.".to_string()),
+                allowed_tools: vec!["Read".to_string(), "Glob".to_string(), "Grep".to_string()],
+                disallowed_tools: vec!["Write".to_string(), "Edit".to_string()],
+                aliases: vec!["r".to_string(), "rev".to_string()],
+                output_states: vec!["issues_found".to_string(), "no_issues".to_string()],
+            },
+        );
+
+        config.mode.insert(
+            "fix".to_string(),
+            ModeConfig {
+                agent: None,
+                target_default: Some("code".to_string()),
+                scope_default: Some("file".to_string()),
+                prompt: Some("Fix the issues in `{file}`. {description}".to_string()),
+                system_prompt: Some("You are a code fixer. Apply the necessary fixes based on the issues identified. Make minimal changes to fix the problems.".to_string()),
+                allowed_tools: vec![],
+                disallowed_tools: vec![],
+                aliases: vec!["f".to_string()],
+                output_states: vec!["fixed".to_string(), "unfixable".to_string()],
+            },
+        );
+
+        config.mode.insert(
+            "implement".to_string(),
+            ModeConfig {
+                agent: None,
+                target_default: Some("code".to_string()),
+                scope_default: Some("file".to_string()),
+                prompt: Some("Implement the following in `{file}`: {description}".to_string()),
+                system_prompt: Some("You are a software engineer. Implement the requested feature or functionality.".to_string()),
+                allowed_tools: vec![],
+                disallowed_tools: vec![],
+                aliases: vec!["i".to_string(), "impl".to_string()],
+                output_states: vec!["implemented".to_string(), "blocked".to_string()],
+            },
+        );
+
+        // Add default chain: review+fix
+        config.chain.insert(
+            "review+fix".to_string(),
+            ModeChain {
+                description: Some("Review code and fix any issues found".to_string()),
+                steps: vec![
+                    ChainStep {
+                        mode: "review".to_string(),
+                        trigger_on: None,
+                        skip_on: None,
+                        agent: None,
+                        inject_context: None,
+                    },
+                    ChainStep {
+                        mode: "fix".to_string(),
+                        trigger_on: Some(vec!["issues_found".to_string()]),
+                        skip_on: Some(vec!["no_issues".to_string()]),
+                        agent: None,
+                        inject_context: None,
+                    },
+                ],
+                stop_on_failure: true,
+            },
+        );
+
         config
     }
 

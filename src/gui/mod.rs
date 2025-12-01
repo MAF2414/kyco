@@ -16,6 +16,7 @@
 
 pub mod agents;
 pub mod app;
+pub mod chains;
 pub mod detail_panel;
 pub mod diff;
 pub mod executor;

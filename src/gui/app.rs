@@ -55,6 +55,7 @@ pub(super) const ACCENT_CYAN: Color32 = Color32::from_rgb(0, 255, 200);
 pub(super) const ACCENT_GREEN: Color32 = Color32::from_rgb(80, 255, 120);
 pub(super) const ACCENT_RED: Color32 = Color32::from_rgb(255, 80, 80);
 pub(super) const ACCENT_PURPLE: Color32 = Color32::from_rgb(200, 120, 255);
+pub(super) const ACCENT_YELLOW: Color32 = Color32::from_rgb(255, 200, 50);
 
 // REMOVED: Hardcoded MODES and AGENTS constants
 // Modes and agents are now dynamically loaded from config.toml
@@ -75,6 +76,8 @@ pub enum ViewMode {
     Modes,
     /// Agents configuration view
     Agents,
+    /// Chains configuration view
+    Chains,
 }
 
 /// Main application state
@@ -202,6 +205,18 @@ pub struct KycoApp {
     voice_install_status: Option<(String, bool)>,
     /// Voice installation in progress
     voice_install_in_progress: bool,
+    /// Selected chain for editing (None = list view)
+    selected_chain: Option<String>,
+    /// Chain editor: name field
+    chain_edit_name: String,
+    /// Chain editor: description field
+    chain_edit_description: String,
+    /// Chain editor: steps
+    chain_edit_steps: Vec<super::chains::state::ChainStepEdit>,
+    /// Chain editor: stop on failure
+    chain_edit_stop_on_failure: bool,
+    /// Chain editor: status message
+    chain_edit_status: Option<(String, bool)>,
 }
 
 impl KycoApp {
@@ -314,6 +329,12 @@ impl KycoApp {
             hotkey_held: false,
             voice_install_status: None,
             voice_install_in_progress: false,
+            selected_chain: None,
+            chain_edit_name: String::new(),
+            chain_edit_description: String::new(),
+            chain_edit_steps: Vec::new(),
+            chain_edit_stop_on_failure: true,
+            chain_edit_status: None,
         }
     }
 
@@ -391,6 +412,24 @@ impl KycoApp {
                 agent_edit_disallowed_tools: &mut self.agent_edit_disallowed_tools,
                 agent_edit_allowed_tools: &mut self.agent_edit_allowed_tools,
                 agent_edit_status: &mut self.agent_edit_status,
+                view_mode: &mut self.view_mode,
+                config: &mut self.config,
+                work_dir: &self.work_dir,
+            },
+        );
+    }
+
+    /// Render chains configuration view
+    fn render_chains(&mut self, ctx: &egui::Context) {
+        super::chains::render_chains(
+            ctx,
+            &mut super::chains::ChainEditorState {
+                selected_chain: &mut self.selected_chain,
+                chain_edit_name: &mut self.chain_edit_name,
+                chain_edit_description: &mut self.chain_edit_description,
+                chain_edit_steps: &mut self.chain_edit_steps,
+                chain_edit_stop_on_failure: &mut self.chain_edit_stop_on_failure,
+                chain_edit_status: &mut self.chain_edit_status,
                 view_mode: &mut self.view_mode,
                 config: &mut self.config,
                 work_dir: &self.work_dir,
@@ -786,6 +825,16 @@ impl eframe::App for KycoApp {
                         }
                     }
                 }
+                ViewMode::Chains => {
+                    if i.key_pressed(Key::Escape) {
+                        if self.selected_chain.is_some() {
+                            self.selected_chain = None;
+                            self.chain_edit_status = None;
+                        } else {
+                            self.view_mode = ViewMode::JobList;
+                        }
+                    }
+                }
             }
 
             // Global shortcuts for auto_run and auto_scan toggles (Shift+A and Shift+S)
@@ -887,6 +936,9 @@ impl eframe::App for KycoApp {
             ViewMode::Agents => {
                 self.render_agents(ctx);
             }
+            ViewMode::Chains => {
+                self.render_chains(ctx);
+            }
         }
 
         // Bottom status bar
@@ -900,6 +952,8 @@ impl eframe::App for KycoApp {
                 mode_edit_status: &mut self.mode_edit_status,
                 selected_agent: &mut self.selected_agent,
                 agent_edit_status: &mut self.agent_edit_status,
+                selected_chain: &mut self.selected_chain,
+                chain_edit_status: &mut self.chain_edit_status,
             },
         );
 

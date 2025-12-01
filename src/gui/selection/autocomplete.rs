@@ -72,6 +72,17 @@ impl AutocompleteState {
                     category: "mode",
                 });
             }
+            // Show chains
+            for (chain_name, chain_config) in &config.chain {
+                let desc = chain_config.description.clone().unwrap_or_else(|| {
+                    format!("{} steps", chain_config.steps.len())
+                });
+                self.suggestions.push(Suggestion {
+                    text: chain_name.to_string(),
+                    description: format!("🔗 {}", desc),
+                    category: "chain",
+                });
+            }
             self.show_suggestions = true;
             return;
         }
@@ -100,6 +111,23 @@ impl AutocompleteState {
                         text: format!("{}:{}", agent_part, mode_name),
                         description: aliases,
                         category: "mode",
+                    });
+                }
+            }
+
+            // After colon, also show matching chains
+            for (chain_name, chain_config) in &config.chain {
+                let chain_lower = chain_name.to_lowercase();
+                let matches_chain = chain_lower.starts_with(mode_part) || mode_part.is_empty();
+
+                if matches_chain {
+                    let desc = chain_config.description.clone().unwrap_or_else(|| {
+                        format!("{} steps", chain_config.steps.len())
+                    });
+                    self.suggestions.push(Suggestion {
+                        text: format!("{}:{}", agent_part, chain_name),
+                        description: format!("🔗 {}", desc),
+                        category: "chain",
                     });
                 }
             }
@@ -148,6 +176,21 @@ impl AutocompleteState {
                         text: mode_name.to_string(),
                         description: format!("default: {}{}", agent_hint, aliases),
                         category: "mode",
+                    });
+                }
+            }
+
+            // Show matching chains
+            for (chain_name, chain_config) in &config.chain {
+                let chain_lower = chain_name.to_lowercase();
+                if chain_lower.starts_with(input_trimmed) || chain_lower.contains(input_trimmed) {
+                    let desc = chain_config.description.clone().unwrap_or_else(|| {
+                        format!("{} steps", chain_config.steps.len())
+                    });
+                    self.suggestions.push(Suggestion {
+                        text: chain_name.to_string(),
+                        description: format!("🔗 {}", desc),
+                        category: "chain",
                     });
                 }
             }

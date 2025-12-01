@@ -6,7 +6,7 @@
 use eframe::egui::{self, RichText};
 
 use crate::gui::app::{
-    ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, BG_SECONDARY, TEXT_MUTED, TEXT_PRIMARY,
+    ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, BG_SECONDARY, TEXT_MUTED, TEXT_PRIMARY,
 };
 
 /// Status bar state that can be modified by the status bar UI
@@ -18,6 +18,8 @@ pub struct StatusBarState<'a> {
     pub mode_edit_status: &'a mut Option<(String, bool)>,
     pub selected_agent: &'a mut Option<String>,
     pub agent_edit_status: &'a mut Option<(String, bool)>,
+    pub selected_chain: &'a mut Option<String>,
+    pub chain_edit_status: &'a mut Option<(String, bool)>,
 }
 
 /// Render the bottom status bar
@@ -100,6 +102,15 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         *state.view_mode = ViewMode::Agents;
                         *state.selected_agent = None;
                         *state.agent_edit_status = None;
+                    }
+                    ui.add_space(8.0);
+                    if ui
+                        .button(RichText::new("🔗 Chains").small().color(ACCENT_YELLOW))
+                        .clicked()
+                    {
+                        *state.view_mode = ViewMode::Chains;
+                        *state.selected_chain = None;
+                        *state.chain_edit_status = None;
                     }
                 });
             });
