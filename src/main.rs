@@ -34,36 +34,8 @@ enum Commands {
         pending_only: bool,
     },
 
-    /// Run the TUI and execute jobs
-    Run {
-        /// Maximum number of concurrent jobs (overrides config.toml)
-        #[arg(long)]
-        max_jobs: Option<usize>,
-
-        /// Auto-start pending jobs without confirmation (overrides config.toml)
-        #[arg(long)]
-        auto_start: bool,
-
-        /// Debounce interval for file watcher in milliseconds (overrides config.toml)
-        #[arg(long)]
-        debounce_ms: Option<u64>,
-
-        /// Marker prefix for comment detection (overrides config.toml, e.g., "@@", "::", "TODO:")
-        #[arg(long)]
-        marker_prefix: Option<String>,
-
-        /// Run jobs in isolated Git worktrees (overrides config.toml)
-        #[arg(long)]
-        use_worktree: bool,
-
-        /// Disable Git worktree isolation (overrides config.toml)
-        #[arg(long, conflicts_with = "use_worktree")]
-        no_worktree: bool,
-
-        /// Additional glob patterns to exclude from scanning (can be specified multiple times)
-        #[arg(long = "exclude", short = 'x')]
-        scan_exclude: Vec<String>,
-    },
+    /// Run the GUI (receives selections from IDE extensions via HTTP)
+    Gui,
 
     /// Show the status of all jobs
     Status {
@@ -100,35 +72,9 @@ async fn main() -> Result<()> {
         Some(Commands::Scan { pending_only }) => {
             cli::scan::scan_command(&work_dir, pending_only).await?;
         }
-        Some(Commands::Run {
-            max_jobs,
-            auto_start,
-            debounce_ms,
-            marker_prefix,
-            use_worktree,
-            no_worktree,
-            scan_exclude,
-        }) => {
-            let worktree_override = if use_worktree {
-                Some(true)
-            } else if no_worktree {
-                Some(false)
-            } else {
-                None
-            };
-            cli::run::run_command(
-                &work_dir,
-                cli.config,
-                cli::run::CliSettings {
-                    max_jobs,
-                    auto_start,
-                    debounce_ms,
-                    marker_prefix,
-                    use_worktree: worktree_override,
-                    scan_exclude,
-                },
-            )
-            .await?;
+        Some(Commands::Gui) => {
+            // Run the main GUI application
+            kyco::gui::run_gui()?;
         }
         Some(Commands::Status { filter }) => {
             cli::status::status_command(&work_dir, filter).await?;
@@ -137,13 +83,8 @@ async fn main() -> Result<()> {
             cli::init::init_command(&work_dir, force).await?;
         }
         None => {
-            // Default: run the TUI with config defaults
-            cli::run::run_command(
-                &work_dir,
-                cli.config,
-                cli::run::CliSettings::default(),
-            )
-            .await?;
+            // Default: run the GUI
+            kyco::gui::run_gui()?;
         }
     }
 

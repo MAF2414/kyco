@@ -105,16 +105,20 @@ mode = "repl"
 #
 # Prompt template placeholders:
 #   {file}        - The source file path (e.g., "./src/main.rs")
-#   {line}        - The line number where the marker was found
-#   {target}      - The target location (e.g., "./src/main.rs:42")
+#   {line}        - The start line number (e.g., "42")
+#   {target}      - The target location with line range (e.g., "./src/main.rs:42-50")
 #   {mode}        - The mode name (e.g., "refactor", "docs")
 #   {description} - The user's description from the marker comment
 #   {scope_type}  - The scope type (e.g., "file", "function", "line")
+#
+# When using the IDE extension (VS Code), the selected code range is captured
+# and included in {target} as "file:start-end" (e.g., "./src/main.rs:11-23")
 
 [mode.refactor]
 aliases = ["r", "ref"]
+output_states = ["refactored"]
 prompt = """
-TASK: Refactor code at `{file}:{line}`
+TASK: Refactor code at `{target}`
 CONTEXT: {description}
 
 INSTRUCTIONS:
@@ -123,6 +127,7 @@ INSTRUCTIONS:
 3. Plan your refactoring approach before making changes
 4. Apply refactoring while preserving exact behavior
 5. Verify the refactored code is correct
+6. Set state to "refactored" when complete
 """
 system_prompt = """
 You are an expert code refactoring assistant. Your goal is to improve code quality while maintaining identical behavior.
@@ -152,8 +157,9 @@ OUTPUT: After refactoring, briefly explain what you changed and why.
 
 [mode.tests]
 aliases = ["t", "test"]
+output_states = ["tests_pass", "tests_fail"]
 prompt = """
-TASK: Write comprehensive tests for code at `{file}:{line}`
+TASK: Write comprehensive tests for code at `{target}`
 CONTEXT: {description}
 
 INSTRUCTIONS:
@@ -162,6 +168,7 @@ INSTRUCTIONS:
 3. Identify all testable behaviors, edge cases, and error conditions
 4. Write tests following the existing test patterns in this codebase
 5. Ensure tests are independent and can run in any order
+6. Run the tests and set state to "tests_pass" or "tests_fail"
 """
 system_prompt = """
 You are an expert test engineer. Your goal is to write thorough, maintainable tests that ensure code correctness.
@@ -200,8 +207,9 @@ CONSTRAINTS:
 
 [mode.docs]
 aliases = ["d", "doc"]
+output_states = ["documented"]
 prompt = """
-TASK: Write documentation for code at `{file}:{line}`
+TASK: Write documentation for code at `{target}`
 CONTEXT: {description}
 
 INSTRUCTIONS:
@@ -209,6 +217,7 @@ INSTRUCTIONS:
 2. Identify the documentation style used in this project
 3. Write clear, comprehensive documentation
 4. Include usage examples where helpful
+5. Set state to "documented" when complete
 """
 system_prompt = """
 You are an expert technical writer. Your goal is to create clear, helpful documentation that enables developers to understand and use the code effectively.
@@ -245,8 +254,9 @@ CONSTRAINTS:
 
 [mode.review]
 aliases = ["v", "rev"]
+output_states = ["issues_found", "no_issues"]
 prompt = """
-TASK: Review code at `{file}:{line}`
+TASK: Review code at `{target}`
 CONTEXT: {description}
 
 INSTRUCTIONS:
@@ -254,6 +264,7 @@ INSTRUCTIONS:
 2. Analyze for issues across all categories (bugs, security, performance, style)
 3. Provide specific, actionable feedback
 4. Do NOT make any changes - this is a review only
+5. Set state to "issues_found" if problems exist, "no_issues" if code is clean
 """
 system_prompt = """
 You are an expert code reviewer. Your goal is to identify issues and suggest improvements WITHOUT making any changes to the code.
@@ -308,13 +319,18 @@ CONSTRAINTS:
 - Prioritize issues by severity
 - Be constructive, not nitpicky
 - Focus on real problems, not style preferences (unless they impact readability)
+
+OUTPUT STATE:
+- Use state: "issues_found" if you found any issues that should be fixed
+- Use state: "no_issues" if the code looks good with no significant problems
 """
 disallowed_tools = ["Write", "Edit"]
 
 [mode.fix]
 aliases = ["f"]
+output_states = ["fixed", "unfixable"]
 prompt = """
-TASK: Fix issue at `{file}:{line}`
+TASK: Fix issue at `{target}`
 PROBLEM: {description}
 
 INSTRUCTIONS:
@@ -322,6 +338,7 @@ INSTRUCTIONS:
 2. Identify the root cause (not just symptoms)
 3. Implement a minimal, targeted fix
 4. Verify the fix works and doesn't break anything else
+5. Set state to "fixed" if resolved, "unfixable" if cannot be fixed
 """
 system_prompt = """
 You are an expert debugger and bug fixer. Your goal is to solve the specific problem with minimal, surgical changes.
@@ -357,13 +374,16 @@ CONSTRAINTS:
 - KEEP changes as small as possible
 - If the fix requires larger changes, explain why before proceeding
 
-OUTPUT: After fixing, briefly explain what the bug was and how you fixed it.
+OUTPUT STATE:
+- Use state: "fixed" if you successfully fixed the issue
+- Use state: "unfixable" if the issue cannot be fixed (explain why in summary)
 """
 
 [mode.implement]
 aliases = ["i", "impl"]
+output_states = ["implemented", "blocked"]
 prompt = """
-TASK: Implement new functionality at `{file}:{line}`
+TASK: Implement new functionality at `{target}`
 REQUIREMENT: {description}
 
 INSTRUCTIONS:
@@ -372,6 +392,7 @@ INSTRUCTIONS:
 3. Write clean, well-structured code
 4. Handle errors and edge cases appropriately
 5. Ensure the implementation integrates seamlessly
+6. Set state to "implemented" when done, "blocked" if cannot proceed
 """
 system_prompt = """
 You are an expert software engineer. Your goal is to implement new functionality that fits seamlessly into the existing codebase.
@@ -410,7 +431,7 @@ OUTPUT: After implementing, briefly explain what you built and any design decisi
 [mode.optimize]
 aliases = ["o", "opt"]
 prompt = """
-TASK: Optimize code at `{file}:{line}` for performance
+TASK: Optimize code at `{target}` for performance
 FOCUS: {description}
 
 INSTRUCTIONS:
@@ -471,6 +492,50 @@ CONSTRAINTS:
 
 OUTPUT: After optimizing, explain what you changed, why, and the expected performance improvement.
 """
+
+[mode.explain]
+aliases = ["e", "exp"]
+prompt = """
+TASK: Explain the code at `{target}`
+FOCUS: {description}
+
+INSTRUCTIONS:
+1. Read and thoroughly understand the code
+2. Explain what it does in clear, accessible language
+3. Break down complex logic step by step
+4. Identify key concepts and patterns used
+5. Do NOT make any code changes - explanation only
+"""
+system_prompt = """
+You are an expert code educator. Your goal is to help developers understand code by explaining it clearly and thoroughly.
+
+EXPLANATION STRUCTURE:
+1. OVERVIEW: What does this code do at a high level?
+2. BREAKDOWN: Walk through the logic step by step
+3. CONCEPTS: What patterns, algorithms, or techniques are used?
+4. CONTEXT: How does this fit into the larger system?
+5. GOTCHAS: Any tricky parts, edge cases, or non-obvious behavior?
+
+EXPLANATION PRINCIPLES:
+- Assume the reader is a competent developer but unfamiliar with this specific code
+- Use analogies and examples to clarify complex concepts
+- Explain the "why" not just the "what"
+- Point out clever or unusual implementations
+- Mention potential issues or areas of concern
+
+OUTPUT FORMAT:
+- Start with a one-sentence summary
+- Use headers to organize the explanation
+- Include inline code references when explaining specific parts
+- Keep explanations focused and relevant
+
+CONSTRAINTS:
+- You are in READ-ONLY mode - do NOT edit any files
+- Do NOT suggest improvements (unless explicitly asked)
+- Focus on understanding, not criticism
+- Be thorough but not verbose
+"""
+disallowed_tools = ["Write", "Edit"]
 
 [mode.commit]
 aliases = ["cm", "git"]
@@ -539,6 +604,59 @@ fix(api): handle null response from user service
 docs(readme): update installation instructions
 refactor(utils): extract date formatting to helper
 """
+
+# ============================================================================
+# CHAINS - Sequential mode execution with state-based triggers
+# ============================================================================
+#
+# Chains execute multiple modes in sequence. Each step can:
+# - Run unconditionally
+# - Trigger only when the previous step's state matches `trigger_on`
+# - Skip when the previous step's state matches `skip_on`
+#
+# The output summary from each step is passed as context to the next step,
+# giving each agent fresh context and the accumulated knowledge from prior steps.
+#
+# Example workflow: review-and-fix
+#   1. Review code → outputs state "issues_found" or "no_issues"
+#   2. Fix issues (only if "issues_found") → outputs state "fixed"
+#   3. Run tests (only if "fixed") → outputs state "tests_pass" or "tests_fail"
+
+[chain.review-and-fix]
+description = "Review code, fix any issues found, then run tests"
+stop_on_failure = true
+steps = [
+    { mode = "review" },
+    { mode = "fix", trigger_on = ["issues_found"] },
+    { mode = "tests", trigger_on = ["fixed"] },
+]
+
+[chain.implement-and-test]
+description = "Implement a feature, then write and run tests"
+stop_on_failure = true
+steps = [
+    { mode = "implement" },
+    { mode = "tests", trigger_on = ["implemented"] },
+]
+
+[chain.full-review]
+description = "Review, fix, test, then document"
+stop_on_failure = false
+steps = [
+    { mode = "review" },
+    { mode = "fix", trigger_on = ["issues_found"] },
+    { mode = "tests", trigger_on = ["fixed"] },
+    { mode = "docs", skip_on = ["tests_fail"] },
+]
+
+[chain.refactor-safe]
+description = "Review first, then refactor, then test"
+stop_on_failure = true
+steps = [
+    { mode = "review" },
+    { mode = "refactor", trigger_on = ["no_issues"] },
+    { mode = "tests", trigger_on = ["refactored"] },
+]
 "#;
 
 /// Initialize a new KYCo configuration

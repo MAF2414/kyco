@@ -8,6 +8,7 @@ use std::process::Command;
 use crate::JobId;
 
 /// Manages Git operations for KYCo
+#[derive(Clone)]
 pub struct GitManager {
     /// Root directory of the repository
     root: PathBuf,

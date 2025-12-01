@@ -146,6 +146,7 @@ impl AgentRunner for CodexAdapter {
             cost_usd: None,
             duration_ms: None,
             sent_prompt: Some(prompt.clone()),
+            output_text: None,
         };
 
         // Track if we received turn.completed (means success regardless of exit code)

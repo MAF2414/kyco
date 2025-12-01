@@ -43,12 +43,31 @@ impl JobManager {
 
     /// Create a new job from a comment tag
     pub fn create_job(&mut self, tag: &CommentTag, agent_id: &str) -> Result<JobId> {
+        self.create_job_with_range(tag, agent_id, None)
+    }
+
+    /// Create a new job from a comment tag with optional line range
+    pub fn create_job_with_range(
+        &mut self,
+        tag: &CommentTag,
+        agent_id: &str,
+        line_end: Option<usize>,
+    ) -> Result<JobId> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
 
         // Always use file scope - the agent will determine the actual scope from context
         let scope_def = ScopeDefinition::file(tag.file_path.clone());
 
-        let target = format!("{}:{}", tag.file_path.display(), tag.line_number);
+        // Format target with line range if available
+        let target = if let Some(end) = line_end {
+            if end != tag.line_number {
+                format!("{}:{}-{}", tag.file_path.display(), tag.line_number, end)
+            } else {
+                format!("{}:{}", tag.file_path.display(), tag.line_number)
+            }
+        } else {
+            format!("{}:{}", tag.file_path.display(), tag.line_number)
+        };
 
         let job = Job::new(
             id,

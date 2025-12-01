@@ -54,6 +54,12 @@ impl ClaudeAdapter {
             system_prompt.push_str(commit_instruction);
         }
 
+        // Append output schema if configured
+        if let Some(schema) = &config.output_schema {
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(schema);
+        }
+
         if system_prompt.is_empty() {
             None
         } else {
@@ -168,7 +174,11 @@ impl AgentRunner for ClaudeAdapter {
             cost_usd: None,
             duration_ms: None,
             sent_prompt: Some(prompt.clone()),
+            output_text: None,
         };
+
+        // Collect text output for parsing
+        let mut output_text = String::new();
 
         // Process output stream
         while let Ok(Some(line)) = reader.next_line().await {
@@ -182,6 +192,9 @@ impl AgentRunner for ClaudeAdapter {
                         for block in &message.content {
                             match block {
                                 ContentBlock::Text { text } => {
+                                    // Collect text output for parsing ---kyco blocks
+                                    output_text.push_str(text);
+                                    output_text.push('\n');
                                     events.push(LogEvent::text(truncate(text, 200)));
                                 }
                                 ContentBlock::ToolUse { name, input, .. } => {
@@ -241,6 +254,11 @@ impl AgentRunner for ClaudeAdapter {
 
         if !status.success() && !result.success {
             result.error = Some(format!("Process exited with status: {}", status));
+        }
+
+        // Set collected output text for parsing
+        if !output_text.is_empty() {
+            result.output_text = Some(output_text);
         }
 
         Ok(result)

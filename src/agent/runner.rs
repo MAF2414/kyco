@@ -27,6 +27,9 @@ pub struct AgentResult {
 
     /// The prompt that was sent to the model
     pub sent_prompt: Option<String>,
+
+    /// The text output from the agent (for parsing ---kyco blocks)
+    pub output_text: Option<String>,
 }
 
 /// Trait for agent adapters

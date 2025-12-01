@@ -148,6 +148,10 @@ pub struct AgentConfig {
     /// Tools to explicitly allow (if empty, all tools are allowed)
     #[serde(default)]
     pub allowed_tools: Vec<String>,
+
+    /// Output schema to append to system prompt (for structured GUI output)
+    #[serde(default)]
+    pub output_schema: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -173,6 +177,7 @@ impl AgentConfig {
             env: HashMap::new(),
             disallowed_tools: vec![],
             allowed_tools: Vec::new(),
+            output_schema: None,
         }
     }
 
@@ -192,6 +197,7 @@ impl AgentConfig {
             env: HashMap::new(),
             disallowed_tools: vec![],
             allowed_tools: Vec::new(),
+            output_schema: None,
         }
     }
 
@@ -211,6 +217,7 @@ impl AgentConfig {
             env: HashMap::new(),
             disallowed_tools: vec![],
             allowed_tools: Vec::new(),
+            output_schema: None,
         }
     }
 

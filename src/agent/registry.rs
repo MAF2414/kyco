@@ -15,6 +15,7 @@ use super::runner::AgentRunner;
 ///
 /// The registry manages all available agent adapters and provides
 /// factory methods to create the appropriate adapter for a given CLI type.
+#[derive(Clone)]
 pub struct AgentRegistry {
     /// Registered adapters by agent ID (print mode)
     adapters: HashMap<String, Arc<dyn AgentRunner>>,

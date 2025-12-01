@@ -419,6 +419,7 @@ impl AgentRunner for TerminalAdapter {
             cost_usd: None,
             duration_ms: None,
             sent_prompt: Some(prompt.clone()),
+            output_text: None,
         })
     }
 

@@ -1,2 +1,4 @@
 /target
 .kyco/worktrees/
+.kyco/whisper-models/
+.kyco/gui_jobs/

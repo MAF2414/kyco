@@ -1,0 +1,44 @@
+{
+  "name": "kyco",
+  "displayName": "Kyco",
+  "description": "Send code selections to Kyco server",
+  "version": "0.1.0",
+  "publisher": "kyco",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:kyco.sendSelection"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "kyco.sendSelection",
+        "title": "Kyco: Send Selection"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "kyco.sendSelection",
+        "key": "ctrl+alt+y",
+        "mac": "ctrl+cmd+y",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^18.x",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
