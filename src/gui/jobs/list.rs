@@ -68,13 +68,37 @@ pub fn render_job_list(
                         .inner_margin(egui::vec2(8.0, 4.0))
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                // Status indicator with animation for running jobs
+                                // Status indicator with visual representation for all states
                                 let status_col = status_color(job.status);
-                                if job.status == JobStatus::Running {
-                                    // Use egui's built-in Spinner for smooth animation
-                                    ui.add(egui::Spinner::new().size(12.0).color(status_col));
-                                } else {
-                                    ui.label(RichText::new("●").color(status_col));
+                                match job.status {
+                                    JobStatus::Running => {
+                                        // Animated spinner for running jobs
+                                        ui.add(egui::Spinner::new().size(12.0).color(status_col));
+                                    }
+                                    JobStatus::Queued => {
+                                        // Clock/hourglass symbol for queued
+                                        ui.label(RichText::new("[~]").monospace().color(status_col));
+                                    }
+                                    JobStatus::Pending => {
+                                        // Pause/waiting symbol
+                                        ui.label(RichText::new("[.]").monospace().color(status_col));
+                                    }
+                                    JobStatus::Done => {
+                                        // Checkmark for success
+                                        ui.label(RichText::new("[+]").monospace().color(status_col));
+                                    }
+                                    JobStatus::Failed => {
+                                        // X for failure
+                                        ui.label(RichText::new("[x]").monospace().color(status_col));
+                                    }
+                                    JobStatus::Rejected => {
+                                        // Minus for rejected
+                                        ui.label(RichText::new("[-]").monospace().color(status_col));
+                                    }
+                                    JobStatus::Merged => {
+                                        // Arrow/merge symbol
+                                        ui.label(RichText::new("[>]").monospace().color(status_col));
+                                    }
                                 }
 
                                 // Job ID

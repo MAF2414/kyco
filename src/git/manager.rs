@@ -208,7 +208,7 @@ impl GitManager {
         let dir_name = worktree_path
             .file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or("");
+            .ok_or_else(|| anyhow!("Could not extract directory name from worktree path"))?;
         let branch_name = format!("kyco/{}", dir_name);
         self.remove_worktree_by_path_and_branch(worktree_path, &branch_name)
     }
@@ -352,8 +352,11 @@ impl GitManager {
 
     /// Get the diff for a specific file in a worktree
     pub fn diff_file(&self, worktree: &Path, file: &Path) -> Result<String> {
+        let file_str = file
+            .to_str()
+            .ok_or_else(|| anyhow!("File path contains invalid UTF-8"))?;
         let output = Command::new("git")
-            .args(["diff", "HEAD", "--", file.to_str().unwrap()])
+            .args(["diff", "HEAD", "--", file_str])
             .current_dir(worktree)
             .output()
             .context("Failed to run git diff")?;

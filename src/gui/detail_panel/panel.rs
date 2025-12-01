@@ -1,6 +1,7 @@
 //! Main detail panel rendering
 
 use eframe::egui::{self, RichText, ScrollArea};
+use egui_extras::{Size, StripBuilder};
 
 use crate::config::Config;
 use crate::{Job, JobId, JobStatus, LogEvent};
@@ -38,36 +39,58 @@ pub fn render_detail_panel(
 ) -> Option<DetailPanelAction> {
     let mut action: Option<DetailPanelAction> = None;
 
-    ui.vertical(|ui| {
-        render_header(ui);
+    render_header(ui);
 
-        if let Some(job_id) = state.selected_job_id {
-            if let Some(job) = state.cached_jobs.iter().find(|j| j.id == job_id) {
-                render_job_info(ui, job);
-                render_result_section(ui, job);
+    if let Some(job_id) = state.selected_job_id {
+        if let Some(job) = state.cached_jobs.iter().find(|j| j.id == job_id) {
+            // First render the fixed-height job info section
+            render_job_info(ui, job);
+            render_result_section(ui, job);
 
-                ui.add_space(8.0);
+            ui.add_space(8.0);
 
-                action = render_action_buttons(ui, job);
+            action = render_action_buttons(ui, job);
 
-                ui.add_space(8.0);
-                ui.separator();
+            ui.add_space(8.0);
+            ui.separator();
 
-                render_prompt_section(ui, job, state.config);
+            // Use StripBuilder to allocate remaining space between prompt and activity log
+            // This ensures both sections are always visible and share the available space
+            let available_height = ui.available_height();
 
-                ui.add_space(8.0);
-                ui.separator();
+            // Reserve minimum heights for each section
+            let min_section_height = 100.0;
+            let separator_height = 20.0; // spacing + separator
 
-                render_activity_log(ui, job, state.logs, state.log_scroll_to_bottom);
-            } else {
-                ui.label(RichText::new("Job not found").color(TEXT_MUTED));
-            }
+            // Calculate proportional heights (40% prompt, 60% activity log)
+            let usable_height = (available_height - separator_height).max(min_section_height * 2.0);
+            let prompt_height = (usable_height * 0.4).max(min_section_height);
+            let log_height = (usable_height * 0.6).max(min_section_height);
+
+            StripBuilder::new(ui)
+                .size(Size::exact(prompt_height))
+                .size(Size::exact(separator_height))
+                .size(Size::remainder().at_least(log_height))
+                .vertical(|mut strip| {
+                    strip.cell(|ui| {
+                        render_prompt_section(ui, job, state.config);
+                    });
+                    strip.cell(|ui| {
+                        ui.add_space(8.0);
+                        ui.separator();
+                    });
+                    strip.cell(|ui| {
+                        render_activity_log(ui, job, state.logs, state.log_scroll_to_bottom);
+                    });
+                });
         } else {
-            ui.centered_and_justified(|ui| {
-                ui.label(RichText::new("Select a job to view details").color(TEXT_MUTED));
-            });
+            ui.label(RichText::new("Job not found").color(TEXT_MUTED));
         }
-    });
+    } else {
+        ui.centered_and_justified(|ui| {
+            ui.label(RichText::new("Select a job to view details").color(TEXT_MUTED));
+        });
+    }
 
     action
 }
@@ -251,7 +274,6 @@ fn render_prompt_section(ui: &mut egui::Ui, job: &Job, config: &Config) {
         .clone()
         .unwrap_or_else(|| build_prompt_preview(job, config));
 
-    ui.add_space(4.0);
     let prompt_label = if job.sent_prompt.is_some() {
         "SENT PROMPT"
     } else {
@@ -260,9 +282,10 @@ fn render_prompt_section(ui: &mut egui::Ui, job: &Job, config: &Config) {
     ui.label(RichText::new(prompt_label).monospace().color(TEXT_MUTED));
     ui.add_space(2.0);
 
+    // Use all available height in this section (space is allocated by StripBuilder)
     ScrollArea::vertical()
         .id_salt("prompt_scroll")
-        .max_height(200.0)
+        .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.add(
                 egui::TextEdit::multiline(&mut prompt_text.as_str())

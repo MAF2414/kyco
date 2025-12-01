@@ -19,6 +19,7 @@ clap = { version = "4", features = ["derive"] }
 # GUI
 eframe = "0.31"
 egui = "0.31"
+egui_extras = "0.31"
 global-hotkey = "0.6"
 arboard = "3"
 
