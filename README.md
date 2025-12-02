@@ -1,6 +1,6 @@
 # KYCo - Know Your Codebase
 
-**The antidote to vibe coding.** KYCo is a TUI orchestrator that lets you trigger AI coding tasks directly from comments in your code - with full transparency about what the AI does and why.
+**The antidote to vibe coding.** KYCo is a desktop application and TUI orchestrator that lets you trigger AI coding tasks directly from comments in your code - with full transparency about what the AI does and why.
 
 ## Why KYCo?
 
@@ -10,16 +10,22 @@ In the age of "vibe coding" where developers blindly accept AI-generated code, K
 - **Control**: You define tasks with simple comment markers
 - **Understanding**: Stay in sync with your codebase, even when AI helps
 
+## Features
+
+- **Multi-Agent Support**: Works with Claude, Codex, and Gemini CLI
+- **Desktop GUI**: Native application with global hotkey support
+- **File Watching**: Automatically detects markers as you code
+- **Concurrent Jobs**: Run multiple AI tasks in parallel
+- **Git Integration**: Isolate changes in git worktrees
+- **Cross-Platform**: macOS, Windows, and Linux support
+
 ## Installation
 
-### From Source (Rust)
+### From Source
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourusername/kyco.git
 cd kyco
-
-# Build and install
 cargo install --path .
 ```
 
@@ -62,7 +68,7 @@ cargo install --path .
    kyco run
    ```
 
-4. **Watch the TUI** as jobs are discovered and executed. Review changes before applying.
+4. **Review changes** in the TUI or GUI before applying.
 
 ## Marker Syntax
 
@@ -91,7 +97,7 @@ Examples:
 
 ## Configuration
 
-Edit `.kyco/config.toml` to customize:
+Edit `.kyco/config.toml` to customize behavior:
 
 ```toml
 [settings]
@@ -104,7 +110,6 @@ use_worktree = false         # Isolate jobs in git worktrees
 [agent.claude]
 aliases = ["c", "cl"]
 binary = "claude"
-# ... more agent config
 
 [mode.refactor]
 aliases = ["r", "ref"]
@@ -115,7 +120,7 @@ system_prompt = "..."
 ## CLI Commands
 
 ```bash
-kyco                    # Run TUI (default)
+kyco                    # Launch GUI (default)
 kyco run                # Run TUI with options
 kyco scan               # List all markers in codebase
 kyco status             # Show job status
@@ -123,13 +128,29 @@ kyco init               # Create config file
 kyco --help             # Show all options
 ```
 
+## Architecture
+
+```
+src/
+├── agent/      # AI agent integrations (Claude, Codex, Gemini)
+├── cli/        # Command-line interface
+├── comment/    # Marker comment parsing
+├── config/     # Configuration management
+├── domain/     # Core domain models
+├── git/        # Git and worktree integration
+├── gui/        # Desktop GUI (eframe/egui)
+├── job/        # Job scheduling and execution
+├── scanner/    # Codebase scanning
+└── watcher/    # File system watching
+```
+
 ## How It Works
 
 1. **Scan**: KYCo watches your codebase for marker comments
 2. **Parse**: Markers are parsed into jobs with mode, agent, and description
-3. **Execute**: Jobs run via the configured AI CLI (claude, codex, gemini)
+3. **Execute**: Jobs run via the configured AI CLI
 4. **Explain**: The AI explains what it changed (transparency!)
-5. **Review**: You review and accept/reject changes in the TUI
+5. **Review**: You review and accept/reject changes
 
 ## Philosophy
 
