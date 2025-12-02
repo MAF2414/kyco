@@ -165,22 +165,26 @@ pub fn render_settings_ide_extensions(ui: &mut egui::Ui, state: &mut SettingsSta
 
     ui.add_space(12.0);
 
-    // JetBrains (coming soon)
+    // JetBrains
     render_section_frame(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(
-                RichText::new("JetBrains IDEs")
-                    .monospace()
-                    .color(TEXT_MUTED),
-            );
-            ui.label(RichText::new("(coming soon)").small().color(TEXT_MUTED));
+            ui.label(RichText::new("JetBrains IDEs").monospace().color(ACCENT_CYAN));
+            ui.label(RichText::new("Ctrl+Alt+Y").small().color(TEXT_MUTED));
         });
         ui.add_space(4.0);
         ui.label(
             RichText::new("IntelliJ, WebStorm, PyCharm, etc.")
                 .small()
-                .color(TEXT_MUTED),
+                .color(TEXT_DIM),
         );
+        ui.add_space(8.0);
+
+        if ui
+            .button(RichText::new("📦 Install JetBrains Plugin").color(ACCENT_GREEN))
+            .clicked()
+        {
+            install_jetbrains_plugin(state);
+        }
     });
 
     // Status message
@@ -507,6 +511,12 @@ pub fn render_settings_http_server(ui: &mut egui::Ui) {
 /// Install VS Code extension
 fn install_vscode_extension(state: &mut SettingsState<'_>) {
     let result = crate::gui::install::install_vscode_extension(state.work_dir);
+    *state.extension_status = Some((result.message, result.is_error));
+}
+
+/// Install JetBrains plugin
+fn install_jetbrains_plugin(state: &mut SettingsState<'_>) {
+    let result = crate::gui::install::install_jetbrains_plugin(state.work_dir);
     *state.extension_status = Some((result.message, result.is_error));
 }
 

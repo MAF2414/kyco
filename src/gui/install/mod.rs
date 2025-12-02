@@ -165,3 +165,87 @@ fn install_vsix(vsix_path: &Path) -> ExtensionInstallResult {
         )),
     }
 }
+
+/// Install the JetBrains plugin from the jetbrains-plugin directory
+///
+/// This function:
+/// 1. Runs `./gradlew buildPlugin` to build the plugin
+/// 2. Locates the built .zip file
+/// 3. Provides instructions for manual installation
+pub fn install_jetbrains_plugin(work_dir: &Path) -> ExtensionInstallResult {
+    let plugin_dir = work_dir.join("jetbrains-plugin");
+
+    if !plugin_dir.exists() {
+        return ExtensionInstallResult::error(format!(
+            "Plugin not found at: {}",
+            plugin_dir.display()
+        ));
+    }
+
+    // Check if gradlew exists
+    let gradlew = plugin_dir.join("gradlew");
+    if !gradlew.exists() {
+        return ExtensionInstallResult::error("gradlew not found in jetbrains-plugin directory.");
+    }
+
+    // Build the plugin
+    if let Err(e) = run_gradle_build(&plugin_dir) {
+        return ExtensionInstallResult::error(format!("Gradle build failed: {}", e));
+    }
+
+    // Find the built plugin zip
+    match find_plugin_zip(&plugin_dir) {
+        Ok(zip_path) => ExtensionInstallResult::success(format!(
+            "JetBrains plugin built successfully!\n\n\
+            To install:\n\
+            1. Open your JetBrains IDE (IntelliJ, WebStorm, etc.)\n\
+            2. Go to Settings → Plugins → ⚙️ → Install Plugin from Disk\n\
+            3. Select: {}\n\
+            4. Restart the IDE\n\n\
+            Hotkey: Ctrl+Alt+Y (Ctrl+Cmd+Y on Mac)",
+            zip_path.display()
+        )),
+        Err(e) => ExtensionInstallResult::error(format!("Build completed but plugin not found: {}", e)),
+    }
+}
+
+/// Run gradle build to create the plugin
+fn run_gradle_build(plugin_dir: &Path) -> Result<(), String> {
+    let gradlew = if cfg!(windows) { "gradlew.bat" } else { "./gradlew" };
+
+    let output = Command::new(gradlew)
+        .arg("buildPlugin")
+        .current_dir(plugin_dir)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        return Err(format!("{}\n{}", stdout, stderr));
+    }
+
+    Ok(())
+}
+
+/// Find the built plugin zip file in build/distributions
+fn find_plugin_zip(plugin_dir: &Path) -> Result<std::path::PathBuf, String> {
+    let dist_dir = plugin_dir.join("build").join("distributions");
+
+    if !dist_dir.exists() {
+        return Err("build/distributions directory not found".to_string());
+    }
+
+    // Look for any .zip file
+    let entries = std::fs::read_dir(&dist_dir)
+        .map_err(|e| e.to_string())?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().map_or(false, |ext| ext == "zip") {
+            return Ok(path);
+        }
+    }
+
+    Err("No .zip file found in build/distributions".to_string())
+}
