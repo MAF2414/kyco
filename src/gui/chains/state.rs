@@ -1,9 +1,28 @@
 //! State management for chain editing UI
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::config::{ChainStep, Config};
 use crate::gui::app::ViewMode;
+
+/// Parse comma-separated states, trim whitespace, remove empty strings, and deduplicate
+fn parse_state_list(input: &str) -> Option<Vec<String>> {
+    if input.trim().is_empty() {
+        return None;
+    }
+    let mut seen = HashSet::new();
+    let states: Vec<String> = input
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && seen.insert(s.clone()))
+        .collect();
+    if states.is_empty() {
+        None
+    } else {
+        Some(states)
+    }
+}
 
 /// State for chain editing UI
 pub struct ChainEditorState<'a> {
@@ -48,18 +67,10 @@ impl ChainStepEdit {
     pub fn to_chain_step(&self) -> ChainStep {
         ChainStep {
             mode: self.mode.clone(),
-            trigger_on: if self.trigger_on.trim().is_empty() {
-                None
-            } else {
-                Some(self.trigger_on.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-            },
-            skip_on: if self.skip_on.trim().is_empty() {
-                None
-            } else {
-                Some(self.skip_on.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-            },
-            agent: if self.agent.trim().is_empty() { None } else { Some(self.agent.clone()) },
-            inject_context: if self.inject_context.trim().is_empty() { None } else { Some(self.inject_context.clone()) },
+            trigger_on: parse_state_list(&self.trigger_on),
+            skip_on: parse_state_list(&self.skip_on),
+            agent: if self.agent.trim().is_empty() { None } else { Some(self.agent.trim().to_string()) },
+            inject_context: if self.inject_context.trim().is_empty() { None } else { Some(self.inject_context.trim().to_string()) },
         }
     }
 }

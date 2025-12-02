@@ -33,10 +33,16 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         return;
     }
 
-    // Check all steps have modes
+    // Check all steps have valid modes
     for (i, step) in state.chain_edit_steps.iter().enumerate() {
-        if step.mode.trim().is_empty() {
+        let mode_name = step.mode.trim();
+        if mode_name.is_empty() {
             *state.chain_edit_status = Some((format!("Step {} must have a mode selected", i + 1), true));
+            return;
+        }
+        // Validate that mode exists in config
+        if !state.config.mode.contains_key(mode_name) {
+            *state.chain_edit_status = Some((format!("Step {}: mode '{}' does not exist", i + 1, mode_name), true));
             return;
         }
     }
@@ -85,6 +91,11 @@ pub fn delete_chain_from_config(state: &mut ChainEditorState<'_>) {
 
     *state.selected_chain = None;
     *state.chain_edit_status = None;
+    // Clear edit fields to avoid stale data
+    state.chain_edit_name.clear();
+    state.chain_edit_description.clear();
+    state.chain_edit_steps.clear();
+    *state.chain_edit_stop_on_failure = true;
 }
 
 /// Save the config to the config file
