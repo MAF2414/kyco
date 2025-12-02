@@ -3,8 +3,27 @@
 //! This module handles installation of IDE extensions (VS Code, JetBrains, etc.)
 //! that integrate with kyco for sending code selections.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// Get the kyco installation directory (where the executable lives)
+///
+/// This is used to find bundled resources like IDE extensions.
+/// Falls back to the provided work_dir if the executable path cannot be determined.
+fn get_kyco_install_dir(work_dir: &Path) -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.to_path_buf()))
+        // If exe is in a bin/ directory, go up one level to find extensions
+        .map(|dir| {
+            if dir.ends_with("bin") || dir.ends_with("debug") || dir.ends_with("release") {
+                dir.parent().map(|p| p.to_path_buf()).unwrap_or(dir)
+            } else {
+                dir
+            }
+        })
+        .unwrap_or_else(|| work_dir.to_path_buf())
+}
 
 /// Result of an extension installation operation
 pub struct ExtensionInstallResult {
@@ -39,7 +58,8 @@ impl ExtensionInstallResult {
 /// 4. Packages the extension with vsce
 /// 5. Installs the packaged .vsix file
 pub fn install_vscode_extension(work_dir: &Path) -> ExtensionInstallResult {
-    let extension_dir = work_dir.join("vscode-extension");
+    let install_dir = get_kyco_install_dir(work_dir);
+    let extension_dir = install_dir.join("vscode-extension");
 
     if !extension_dir.exists() {
         return ExtensionInstallResult::error(format!(
@@ -173,7 +193,8 @@ fn install_vsix(vsix_path: &Path) -> ExtensionInstallResult {
 /// 2. Locates the built .zip file
 /// 3. Provides instructions for manual installation
 pub fn install_jetbrains_plugin(work_dir: &Path) -> ExtensionInstallResult {
-    let plugin_dir = work_dir.join("jetbrains-plugin");
+    let install_dir = get_kyco_install_dir(work_dir);
+    let plugin_dir = install_dir.join("jetbrains-plugin");
 
     if !plugin_dir.exists() {
         return ExtensionInstallResult::error(format!(
