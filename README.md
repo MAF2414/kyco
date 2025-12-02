@@ -1,6 +1,6 @@
 # KYCo - Know Your Codebase
 
-**The antidote to vibe coding.** KYCo is a desktop application and TUI orchestrator that lets you trigger AI coding tasks directly from comments in your code - with full transparency about what the AI does and why.
+**The antidote to vibe coding.** KYCo is a desktop application that lets you trigger AI coding tasks directly from comments in your code - with full transparency about what the AI does and why.
 
 ## Why KYCo?
 
@@ -14,7 +14,7 @@ In the age of "vibe coding" where developers blindly accept AI-generated code, K
 
 - **Multi-Agent Support**: Works with Claude, Codex, and Gemini CLI
 - **Desktop GUI**: Native application with global hotkey support
-- **File Watching**: Automatically detects markers as you code
+- **IDE Integration**: Receives selections from IDE extensions via HTTP
 - **Concurrent Jobs**: Run multiple AI tasks in parallel
 - **Git Integration**: Isolate changes in git worktrees
 - **Cross-Platform**: macOS, Windows, and Linux support
@@ -63,12 +63,12 @@ cargo install --path .
    }
    ```
 
-3. **Run KYCo:**
+3. **Launch KYCo:**
    ```bash
-   kyco run
+   kyco
    ```
 
-4. **Review changes** in the TUI or GUI before applying.
+4. **Review changes** in the GUI before applying.
 
 ## Marker Syntax
 
@@ -121,7 +121,7 @@ system_prompt = "..."
 
 ```bash
 kyco                    # Launch GUI (default)
-kyco run                # Run TUI with options
+kyco gui                # Launch GUI explicitly
 kyco scan               # List all markers in codebase
 kyco status             # Show job status
 kyco init               # Create config file
@@ -146,11 +146,11 @@ src/
 
 ## How It Works
 
-1. **Scan**: KYCo watches your codebase for marker comments
+1. **Scan**: KYCo scans your codebase for marker comments
 2. **Parse**: Markers are parsed into jobs with mode, agent, and description
 3. **Execute**: Jobs run via the configured AI CLI
 4. **Explain**: The AI explains what it changed (transparency!)
-5. **Review**: You review and accept/reject changes
+5. **Review**: You review and accept/reject changes in the GUI
 
 ## Philosophy
 
