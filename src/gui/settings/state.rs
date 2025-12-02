@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::config::Config;
 use crate::gui::app::ViewMode;
+use crate::gui::voice::VoiceActionRegistry;
 
 /// State for settings editing UI
 pub struct SettingsState<'a> {
@@ -29,6 +30,14 @@ pub struct SettingsState<'a> {
     pub voice_settings_max_duration: &'a mut String,
     pub voice_install_status: &'a mut Option<(String, bool)>,
     pub voice_install_in_progress: &'a mut bool,
+
+    // VAD settings
+    pub vad_enabled: &'a mut bool,
+    pub vad_speech_threshold: &'a mut String,
+    pub vad_silence_duration_ms: &'a mut String,
+
+    // Voice action registry (read-only, from config)
+    pub voice_action_registry: &'a VoiceActionRegistry,
 
     // Extension status
     pub extension_status: &'a mut Option<(String, bool)>,

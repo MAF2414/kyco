@@ -199,6 +199,12 @@ pub struct KycoApp {
     voice_settings_silence_duration: String,
     /// Voice settings editor: max duration
     voice_settings_max_duration: String,
+    /// VAD settings: enabled
+    vad_enabled: bool,
+    /// VAD settings: speech threshold
+    vad_speech_threshold: String,
+    /// VAD settings: silence duration (ms)
+    vad_silence_duration_ms: String,
     /// Hotkey is currently held (for hotkey_hold mode)
     hotkey_held: bool,
     /// Voice installation status message
@@ -238,6 +244,12 @@ impl KycoApp {
 
         // Extract voice settings
         let voice_settings = &config.settings.gui.voice;
+        // Build voice action registry from modes and chains
+        let action_registry = super::voice::VoiceActionRegistry::from_config(
+            &config.mode,
+            &config.chain,
+            &config.agent,
+        );
         let voice_config = VoiceConfig {
             mode: match voice_settings.mode.as_str() {
                 "manual" => VoiceInputMode::Manual,
@@ -246,11 +258,14 @@ impl KycoApp {
                 _ => VoiceInputMode::Disabled,
             },
             keywords: voice_settings.keywords.clone(),
+            action_registry,
             whisper_model: voice_settings.whisper_model.clone(),
             language: voice_settings.language.clone(),
             silence_threshold: voice_settings.silence_threshold,
             silence_duration: voice_settings.silence_duration,
             max_duration: voice_settings.max_duration,
+            vad_config: super::voice::VadConfig::default(),
+            use_vad: true,
         };
         let voice_settings_mode = voice_settings.mode.clone();
         let voice_settings_keywords = voice_settings.keywords.join(", ");
@@ -326,6 +341,9 @@ impl KycoApp {
             voice_settings_silence_threshold,
             voice_settings_silence_duration,
             voice_settings_max_duration,
+            vad_enabled: true,
+            vad_speech_threshold: "0.5".to_string(),
+            vad_silence_duration_ms: "1000".to_string(),
             hotkey_held: false,
             voice_install_status: None,
             voice_install_in_progress: false,
@@ -362,6 +380,12 @@ impl KycoApp {
                 voice_settings_max_duration: &mut self.voice_settings_max_duration,
                 voice_install_status: &mut self.voice_install_status,
                 voice_install_in_progress: &mut self.voice_install_in_progress,
+                // VAD settings
+                vad_enabled: &mut self.vad_enabled,
+                vad_speech_threshold: &mut self.vad_speech_threshold,
+                vad_silence_duration_ms: &mut self.vad_silence_duration_ms,
+                // Voice action registry (from voice manager config)
+                voice_action_registry: &self.voice_manager.config.action_registry,
                 // Extension status
                 extension_status: &mut self.extension_status,
                 // Navigation and config
@@ -702,26 +726,56 @@ impl eframe::App for KycoApp {
         for event in self.voice_manager.poll_events() {
             match event {
                 super::voice::VoiceEvent::TranscriptionComplete { text } => {
-                    // Parse the transcription for mode keyword
-                    let (detected_mode, prompt) = super::voice::parse_voice_input(
-                        &text,
-                        &self.voice_manager.config.keywords,
-                    );
+                    // Try to match against voice action registry first
+                    if let Some(wakeword_match) = self.voice_manager.config.action_registry.match_text(&text) {
+                        // Wakeword matched - use mode and prompt from the match
+                        self.popup_input = format!("{} {}", wakeword_match.mode, wakeword_match.get_final_prompt());
+                        self.update_suggestions();
 
-                    // Update input field with transcribed text
-                    if let Some(mode) = detected_mode {
-                        self.popup_input = format!("{} {}", mode, prompt);
-                    } else {
-                        // If no mode detected, append to existing input
-                        if self.popup_input.is_empty() {
-                            self.popup_input = text;
-                        } else {
-                            self.popup_input.push(' ');
-                            self.popup_input.push_str(&text);
+                        // Open selection popup if not already open
+                        if self.view_mode != ViewMode::SelectionPopup {
+                            self.view_mode = ViewMode::SelectionPopup;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                         }
+
+                        self.logs.push(LogEvent::system(format!(
+                            "Voice wakeword '{}' → mode '{}'",
+                            wakeword_match.wakeword, wakeword_match.mode
+                        )));
+                    } else {
+                        // No wakeword match - fall back to legacy keyword parsing
+                        let (detected_mode, prompt) = super::voice::parse_voice_input(
+                            &text,
+                            &self.voice_manager.config.keywords,
+                        );
+
+                        // Update input field with transcribed text
+                        if let Some(mode) = detected_mode {
+                            self.popup_input = format!("{} {}", mode, prompt);
+                        } else {
+                            // If no mode detected, append to existing input
+                            if self.popup_input.is_empty() {
+                                self.popup_input = text;
+                            } else {
+                                self.popup_input.push(' ');
+                                self.popup_input.push_str(&text);
+                            }
+                        }
+                        self.update_suggestions();
+                        self.logs.push(LogEvent::system("Voice transcription complete".to_string()));
                     }
+                }
+                super::voice::VoiceEvent::WakewordMatched { wakeword, mode, prompt } => {
+                    // Direct wakeword match from continuous listening
+                    self.popup_input = format!("{} {}", mode, prompt);
                     self.update_suggestions();
-                    self.logs.push(LogEvent::system("Voice transcription complete".to_string()));
+
+                    // Open selection popup if not already open
+                    if self.view_mode != ViewMode::SelectionPopup {
+                        self.view_mode = ViewMode::SelectionPopup;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
+                    self.logs.push(LogEvent::system(format!("Voice wakeword: {} → {}", wakeword, mode)));
                 }
                 super::voice::VoiceEvent::KeywordDetected { keyword, full_text } => {
                     // In continuous mode: keyword detected, trigger hotkey and fill input
@@ -743,6 +797,12 @@ impl eframe::App for KycoApp {
                 }
                 super::voice::VoiceEvent::RecordingStopped { duration_secs } => {
                     self.logs.push(LogEvent::system(format!("Voice recording stopped ({:.1}s)", duration_secs)));
+                }
+                super::voice::VoiceEvent::VadSpeechStarted => {
+                    self.logs.push(LogEvent::system("VAD: Speech detected".to_string()));
+                }
+                super::voice::VoiceEvent::VadSpeechEnded => {
+                    self.logs.push(LogEvent::system("VAD: Speech ended".to_string()));
                 }
                 _ => {}
             }

@@ -3,22 +3,33 @@
 //! This module provides:
 //! 1. Microphone button in selection popup for manual voice recording
 //! 2. Hotkey-triggered voice recording with automatic transcription
-//! 3. Continuous listening mode with keyword detection for hands-free operation
+//! 3. Continuous listening mode with VAD + keyword detection for hands-free operation
 //!
 //! Architecture:
 //! - VoiceState: Current state of voice input (idle, recording, transcribing, listening)
 //! - VoiceConfig: Configuration for voice features
 //! - VoiceManager: Handles audio capture and transcription coordination
+//! - VoiceActionRegistry: Maps wakewords to modes/actions
+//! - VAD: Voice Activity Detection for efficient continuous listening
 //!
 //! Implementation:
 //! - Uses `sox` (rec command) for audio recording
-//! - Uses `whisper-cpp` (whisper CLI) for transcription
+//! - Uses `whisper-cli` (from whisper-cpp) for transcription
+//! - Uses Silero VAD for voice activity detection
 
+pub mod actions;
 pub mod install;
 pub mod settings;
+pub mod vad;
 
-pub use install::{install_voice_dependencies, VoiceInstallResult};
+pub use actions::{VoiceAction, VoiceActionRegistry, WakewordMatch};
+pub use install::{
+    get_model_info, install_voice_dependencies, install_voice_dependencies_async,
+    is_model_installed, InstallHandle, InstallProgress, VoiceInstallResult, WhisperModel,
+    WHISPER_MODELS,
+};
 pub use settings::{render_voice_settings, VoiceSettingsState};
+pub use vad::{is_vad_available, start_vad_listener, VadConfig, VadEvent, VadHandle};
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -101,7 +112,10 @@ pub struct VoiceConfig {
     /// Voice input mode
     pub mode: VoiceInputMode,
     /// Keywords to listen for in continuous mode (mode names by default)
+    /// DEPRECATED: Use action_registry instead
     pub keywords: Vec<String>,
+    /// Voice action registry - maps wakewords to modes
+    pub action_registry: VoiceActionRegistry,
     /// Whisper model to use for transcription (tiny, base, small, medium, large)
     pub whisper_model: String,
     /// Language for transcription (auto, en, de, etc.)
@@ -112,27 +126,28 @@ pub struct VoiceConfig {
     pub silence_duration: f32,
     /// Maximum recording duration (in seconds)
     pub max_duration: f32,
+    /// VAD configuration for continuous listening
+    pub vad_config: VadConfig,
+    /// Use VAD for continuous listening (more efficient)
+    pub use_vad: bool,
 }
 
 impl Default for VoiceConfig {
     fn default() -> Self {
+        let action_registry = VoiceActionRegistry::default();
+        let keywords = action_registry.get_all_wakewords();
+
         Self {
             mode: VoiceInputMode::Disabled,
-            keywords: vec![
-                "refactor".to_string(),
-                "fix".to_string(),
-                "tests".to_string(),
-                "docs".to_string(),
-                "review".to_string(),
-                "optimize".to_string(),
-                "implement".to_string(),
-                "explain".to_string(),
-            ],
+            keywords,
+            action_registry,
             whisper_model: "base".to_string(),
             language: "auto".to_string(),
             silence_threshold: 0.01,
             silence_duration: 1.5,
             max_duration: 30.0,
+            vad_config: VadConfig::default(),
+            use_vad: true,
         }
     }
 }
@@ -148,10 +163,23 @@ pub enum VoiceEvent {
     TranscriptionComplete { text: String },
     /// Keyword detected in continuous mode
     KeywordDetected { keyword: String, full_text: String },
+    /// Wakeword matched - triggers a specific mode with prompt
+    WakewordMatched {
+        /// The wakeword that was matched
+        wakeword: String,
+        /// The mode to trigger
+        mode: String,
+        /// The prompt (text after wakeword)
+        prompt: String,
+    },
     /// Error occurred
     Error { message: String },
     /// State changed
     StateChanged(VoiceState),
+    /// VAD detected speech start
+    VadSpeechStarted,
+    /// VAD detected speech end
+    VadSpeechEnded,
 }
 
 /// Commands to voice processing
@@ -254,13 +282,13 @@ impl VoiceManager {
             return (false, "sox not found. Install with: brew install sox".to_string());
         }
 
-        // Check for whisper
+        // Check for whisper (whisper-cli is the binary name from homebrew whisper-cpp)
         let whisper_check = Command::new("which")
-            .arg("whisper-cpp")
+            .arg("whisper-cli")
             .output();
 
         if whisper_check.is_err() || !whisper_check.unwrap().status.success() {
-            return (false, "whisper-cpp not found. Install with: brew install whisper-cpp".to_string());
+            return (false, "whisper-cli not found. Install with: brew install whisper-cpp".to_string());
         }
 
         // Check for whisper model
@@ -351,9 +379,19 @@ impl VoiceManager {
 
     /// Stop recording and start transcription
     pub fn stop_recording(&mut self) {
-        // Kill the recording process
+        // Stop the recording process gracefully
         if let Some(mut process) = self.recording_process.take() {
-            // Send SIGTERM to stop recording gracefully
+            // First try SIGTERM for graceful shutdown (allows sox to finalize the WAV file)
+            #[cfg(unix)]
+            {
+                // Use the kill command to send SIGTERM
+                let _ = Command::new("kill")
+                    .args(["-TERM", &process.id().to_string()])
+                    .output();
+                // Give sox a moment to finalize the file
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            // Then ensure process is terminated (fallback)
             let _ = process.kill();
             let _ = process.wait();
         }
@@ -405,7 +443,6 @@ impl VoiceManager {
             "-f".to_string(),
             audio_path.to_str().unwrap_or("audio.wav").to_string(),
             "--no-timestamps".to_string(),
-            "-nt".to_string(),  // No timestamps in output
         ];
 
         // Add language if not auto
@@ -414,7 +451,7 @@ impl VoiceManager {
             args.push(language.to_string());
         }
 
-        let output = Command::new("whisper-cpp")
+        let output = Command::new("whisper-cli")
             .args(&args)
             .output()
             .map_err(|e| format!("Failed to run whisper: {}", e))?;
@@ -451,6 +488,26 @@ impl VoiceManager {
 
         self.state = VoiceState::Idle;
         self.last_error = None;
+    }
+
+    /// Clear error state and return to idle
+    ///
+    /// Use this to recover from an error state without starting a new operation.
+    pub fn clear_error(&mut self) {
+        if self.state == VoiceState::Error {
+            self.state = VoiceState::Idle;
+            self.last_error = None;
+        }
+    }
+
+    /// Reset the voice manager to a clean state
+    ///
+    /// Cancels any ongoing operation, clears errors, and returns to idle.
+    pub fn reset(&mut self) {
+        self.cancel();
+        self.last_error = None;
+        self.last_transcription = None;
+        self.availability_cache = None;
     }
 
     /// Start continuous listening mode
