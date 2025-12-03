@@ -1,0 +1,673 @@
+/**
+ * Worktree and Baseline Selector Styles
+ */
+
+/* ==========================================
+   Baseline Selector
+   ========================================== */
+
+.baseline-selector {
+    position: relative;
+    display: inline-block;
+}
+
+.baseline-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--vscode-badge-background, #4d4d4d);
+    color: var(--vscode-badge-foreground, #ffffff);
+    border: 1px solid var(--vscode-panel-border, #333333);
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.baseline-badge:hover {
+    background: var(--vscode-toolbar-hoverBackground, #555555);
+}
+
+.baseline-badge.empty {
+    background: transparent;
+    border-style: dashed;
+    color: var(--vscode-descriptionForeground, #888888);
+}
+
+.baseline-icon {
+    font-size: 14px;
+}
+
+.baseline-type {
+    color: var(--vscode-descriptionForeground, #888888);
+    text-transform: uppercase;
+    font-size: 9px;
+    font-weight: 600;
+}
+
+.baseline-text {
+    font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.dropdown-arrow {
+    font-size: 8px;
+    opacity: 0.6;
+    margin-left: 4px;
+}
+
+/* ==========================================
+   Baseline Dropdown
+   ========================================== */
+
+.baseline-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 300px;
+    max-width: 400px;
+    max-height: 400px;
+    overflow-y: auto;
+    background: var(--vscode-editorWidget-background, #1e1e1e);
+    border: 1px solid var(--vscode-panel-border, #333333);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+}
+
+.baseline-dropdown.hidden {
+    display: none;
+}
+
+/* ==========================================
+   Baseline Sections
+   ========================================== */
+
+.baseline-section {
+    border-bottom: 1px solid var(--vscode-panel-border, #333333);
+}
+
+.baseline-section:last-child {
+    border-bottom: none;
+}
+
+.baseline-section-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--vscode-descriptionForeground, #888888);
+    background: var(--vscode-editor-background, #1a1a1a);
+}
+
+.section-badge {
+    background: var(--vscode-badge-background, #333333);
+    color: var(--vscode-badge-foreground, #888888);
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    margin-left: 6px;
+}
+
+.baseline-section-items {
+    padding: 4px 0;
+}
+
+/* ==========================================
+   Baseline Items
+   ========================================== */
+
+.baseline-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+
+.baseline-item:hover {
+    background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+
+.baseline-item-icon {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.baseline-item-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.baseline-item-label {
+    font-size: 12px;
+    color: var(--vscode-editor-foreground, #cccccc);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.baseline-item-sublabel,
+.baseline-item-branch {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground, #888888);
+    font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.baseline-item-task {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #888888);
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.baseline-item-pr {
+    font-size: 10px;
+    padding: 1px 4px;
+    background: #2d3748;
+    border-radius: 3px;
+    color: #60a5fa;
+    display: inline-block;
+    margin-top: 2px;
+}
+
+/* ==========================================
+   Worktree Items
+   ========================================== */
+
+.worktree-item {
+    position: relative;
+}
+
+.main-worktree {
+    background: rgba(74, 222, 128, 0.08);
+    border-left: 3px solid #4ade80;
+}
+
+.main-worktree:hover {
+    background: rgba(74, 222, 128, 0.15);
+}
+
+.worktree-stats {
+    display: flex;
+    gap: 4px;
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
+.worktree-stats .stat {
+    padding: 2px 4px;
+    border-radius: 3px;
+    background: var(--vscode-badge-background, #333333);
+}
+
+.worktree-stats .modified {
+    color: #facc15;
+}
+
+.worktree-stats .ahead {
+    color: #4ade80;
+}
+
+.worktree-stats .behind {
+    color: #f87171;
+}
+
+.worktree-stats .clean {
+    color: var(--vscode-descriptionForeground, #888888);
+}
+
+.worktree-actions {
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    flex-shrink: 0;
+}
+
+.worktree-item:hover .worktree-actions {
+    opacity: 1;
+}
+
+.worktree-action-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-descriptionForeground, #888888);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 14px;
+    border-radius: 3px;
+}
+
+.worktree-action-btn:hover {
+    color: var(--vscode-editor-foreground, #ffffff);
+    background: var(--vscode-toolbar-hoverBackground, #333333);
+}
+
+/* ==========================================
+   Baseline Actions
+   ========================================== */
+
+.baseline-actions {
+    display: flex;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--vscode-editor-background, #1a1a1a);
+    border-top: 1px solid var(--vscode-panel-border, #333333);
+}
+
+.baseline-action-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--vscode-button-secondaryBackground, #333333);
+    border: 1px solid var(--vscode-button-border, #444444);
+    border-radius: 4px;
+    color: var(--vscode-button-secondaryForeground, #cccccc);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.baseline-action-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #444444);
+    color: var(--vscode-editor-foreground, #ffffff);
+}
+
+.action-icon {
+    font-size: 14px;
+}
+
+/* ==========================================
+   Multi-Agent Overview
+   ========================================== */
+
+.multi-agent-overview {
+    padding: 16px;
+}
+
+.multi-agent-overview.empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+}
+
+.empty-state {
+    text-align: center;
+    color: var(--vscode-descriptionForeground, #888888);
+}
+
+.empty-icon {
+    font-size: 48px;
+    display: block;
+    margin-bottom: 12px;
+}
+
+.empty-state h3 {
+    margin: 0 0 8px 0;
+    color: var(--vscode-editor-foreground, #ffffff);
+}
+
+.empty-state p {
+    margin: 0;
+    font-size: 12px;
+}
+
+.overview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.overview-header h3 {
+    margin: 0;
+    color: var(--vscode-editor-foreground, #ffffff);
+    font-size: 14px;
+}
+
+.overview-count {
+    color: var(--vscode-descriptionForeground, #888888);
+    font-size: 12px;
+}
+
+.overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+}
+
+/* ==========================================
+   Worktree Card
+   ========================================== */
+
+.worktree-card {
+    background: var(--vscode-editor-background, #252525);
+    border: 1px solid var(--vscode-panel-border, #333333);
+    border-radius: 8px;
+    padding: 12px;
+    border-left: 4px solid var(--vscode-descriptionForeground, #666666);
+}
+
+.worktree-card.active {
+    border-left-color: #60a5fa;
+}
+
+.worktree-card.completed {
+    border-left-color: #4ade80;
+}
+
+.worktree-card.abandoned {
+    border-left-color: #f87171;
+    opacity: 0.7;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.card-icon {
+    font-size: 16px;
+}
+
+.card-name {
+    font-weight: 600;
+    color: var(--vscode-editor-foreground, #ffffff);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.compare-badge {
+    font-size: 9px;
+    padding: 2px 6px;
+    background: #60a5fa;
+    color: #ffffff;
+    border-radius: 3px;
+    text-transform: uppercase;
+}
+
+.card-task {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground, #aaaaaa);
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-time {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground, #666666);
+    margin-bottom: 8px;
+}
+
+.card-pr {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 11px;
+}
+
+.pr-icon {
+    color: var(--vscode-editor-foreground, #cccccc);
+}
+
+.pr-status {
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 9px;
+    text-transform: uppercase;
+}
+
+.pr-status.draft {
+    background: rgba(250, 204, 21, 0.2);
+    color: #facc15;
+}
+
+.pr-status.open {
+    background: rgba(96, 165, 250, 0.2);
+    color: #60a5fa;
+}
+
+.pr-status.merged {
+    background: rgba(74, 222, 128, 0.2);
+    color: #4ade80;
+}
+
+.pr-status.closed {
+    background: rgba(248, 113, 113, 0.2);
+    color: #f87171;
+}
+
+.card-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.card-stats .stat {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #888888);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.card-stats .stat.behind {
+    color: #f87171;
+}
+
+.stat-icon {
+    font-size: 12px;
+}
+
+.card-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.card-action-btn {
+    flex: 1;
+    padding: 6px 8px;
+    background: var(--vscode-button-secondaryBackground, #333333);
+    border: 1px solid var(--vscode-panel-border, #444444);
+    border-radius: 4px;
+    color: var(--vscode-button-secondaryForeground, #cccccc);
+    font-size: 11px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.card-action-btn:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #444444);
+    color: var(--vscode-editor-foreground, #ffffff);
+}
+
+.card-action-btn.danger:hover {
+    background: rgba(248, 113, 113, 0.2);
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.4);
+}
+
+/* ==========================================
+   Overview Actions
+   ========================================== */
+
+.overview-actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.overview-action-btn {
+    padding: 8px 16px;
+    background: var(--vscode-button-background, #0e639c);
+    border: none;
+    border-radius: 4px;
+    color: var(--vscode-button-foreground, #ffffff);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+
+.overview-action-btn:hover {
+    background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+.overview-action-btn.secondary {
+    background: var(--vscode-button-secondaryBackground, #333333);
+    color: var(--vscode-button-secondaryForeground, #cccccc);
+}
+
+.overview-action-btn.secondary:hover {
+    background: var(--vscode-button-secondaryHoverBackground, #444444);
+}
+
+/* ==========================================
+   Worktree Comparison
+   ========================================== */
+
+.worktree-comparison {
+    background: var(--vscode-editor-background, #1e1e1e);
+    border: 1px solid var(--vscode-panel-border, #333333);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.comparison-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.comparison-header h3 {
+    margin: 0;
+    font-size: 14px;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    color: var(--vscode-descriptionForeground, #888888);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.close-btn:hover {
+    background: var(--vscode-toolbar-hoverBackground, #333333);
+    color: var(--vscode-editor-foreground, #ffffff);
+}
+
+.comparison-sides {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.comparison-side {
+    flex: 1;
+    background: var(--vscode-editorWidget-background, #252525);
+    border: 1px solid var(--vscode-panel-border, #333333);
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.side-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.side-icon {
+    font-size: 16px;
+}
+
+.side-name {
+    font-weight: 600;
+    color: var(--vscode-editor-foreground, #ffffff);
+}
+
+.side-branch {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #888888);
+    font-family: var(--vscode-editor-font-family, monospace);
+    margin-bottom: 8px;
+}
+
+.side-stats {
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground, #888888);
+}
+
+.comparison-arrow {
+    font-size: 20px;
+    color: var(--vscode-descriptionForeground, #666666);
+    flex-shrink: 0;
+}
+
+.comparison-actions {
+    display: flex;
+    justify-content: center;
+}
+
+.comparison-action-btn {
+    padding: 10px 24px;
+    font-size: 13px;
+}
+
+.comparison-action-btn.primary {
+    background: var(--vscode-button-background, #0e639c);
+    border: none;
+    border-radius: 4px;
+    color: var(--vscode-button-foreground, #ffffff);
+    cursor: pointer;
+}
+
+.comparison-action-btn.primary:hover {
+    background: var(--vscode-button-hoverBackground, #1177bb);
+}
+
+/* ==========================================
+   Responsive
+   ========================================== */
+
+@media (max-width: 600px) {
+    .overview-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .comparison-sides {
+        flex-direction: column;
+    }
+
+    .comparison-arrow {
+        transform: rotate(90deg);
+    }
+}
