@@ -2,7 +2,7 @@
   "name": "kyco",
   "displayName": "Kyco",
   "description": "Visual code map with AI agent integration",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "kyco",
   "engines": {
     "vscode": "^1.85.0"
@@ -61,12 +61,30 @@
       "properties": {
         "kyco.codeMap.include": {
           "type": "array",
-          "default": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.py", "**/*.cs", "**/*.rs", "**/*.go"],
+          "default": [
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.js",
+            "**/*.jsx",
+            "**/*.py",
+            "**/*.cs",
+            "**/*.rs",
+            "**/*.go"
+          ],
           "description": "Glob patterns for files to include in the code map"
         },
         "kyco.codeMap.exclude": {
           "type": "array",
-          "default": ["**/node_modules/**", "**/dist/**", "**/out/**", "**/.git/**", "**/build/**", "**/__pycache__/**", "**/bin/**", "**/obj/**"],
+          "default": [
+            "**/node_modules/**",
+            "**/dist/**",
+            "**/out/**",
+            "**/.git/**",
+            "**/build/**",
+            "**/__pycache__/**",
+            "**/bin/**",
+            "**/obj/**"
+          ],
           "description": "Glob patterns for files to exclude from the code map"
         },
         "kyco.codeMap.coverageFile": {
@@ -76,7 +94,10 @@
         },
         "kyco.codeMap.layout": {
           "type": "string",
-          "enum": ["hierarchical", "force-directed"],
+          "enum": [
+            "hierarchical",
+            "force-directed"
+          ],
           "default": "hierarchical",
           "description": "Graph layout algorithm"
         }
