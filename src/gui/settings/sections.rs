@@ -600,13 +600,20 @@ fn render_voice_actions(ui: &mut egui::Ui, state: &SettingsState<'_>) {
         });
 }
 
-/// Render VAD (Voice Activity Detection) settings
-fn render_vad_settings(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
-    ui.label(
-        RichText::new("VAD (Voice Activity Detection)")
-            .monospace()
-            .color(TEXT_PRIMARY),
-    );
+/// Render VAD (Voice Activity Detection) settings - Coming Soon
+fn render_vad_settings(ui: &mut egui::Ui, _state: &mut SettingsState<'_>) {
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new("VAD (Voice Activity Detection)")
+                .monospace()
+                .color(TEXT_MUTED),
+        );
+        ui.label(
+            RichText::new("Coming Soon")
+                .small()
+                .color(Color32::from_rgb(255, 180, 0)),
+        );
+    });
     ui.add_space(8.0);
 
     egui::Frame::none()
@@ -615,47 +622,10 @@ fn render_vad_settings(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         .inner_margin(12.0)
         .show(ui, |ui| {
             ui.label(
-                RichText::new("VAD detects speech to efficiently trigger transcription in continuous mode.")
+                RichText::new("VAD will detect speech to efficiently trigger transcription in continuous mode. This feature is currently under development.")
                     .small()
-                    .color(TEXT_MUTED),
+                    .color(TEXT_DIM),
             );
-            ui.add_space(8.0);
-
-            // VAD enabled toggle
-            ui.horizontal(|ui| {
-                ui.checkbox(state.vad_enabled, "");
-                ui.label(RichText::new("Enable VAD for continuous listening").color(TEXT_PRIMARY));
-            });
-
-            if *state.vad_enabled {
-                ui.add_space(8.0);
-
-                // Speech threshold
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Speech threshold:").color(TEXT_MUTED));
-                    ui.add(
-                        egui::TextEdit::singleline(state.vad_speech_threshold)
-                            .font(egui::TextStyle::Monospace)
-                            .text_color(TEXT_PRIMARY)
-                            .desired_width(60.0),
-                    );
-                    ui.label(RichText::new("(0.0-1.0)").small().color(TEXT_DIM));
-                });
-
-                ui.add_space(4.0);
-
-                // Silence duration
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("Silence to stop:").color(TEXT_MUTED));
-                    ui.add(
-                        egui::TextEdit::singleline(state.vad_silence_duration_ms)
-                            .font(egui::TextStyle::Monospace)
-                            .text_color(TEXT_PRIMARY)
-                            .desired_width(60.0),
-                    );
-                    ui.label(RichText::new("ms").small().color(TEXT_DIM));
-                });
-            }
         });
 }
 

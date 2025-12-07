@@ -136,15 +136,15 @@ fn default_voice_language() -> String {
 }
 
 fn default_silence_threshold() -> f32 {
-    0.01
+    0.1 // 10% - higher value = less sensitive to background noise
 }
 
 fn default_silence_duration() -> f32 {
-    1.5
+    2.5 // seconds - longer pause detection to avoid cutting off mid-speech
 }
 
 fn default_max_duration() -> f32 {
-    30.0
+    300.0 // 5 minutes - safety limit for manual recording
 }
 
 impl Default for VoiceSettings {

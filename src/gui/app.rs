@@ -991,44 +991,56 @@ impl eframe::App for KycoApp {
         // Process voice events
         for event in self.voice_manager.poll_events() {
             match event {
-                super::voice::VoiceEvent::TranscriptionComplete { text } => {
-                    // Try to match against voice action registry first
-                    if let Some(wakeword_match) = self.voice_manager.config.action_registry.match_text(&text) {
-                        // Wakeword matched - use mode and prompt from the match
-                        self.popup_input = format!("{} {}", wakeword_match.mode, wakeword_match.get_final_prompt());
-                        self.update_suggestions();
-
-                        // Open selection popup if not already open
-                        if self.view_mode != ViewMode::SelectionPopup {
-                            self.view_mode = ViewMode::SelectionPopup;
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                        }
-
-                        self.logs.push(LogEvent::system(format!(
-                            "Voice wakeword '{}' → mode '{}'",
-                            wakeword_match.wakeword, wakeword_match.mode
-                        )));
-                    } else {
-                        // No wakeword match - fall back to legacy keyword parsing
-                        let (detected_mode, prompt) = super::voice::parse_voice_input(
-                            &text,
-                            &self.voice_manager.config.keywords,
-                        );
-
-                        // Update input field with transcribed text
-                        if let Some(mode) = detected_mode {
-                            self.popup_input = format!("{} {}", mode, prompt);
+                super::voice::VoiceEvent::TranscriptionComplete { text, from_manual } => {
+                    if from_manual {
+                        // Manual recording (button press) - just append text, no wakeword detection
+                        if self.popup_input.is_empty() {
+                            self.popup_input = text;
                         } else {
-                            // If no mode detected, append to existing input
-                            if self.popup_input.is_empty() {
-                                self.popup_input = text;
-                            } else {
-                                self.popup_input.push(' ');
-                                self.popup_input.push_str(&text);
-                            }
+                            self.popup_input.push(' ');
+                            self.popup_input.push_str(&text);
                         }
                         self.update_suggestions();
                         self.logs.push(LogEvent::system("Voice transcription complete".to_string()));
+                    } else {
+                        // Continuous listening - try wakeword detection
+                        if let Some(wakeword_match) = self.voice_manager.config.action_registry.match_text(&text) {
+                            // Wakeword matched - use mode and prompt from the match
+                            self.popup_input = format!("{} {}", wakeword_match.mode, wakeword_match.get_final_prompt());
+                            self.update_suggestions();
+
+                            // Open selection popup if not already open
+                            if self.view_mode != ViewMode::SelectionPopup {
+                                self.view_mode = ViewMode::SelectionPopup;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                            }
+
+                            self.logs.push(LogEvent::system(format!(
+                                "Voice wakeword '{}' → mode '{}'",
+                                wakeword_match.wakeword, wakeword_match.mode
+                            )));
+                        } else {
+                            // No wakeword match - fall back to legacy keyword parsing
+                            let (detected_mode, prompt) = super::voice::parse_voice_input(
+                                &text,
+                                &self.voice_manager.config.keywords,
+                            );
+
+                            // Update input field with transcribed text
+                            if let Some(mode) = detected_mode {
+                                self.popup_input = format!("{} {}", mode, prompt);
+                            } else {
+                                // If no mode detected, append to existing input
+                                if self.popup_input.is_empty() {
+                                    self.popup_input = text;
+                                } else {
+                                    self.popup_input.push(' ');
+                                    self.popup_input.push_str(&text);
+                                }
+                            }
+                            self.update_suggestions();
+                            self.logs.push(LogEvent::system("Voice transcription complete".to_string()));
+                        }
                     }
                 }
                 super::voice::VoiceEvent::WakewordMatched { wakeword, mode, prompt } => {

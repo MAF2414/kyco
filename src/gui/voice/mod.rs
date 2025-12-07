@@ -143,11 +143,11 @@ impl Default for VoiceConfig {
             action_registry,
             whisper_model: "base".to_string(),
             language: "auto".to_string(),
-            silence_threshold: 0.01,
-            silence_duration: 1.5,
-            max_duration: 30.0,
+            silence_threshold: 0.1,  // 10% - less sensitive to background noise
+            silence_duration: 2.5,   // seconds - avoid cutting off mid-speech
+            max_duration: 300.0,     // 5 minutes - safety limit for manual recording
             vad_config: VadConfig::default(),
-            use_vad: true,
+            use_vad: false,  // VAD coming soon - disabled for now
         }
     }
 }
@@ -160,7 +160,8 @@ pub enum VoiceEvent {
     /// Recording stopped, audio captured
     RecordingStopped { duration_secs: f32 },
     /// Transcription completed
-    TranscriptionComplete { text: String },
+    /// - `from_manual`: true if from manual recording (button press), false if from continuous listening
+    TranscriptionComplete { text: String, from_manual: bool },
     /// Keyword detected in continuous mode
     KeywordDetected { keyword: String, full_text: String },
     /// Wakeword matched - triggers a specific mode with prompt
@@ -221,6 +222,8 @@ pub struct VoiceManager {
     pub last_transcription: Option<String>,
     /// Cached availability status
     availability_cache: Option<(bool, String)>,
+    /// Whether current recording is from manual button press (vs continuous listening)
+    is_manual_recording: bool,
 }
 
 impl Default for VoiceManager {
@@ -244,6 +247,7 @@ impl VoiceManager {
             last_error: None,
             last_transcription: None,
             availability_cache: None,
+            is_manual_recording: false,
         }
     }
 
@@ -324,8 +328,13 @@ impl VoiceManager {
         self.work_dir.join(".kyco").join("voice_recording.wav")
     }
 
-    /// Start recording
+    /// Start recording (manual mode - no wakeword detection)
     pub fn start_recording(&mut self) {
+        self.start_recording_internal(true);
+    }
+
+    /// Internal recording start with manual flag
+    fn start_recording_internal(&mut self, is_manual: bool) {
         if !self.is_available() {
             self.state = VoiceState::Error;
             self.last_error = Some(self.availability_status());
@@ -342,10 +351,9 @@ impl VoiceManager {
 
         let recording_path = self.get_recording_path();
 
-        // Start sox recording
-        // rec -r 16000 -c 1 -b 16 output.wav silence 1 0.1 1% 1 1.5 1%
-        // This records at 16kHz mono (required by whisper), and stops on silence
-        let silence_duration = self.config.silence_duration;
+        // Start sox recording - simple manual recording (press to start, press to stop)
+        // Records at 16kHz mono (required by whisper)
+        // No automatic silence detection - user controls when to stop
         let max_duration = self.config.max_duration;
 
         let result = Command::new("rec")
@@ -354,9 +362,7 @@ impl VoiceManager {
                 "-c", "1",               // Mono
                 "-b", "16",              // 16-bit
                 recording_path.to_str().unwrap_or("recording.wav"),
-                "trim", "0", &format!("{}", max_duration),  // Max duration
-                "silence", "1", "0.1", "1%",  // Start on sound
-                "1", &format!("{}", silence_duration), "1%",  // Stop on silence
+                "trim", "0", &format!("{}", max_duration),  // Max duration limit (safety)
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -369,6 +375,7 @@ impl VoiceManager {
                 self.recording_path = Some(recording_path);
                 self.state = VoiceState::Recording;
                 self.last_error = None;
+                self.is_manual_recording = is_manual;
             }
             Err(e) => {
                 self.state = VoiceState::Error;
@@ -415,6 +422,7 @@ impl VoiceManager {
         let model_path = self.get_model_path();
         let language = self.config.language.clone();
         let event_tx = self.event_tx.clone();
+        let from_manual = self.is_manual_recording;
 
         thread::spawn(move || {
             let result = Self::run_whisper(&audio_path, &model_path, &language);
@@ -422,7 +430,7 @@ impl VoiceManager {
             if let Some(tx) = event_tx {
                 match result {
                     Ok(text) => {
-                        let _ = tx.send(VoiceEvent::TranscriptionComplete { text });
+                        let _ = tx.send(VoiceEvent::TranscriptionComplete { text, from_manual });
                     }
                     Err(e) => {
                         let _ = tx.send(VoiceEvent::Error { message: e });
@@ -510,7 +518,7 @@ impl VoiceManager {
         self.availability_cache = None;
     }
 
-    /// Start continuous listening mode
+    /// Start continuous listening mode (with wakeword detection)
     pub fn start_listening(&mut self) {
         if !self.is_available() {
             self.state = VoiceState::Error;
@@ -520,7 +528,7 @@ impl VoiceManager {
 
         // For now, continuous listening just starts a recording
         // A full implementation would run whisper in streaming mode
-        self.start_recording();
+        self.start_recording_internal(false); // Not manual - wakeword detection active
         self.state = VoiceState::Listening;
     }
 
@@ -533,12 +541,13 @@ impl VoiceManager {
     pub fn poll_events(&mut self) -> Vec<VoiceEvent> {
         let mut events = Vec::new();
 
-        // Check if recording process finished on its own (silence detection)
+        // Check if recording process finished on its own (max duration reached)
+        // Note: We use manual start/stop, so this only triggers at max_duration limit
         if self.state == VoiceState::Recording {
             if let Some(ref mut process) = self.recording_process {
                 match process.try_wait() {
                     Ok(Some(_status)) => {
-                        // Recording finished (silence detected)
+                        // Recording finished (max duration reached)
                         self.recording_process = None;
                         if let Some(recording_path) = self.recording_path.take() {
                             if recording_path.exists() {
@@ -549,7 +558,7 @@ impl VoiceManager {
                         }
                     }
                     Ok(None) => {
-                        // Still recording
+                        // Still recording - waiting for user to press stop
                     }
                     Err(e) => {
                         self.state = VoiceState::Error;
@@ -567,7 +576,7 @@ impl VoiceManager {
                     VoiceEvent::StateChanged(state) => {
                         self.state = *state;
                     }
-                    VoiceEvent::TranscriptionComplete { text } => {
+                    VoiceEvent::TranscriptionComplete { text, .. } => {
                         self.last_transcription = Some(text.clone());
                         self.state = VoiceState::Idle;
                     }
