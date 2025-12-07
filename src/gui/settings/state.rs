@@ -8,6 +8,17 @@ use crate::config::Config;
 use crate::gui::app::ViewMode;
 use crate::gui::voice::VoiceActionRegistry;
 
+/// Voice test status for the settings UI
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum VoiceTestStatus {
+    #[default]
+    Idle,
+    Recording,
+    Transcribing,
+    Success,
+    Error(String),
+}
+
 /// State for settings editing UI
 pub struct SettingsState<'a> {
     // General settings
@@ -30,6 +41,10 @@ pub struct SettingsState<'a> {
     pub voice_settings_max_duration: &'a mut String,
     pub voice_install_status: &'a mut Option<(String, bool)>,
     pub voice_install_in_progress: &'a mut bool,
+
+    // Voice test state
+    pub voice_test_status: &'a mut VoiceTestStatus,
+    pub voice_test_result: &'a mut Option<String>,
 
     // VAD settings
     pub vad_enabled: &'a mut bool,

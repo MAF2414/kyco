@@ -5,7 +5,7 @@
     <description><![CDATA[
         Send code selections to Kyco server.<br/>
         <br/>
-        Use <b>Ctrl+Alt+Y</b> (or <b>Ctrl+Cmd+Y</b> on Mac) to send the current selection to http://localhost:9876/selection
+        Use <b>Ctrl+Alt+Y</b> (or <b>Cmd+Option+Y</b> on Mac) to send the current selection to http://localhost:9876/selection
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -20,8 +20,8 @@
                 text="Kyco: Send Selection"
                 description="Send code selection to Kyco server">
             <keyboard-shortcut first-keystroke="control alt Y" keymap="$default"/>
-            <keyboard-shortcut first-keystroke="control meta Y" keymap="Mac OS X"/>
-            <keyboard-shortcut first-keystroke="control meta Y" keymap="Mac OS X 10.5+"/>
+            <keyboard-shortcut first-keystroke="meta alt Y" keymap="Mac OS X"/>
+            <keyboard-shortcut first-keystroke="meta alt Y" keymap="Mac OS X 10.5+"/>
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>

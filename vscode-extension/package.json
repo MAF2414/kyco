@@ -22,8 +22,8 @@
     "keybindings": [
       {
         "command": "kyco.sendSelection",
-        "key": "ctrl+shift+c",
-        "mac": "cmd+shift+c"
+        "key": "ctrl+alt+y",
+        "mac": "cmd+alt+y"
       }
     ]
   },

@@ -109,7 +109,7 @@ fn install_vsix(vsix_path: &Path) -> ExtensionInstallResult {
 
     match install_result {
         Ok(output) if output.status.success() => ExtensionInstallResult::success(
-            "VS Code extension installed! Restart VS Code to activate.\nHotkey: Cmd+Option+K",
+            "VS Code extension installed! Restart VS Code to activate.\nHotkey: Cmd+Option+Y (Ctrl+Alt+Y on Windows/Linux)",
         ),
         Ok(_) => ExtensionInstallResult::success(format!(
             "Extension packaged! Install manually:\ncode --install-extension {}",
@@ -152,7 +152,7 @@ pub fn install_jetbrains_plugin(work_dir: &Path) -> ExtensionInstallResult {
         2. Go to Settings → Plugins → ⚙️ → Install Plugin from Disk\n\
         3. Select: {}\n\
         4. Restart the IDE\n\n\
-        Hotkey: Ctrl+Alt+Y (Ctrl+Cmd+Y on Mac)",
+        Hotkey: Ctrl+Alt+Y (Cmd+Option+Y on Mac)",
         zip_path.display()
     ))
 }

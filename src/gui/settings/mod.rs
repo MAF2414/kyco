@@ -14,4 +14,4 @@ mod sections;
 mod state;
 
 pub use panel::render_settings;
-pub use state::SettingsState;
+pub use state::{SettingsState, VoiceTestStatus};

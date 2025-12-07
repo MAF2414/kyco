@@ -219,6 +219,10 @@ pub struct KycoApp {
     voice_install_status: Option<(String, bool)>,
     /// Voice installation in progress
     voice_install_in_progress: bool,
+    /// Voice test status
+    voice_test_status: super::settings::VoiceTestStatus,
+    /// Voice test result (transcribed text)
+    voice_test_result: Option<String>,
     /// Selected chain for editing (None = list view)
     selected_chain: Option<String>,
     /// Chain editor: name field
@@ -357,6 +361,8 @@ impl KycoApp {
             hotkey_held: false,
             voice_install_status: None,
             voice_install_in_progress: false,
+            voice_test_status: super::settings::VoiceTestStatus::Idle,
+            voice_test_result: None,
             selected_chain: None,
             chain_edit_name: String::new(),
             chain_edit_description: String::new(),
@@ -390,6 +396,9 @@ impl KycoApp {
                 voice_settings_max_duration: &mut self.voice_settings_max_duration,
                 voice_install_status: &mut self.voice_install_status,
                 voice_install_in_progress: &mut self.voice_install_in_progress,
+                // Voice test state
+                voice_test_status: &mut self.voice_test_status,
+                voice_test_result: &mut self.voice_test_result,
                 // VAD settings
                 vad_enabled: &mut self.vad_enabled,
                 vad_speech_threshold: &mut self.vad_speech_threshold,
