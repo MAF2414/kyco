@@ -59,7 +59,7 @@ use_worktree = false
 aliases = ["c", "cl"]
 cli_type = "claude"
 binary = "claude"
-print_mode_args = ["-p", "--allowedTools", "Read"]
+print_mode_args = ["-p"]
 output_format_args = ["--output-format", "stream-json", "--verbose"]
 system_prompt_mode = "append"
 allowed_tools = ["Read"]
@@ -86,7 +86,7 @@ allowed_tools = ["Read"]
 cli_type = "claude"
 binary = "claude"
 mode = "repl"
-repl_mode_args = ["--allowedTools", "Read"]
+repl_mode_args = []
 allowed_tools = ["Read"]
 
 [agent.xr]

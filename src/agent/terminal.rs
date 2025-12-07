@@ -325,16 +325,20 @@ impl TerminalAdapter {
             }
         }
 
-        // Add disallowed tools if any
+        // Add disallowed tools if any (each tool as a separate argument)
         if !config.disallowed_tools.is_empty() && self.cli_type == CliType::Claude {
             args.push("--disallowedTools".to_string());
-            args.push(config.disallowed_tools.join(","));
+            for tool in &config.disallowed_tools {
+                args.push(tool.clone());
+            }
         }
 
-        // Add allowed tools if any
+        // Add allowed tools if any (each tool as a separate argument)
         if !config.allowed_tools.is_empty() && self.cli_type == CliType::Claude {
             args.push("--allowedTools".to_string());
-            args.push(config.allowed_tools.join(","));
+            for tool in &config.allowed_tools {
+                args.push(tool.clone());
+            }
         }
 
         args

@@ -92,16 +92,20 @@ impl ClaudeAdapter {
             }
         }
 
-        // Add disallowed tools
+        // Add disallowed tools (each tool as a separate argument)
         if !config.disallowed_tools.is_empty() {
             args.push("--disallowedTools".to_string());
-            args.push(config.disallowed_tools.join(","));
+            for tool in &config.disallowed_tools {
+                args.push(tool.clone());
+            }
         }
 
-        // Add allowed tools
+        // Add allowed tools (each tool as a separate argument)
         if !config.allowed_tools.is_empty() {
             args.push("--allowedTools".to_string());
-            args.push(config.allowed_tools.join(","));
+            for tool in &config.allowed_tools {
+                args.push(tool.clone());
+            }
         }
 
         // Add -- separator to indicate end of flags
