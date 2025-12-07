@@ -2,7 +2,7 @@
 //!
 //! This module contains the job list panel rendering logic.
 
-use super::super::app::{BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use super::super::app::{ACCENT_PURPLE, BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 use super::super::detail_panel::status_color;
 use crate::{Job, JobStatus};
 use eframe::egui::{self, Color32, RichText, ScrollArea};
@@ -116,6 +116,15 @@ pub fn render_job_list(
                                     RichText::new(format!("[{}]", job.agent_id))
                                         .color(TEXT_MUTED),
                                 );
+
+                                // Group indicator (if job is part of a multi-agent group)
+                                if job.group_id.is_some() {
+                                    ui.label(
+                                        RichText::new("⧉")
+                                            .color(ACCENT_PURPLE)
+                                            .small(),
+                                    ).on_hover_text("Part of multi-agent group");
+                                }
                             });
 
                             // Target (truncated)

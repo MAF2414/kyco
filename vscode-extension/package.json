@@ -1,135 +1,39 @@
 {
   "name": "kyco",
-  "displayName": "Kyco",
-  "description": "Visual code map with AI agent integration",
-  "version": "0.3.0",
+  "displayName": "KYCo",
+  "description": "Send code selections to KYCo backend",
+  "version": "0.1.0",
   "publisher": "kyco",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Visualization",
     "Other"
   ],
-  "activationEvents": [
-    "workspaceContains:**/package.json",
-    "workspaceContains:**/tsconfig.json",
-    "workspaceContains:**/pyproject.toml",
-    "workspaceContains:**/*.csproj",
-    "workspaceContains:**/Cargo.toml"
-  ],
+  "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "kyco.sendSelection",
-        "title": "Kyco: Send Selection"
-      },
-      {
-        "command": "kyco.openCodeMap",
-        "title": "Kyco: Open Code Map"
-      },
-      {
-        "command": "kyco.refreshCodeMap",
-        "title": "Kyco: Refresh Code Map"
-      },
-      {
-        "command": "kyco.sendSelectionToAgent",
-        "title": "Kyco: Send Map Selection to Agent"
+        "title": "KYCo: Send Selection"
       }
     ],
     "keybindings": [
       {
         "command": "kyco.sendSelection",
-        "key": "ctrl+alt+y",
-        "mac": "ctrl+cmd+y",
-        "when": "editorTextFocus"
-      },
-      {
-        "command": "kyco.openCodeMap",
-        "key": "ctrl+alt+m",
-        "mac": "ctrl+cmd+m"
-      },
-      {
-        "command": "kyco.sendSelectionToAgent",
-        "key": "ctrl+enter",
-        "when": "kyco.codeMapFocused"
+        "key": "ctrl+shift+c",
+        "mac": "cmd+shift+c"
       }
-    ],
-    "configuration": {
-      "title": "Kyco Code Map",
-      "properties": {
-        "kyco.codeMap.include": {
-          "type": "array",
-          "default": [
-            "**/*.ts",
-            "**/*.tsx",
-            "**/*.js",
-            "**/*.jsx",
-            "**/*.py",
-            "**/*.cs",
-            "**/*.rs",
-            "**/*.go"
-          ],
-          "description": "Glob patterns for files to include in the code map"
-        },
-        "kyco.codeMap.exclude": {
-          "type": "array",
-          "default": [
-            "**/node_modules/**",
-            "**/dist/**",
-            "**/out/**",
-            "**/.git/**",
-            "**/build/**",
-            "**/__pycache__/**",
-            "**/bin/**",
-            "**/obj/**"
-          ],
-          "description": "Glob patterns for files to exclude from the code map"
-        },
-        "kyco.codeMap.coverageFile": {
-          "type": "string",
-          "default": "",
-          "description": "Path to coverage report file (lcov, cobertura, istanbul)"
-        },
-        "kyco.codeMap.layout": {
-          "type": "string",
-          "enum": [
-            "hierarchical",
-            "force-directed"
-          ],
-          "default": "hierarchical",
-          "description": "Graph layout algorithm"
-        }
-      }
-    }
+    ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "build": "npm run compile && npm run build:webview",
-    "build:webview": "esbuild src/webview/webview.ts --bundle --outfile=out/webview/webview.js --format=iife --platform=browser --minify",
-    "dev:webview": "esbuild src/webview/webview.ts --bundle --outfile=out/webview/webview.js --format=iife --platform=browser --watch",
-    "pretest": "npm run compile"
-  },
-  "dependencies": {
-    "tree-sitter": "^0.21.1",
-    "tree-sitter-c-sharp": "^0.21.3",
-    "tree-sitter-go": "^0.21.2",
-    "tree-sitter-javascript": "^0.21.4",
-    "tree-sitter-python": "^0.21.0",
-    "tree-sitter-rust": "^0.21.2",
-    "tree-sitter-typescript": "^0.21.2",
-    "vis-network": "^9.1.9",
-    "vis-data": "^7.1.9",
-    "lcov-parse": "^1.0.0"
+    "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
-    "@types/node": "^18.x",
+    "@types/node": "^20.10.0",
     "@types/vscode": "^1.85.0",
-    "@types/vis": "^4.21.25",
-    "esbuild": "^0.20.0",
     "typescript": "^5.3.0"
   }
 }

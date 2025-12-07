@@ -47,10 +47,13 @@ impl std::fmt::Display for StatusMarker {
 /// A parsed comment tag from the source code
 ///
 /// Supports the new syntax: @agent#mode.target.scope description
+/// Multi-agent syntax: @agent1+agent2+agent3:mode description
+///
 /// Examples:
 /// - @claude#refactor.block.function
 /// - @c#r.f (short form)
 /// - @codex#tests.all.file add integration tests
+/// - @claude+codex+gemini:refactor optimize this function (parallel)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommentTag {
     /// The file where this comment was found
@@ -63,7 +66,14 @@ pub struct CommentTag {
     pub raw_line: String,
 
     /// The agent to use (e.g., "claude", "codex", "gemini")
+    /// For single-agent tags, this is the agent name.
+    /// For multi-agent tags, this is the first agent (for backwards compatibility).
     pub agent: String,
+
+    /// Multiple agents for parallel execution (e.g., ["claude", "codex", "gemini"])
+    /// If this has more than one agent, the same task will be run in parallel.
+    #[serde(default)]
+    pub agents: Vec<String>,
 
     /// The parsed mode (e.g., "refactor", "tests", "docs")
     pub mode: String,
@@ -90,11 +100,13 @@ impl CommentTag {
         agent: String,
         mode: String,
     ) -> Self {
+        let agents = vec![agent.clone()];
         Self {
             file_path,
             line_number,
             raw_line,
             agent,
+            agents,
             mode,
             target: Target::Block,
             status_marker: None,
@@ -112,11 +124,37 @@ impl CommentTag {
         mode: String,
         target: Target,
     ) -> Self {
+        let agents = vec![agent.clone()];
         Self {
             file_path,
             line_number,
             raw_line,
             agent,
+            agents,
+            mode,
+            target,
+            status_marker: None,
+            description: None,
+            job_id: None,
+        }
+    }
+
+    /// Create a new comment tag with multiple agents for parallel execution
+    pub fn new_multi_agent(
+        file_path: PathBuf,
+        line_number: usize,
+        raw_line: String,
+        agents: Vec<String>,
+        mode: String,
+        target: Target,
+    ) -> Self {
+        let agent = agents.first().cloned().unwrap_or_else(|| "claude".to_string());
+        Self {
+            file_path,
+            line_number,
+            raw_line,
+            agent,
+            agents,
             mode,
             target,
             status_marker: None,
@@ -137,12 +175,18 @@ impl CommentTag {
             line_number,
             raw_line,
             agent: "claude".to_string(),
+            agents: vec!["claude".to_string()],
             mode,
             target: Target::Block,
             status_marker: None,
             description: None,
             job_id: None,
         }
+    }
+
+    /// Check if this tag has multiple agents (parallel execution)
+    pub fn is_multi_agent(&self) -> bool {
+        self.agents.len() > 1
     }
 
     /// Check if this comment is already linked to a job

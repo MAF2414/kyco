@@ -84,6 +84,7 @@ impl Config {
 
     /// Load configuration from a directory
     /// Looks for: .kyco/config.toml (preferred) or kyco.toml (legacy)
+    /// If no config exists, auto-creates one with defaults
     pub fn from_dir(dir: &Path) -> Result<Self> {
         // Prefer new location: .kyco/config.toml
         let new_path = dir.join(".kyco/config.toml");
@@ -97,8 +98,33 @@ impl Config {
             return Self::from_file(&legacy_path);
         }
 
-        // Return default config
-        Ok(Self::with_defaults())
+        // Auto-init: create config with defaults
+        Self::auto_init(dir)?;
+        Self::from_file(&new_path)
+    }
+
+    /// Auto-initialize configuration when no config exists
+    fn auto_init(dir: &Path) -> Result<()> {
+        let config_dir = dir.join(".kyco");
+        let config_path = config_dir.join("config.toml");
+
+        // Create .kyco directory
+        if !config_dir.exists() {
+            std::fs::create_dir_all(&config_dir)
+                .with_context(|| format!("Failed to create config directory: {}", config_dir.display()))?;
+        }
+
+        // Generate default config as TOML
+        let default_config = Self::with_defaults();
+        let config_content = toml::to_string_pretty(&default_config)
+            .with_context(|| "Failed to serialize default config")?;
+
+        // Write config file
+        std::fs::write(&config_path, config_content)
+            .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;
+
+        eprintln!("Created {}", config_path.display());
+        Ok(())
     }
 
     /// Create a config with sensible defaults
@@ -115,8 +141,8 @@ impl Config {
                 binary: "claude".to_string(),
                 print_mode_args: vec![
                     "-p".to_string(),
-                    "--permission-mode".to_string(),
-                    "bypassPermissions".to_string(),
+                    "--allowedTools".to_string(),
+                    "Read".to_string(),
                 ],
                 output_format_args: vec![
                     "--output-format".to_string(),
@@ -124,13 +150,13 @@ impl Config {
                     "--verbose".to_string(),
                 ],
                 repl_mode_args: vec![
-                    "--permission-mode".to_string(),
-                    "bypassPermissions".to_string(),
+                    "--allowedTools".to_string(),
+                    "Read".to_string(),
                 ],
                 default_args: vec![],
                 system_prompt_mode: SystemPromptMode::Append,
                 disallowed_tools: vec![],
-                allowed_tools: vec![],
+                allowed_tools: vec!["Read".to_string()],
                 env: HashMap::new(),
             },
         );
@@ -143,13 +169,13 @@ impl Config {
                 cli_type: CliType::Codex,
                 mode: AgentMode::Print,
                 binary: "codex".to_string(),
-                print_mode_args: vec!["exec".to_string()],
+                print_mode_args: vec!["exec".to_string(), "--sandbox".to_string(), "workspace-write".to_string()],
                 output_format_args: vec!["--json".to_string()],
-                repl_mode_args: vec!["--full-auto".to_string()],
+                repl_mode_args: vec!["--full-auto".to_string()], // --full-auto includes workspace-write sandbox
                 default_args: vec![],
                 system_prompt_mode: SystemPromptMode::ConfigOverride,
                 disallowed_tools: vec![],
-                allowed_tools: vec![],
+                allowed_tools: vec!["Read".to_string()],
                 env: HashMap::new(),
             },
         );
@@ -168,7 +194,7 @@ impl Config {
                 default_args: vec![],
                 system_prompt_mode: SystemPromptMode::Replace,
                 disallowed_tools: vec![],
-                allowed_tools: vec![],
+                allowed_tools: vec!["Read".to_string()],
                 env: HashMap::new(),
             },
         );
@@ -197,7 +223,7 @@ impl Config {
                 scope_default: Some("file".to_string()),
                 prompt: Some("Fix the issues in `{file}`. {description}".to_string()),
                 system_prompt: Some("You are a code fixer. Apply the necessary fixes based on the issues identified. Make minimal changes to fix the problems.".to_string()),
-                allowed_tools: vec![],
+                allowed_tools: vec!["Read".to_string(), "Write".to_string(), "Edit".to_string(), "Glob".to_string(), "Grep".to_string(), "Bash".to_string()],
                 disallowed_tools: vec![],
                 aliases: vec!["f".to_string()],
                 output_states: vec!["fixed".to_string(), "unfixable".to_string()],
@@ -212,7 +238,7 @@ impl Config {
                 scope_default: Some("file".to_string()),
                 prompt: Some("Implement the following in `{file}`: {description}".to_string()),
                 system_prompt: Some("You are a software engineer. Implement the requested feature or functionality.".to_string()),
-                allowed_tools: vec![],
+                allowed_tools: vec!["Read".to_string(), "Write".to_string(), "Edit".to_string(), "Glob".to_string(), "Grep".to_string(), "Bash".to_string()],
                 disallowed_tools: vec![],
                 aliases: vec!["i".to_string(), "impl".to_string()],
                 output_states: vec!["implemented".to_string(), "blocked".to_string()],

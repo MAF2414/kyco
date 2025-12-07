@@ -87,6 +87,42 @@ impl AutocompleteState {
             return;
         }
 
+        // Check for multi-agent mode: input ends with "+"
+        // Show agents to add to the parallel execution
+        if input_trimmed.ends_with('+') && !input_trimmed.contains(':') {
+            // We're adding another agent for parallel execution
+            let prefix = &input_trimmed[..input_trimmed.len() - 1];
+            let existing_agents: Vec<&str> = prefix.split('+').collect();
+
+            for (agent_name, _agent_config) in &config.agent {
+                // Don't suggest agents already in the list
+                if existing_agents.iter().any(|a| a.eq_ignore_ascii_case(agent_name)) {
+                    continue;
+                }
+
+                let desc = format!(
+                    "Add {} to parallel execution",
+                    agent_name
+                );
+                self.suggestions.push(Suggestion {
+                    text: format!("{}+{}:", input_trimmed.trim_end_matches('+'), agent_name),
+                    description: desc,
+                    category: "agent",
+                });
+            }
+
+            // Also suggest finishing with a colon to select mode
+            let agent_count = existing_agents.len();
+            self.suggestions.push(Suggestion {
+                text: format!("{}:", prefix),
+                description: format!("{} agents selected - choose mode", agent_count),
+                category: "agent",
+            });
+
+            self.show_suggestions = !self.suggestions.is_empty();
+            return;
+        }
+
         // Check if we have "agent:" prefix - show modes after colon
         if let Some(colon_pos) = input_trimmed.find(':') {
             let agent_part = &input_trimmed[..colon_pos];
@@ -231,7 +267,12 @@ impl AutocompleteState {
     }
 }
 
-/// Parse the popup input into agent, mode, and prompt
+/// Parse the popup input into agent(s), mode, and prompt
+///
+/// Supports both single-agent and multi-agent syntax:
+/// - "claude:refactor" -> (["claude"], "refactor", "")
+/// - "claude+codex:refactor optimize" -> (["claude", "codex"], "refactor", "optimize")
+/// - "refactor" -> (["claude"], "refactor", "")
 pub fn parse_input(input: &str) -> (String, String, String) {
     let input = input.trim();
 
@@ -246,4 +287,59 @@ pub fn parse_input(input: &str) -> (String, String, String) {
     };
 
     (agent.to_string(), mode.to_string(), prompt.to_string())
+}
+
+/// Parse the popup input into multiple agents, mode, and prompt
+///
+/// Returns (agents, mode, prompt) where agents is a Vec of agent names
+pub fn parse_input_multi(input: &str) -> (Vec<String>, String, String) {
+    let input = input.trim();
+
+    let (command, prompt) = match input.find(' ') {
+        Some(pos) => (&input[..pos], input[pos + 1..].trim()),
+        None => (input, ""),
+    };
+
+    let (agents_str, mode) = match command.find(':') {
+        Some(pos) => (&command[..pos], &command[pos + 1..]),
+        None => ("claude", command),
+    };
+
+    // Parse agents (may be "claude" or "claude+codex+gemini")
+    let agents: Vec<String> = agents_str
+        .split('+')
+        .map(|a| a.trim().to_lowercase())
+        .filter(|a| !a.is_empty())
+        .collect();
+
+    let agents = if agents.is_empty() {
+        vec!["claude".to_string()]
+    } else {
+        agents
+    };
+
+    (agents, mode.to_string(), prompt.to_string())
+}
+
+/// Check if input is in multi-agent mode (contains + in agent part)
+pub fn is_multi_agent_input(input: &str) -> bool {
+    let input = input.trim();
+    let command = match input.find(' ') {
+        Some(pos) => &input[..pos],
+        None => input,
+    };
+
+    // Check if there's a + before the : (or before end if no :)
+    let agent_part = match command.find(':') {
+        Some(pos) => &command[..pos],
+        None => command,
+    };
+
+    agent_part.contains('+')
+}
+
+/// Count the number of agents in the input
+pub fn count_agents(input: &str) -> usize {
+    let (agents, _, _) = parse_input_multi(input);
+    agents.len()
 }

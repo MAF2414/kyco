@@ -8,13 +8,15 @@
 
 use super::diff::DiffState;
 use super::executor::ExecutorEvent;
+use super::groups::{render_comparison_popup, ComparisonAction, ComparisonState};
 use super::http_server::SelectionRequest;
 use super::jobs;
+use super::selection::autocomplete::parse_input_multi;
 use super::selection::{AutocompleteState, SelectionContext};
 use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager};
 use crate::config::Config;
-use crate::job::JobManager;
-use crate::{Job, JobId, LogEvent};
+use crate::job::{GroupManager, JobManager};
+use crate::{AgentGroupId, Job, JobId, LogEvent};
 use eframe::egui::{self, Color32, Key, Stroke};
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
@@ -70,6 +72,8 @@ pub enum ViewMode {
     SelectionPopup,
     /// Diff view popup
     DiffView,
+    /// Comparison popup for multi-agent results
+    ComparisonPopup,
     /// Settings/Extensions view
     Settings,
     /// Modes configuration view
@@ -89,6 +93,8 @@ pub struct KycoApp {
     config: Config,
     /// Job manager (shared with async tasks)
     job_manager: Arc<Mutex<JobManager>>,
+    /// Group manager for multi-agent parallel execution
+    group_manager: Arc<Mutex<GroupManager>>,
     /// Cached jobs for display (updated periodically)
     cached_jobs: Vec<Job>,
     /// Selected job ID
@@ -111,6 +117,8 @@ pub struct KycoApp {
     popup_status: Option<(String, bool)>,
     /// Diff view state
     diff_state: DiffState,
+    /// Comparison popup state for multi-agent results
+    comparison_state: ComparisonState,
     /// Auto-run enabled
     auto_run: bool,
     /// Auto-scan enabled
@@ -282,6 +290,7 @@ impl KycoApp {
             work_dir: work_dir.clone(),
             config,
             job_manager,
+            group_manager: Arc::new(Mutex::new(GroupManager::new())),
             cached_jobs: Vec::new(),
             selected_job_id: None,
             logs: vec![LogEvent::system("kyco GUI started")],
@@ -293,6 +302,7 @@ impl KycoApp {
             autocomplete: AutocompleteState::default(),
             popup_status: None,
             diff_state: DiffState::new(),
+            comparison_state: ComparisonState::default(),
             auto_run: settings_auto_run,
             auto_scan: true,
             log_scroll_to_bottom: true,
@@ -496,11 +506,78 @@ impl KycoApp {
         self.refresh_jobs();
     }
 
+    /// Check if a job's completion means a group is ready for comparison
+    fn check_group_completion(&mut self, job_id: JobId) {
+        // Get the group ID for this job
+        let group_id = {
+            let manager = match self.job_manager.lock() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            match manager.get(job_id) {
+                Some(job) => job.group_id,
+                None => return,
+            }
+        };
+
+        let group_id = match group_id {
+            Some(id) => id,
+            None => return, // Job is not part of a group
+        };
+
+        // Collect job references for status update
+        let jobs: Vec<&Job> = self.cached_jobs.iter().collect();
+
+        // Update group status
+        if let Ok(mut gm) = self.group_manager.lock() {
+            gm.update_group_status(group_id, &jobs);
+
+            // Check if group is now in Comparing status
+            if let Some(group) = gm.get(group_id) {
+                if group.status == crate::GroupStatus::Comparing {
+                    // Log that the group is ready
+                    self.logs.push(LogEvent::system(format!(
+                        "Group #{} ready for comparison ({} agents)",
+                        group_id,
+                        group.job_ids.len()
+                    )));
+                }
+            }
+        }
+    }
+
+    /// Open the comparison popup for a group
+    fn open_comparison_popup(&mut self, group_id: AgentGroupId) {
+        // Get the group
+        let group = {
+            let gm = match self.group_manager.lock() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            match gm.get(group_id) {
+                Some(g) => g.clone(),
+                None => return,
+            }
+        };
+
+        // Collect jobs for this group
+        let jobs: Vec<Job> = self
+            .cached_jobs
+            .iter()
+            .filter(|j| j.group_id == Some(group_id))
+            .cloned()
+            .collect();
+
+        // Open the popup
+        self.comparison_state.open(group, jobs);
+        self.view_mode = ViewMode::ComparisonPopup;
+    }
+
     /// Handle incoming selection from IDE extension
     fn on_selection_received(&mut self, req: SelectionRequest, ctx: &egui::Context) {
         info!(
-            "[kyco:gui] Received selection: file={:?}, lines={:?}-{:?}",
-            req.file_path, req.line_start, req.line_end
+            "[kyco:gui] Received selection: file={:?}, lines={:?}-{:?}, deps={:?}, tests={:?}",
+            req.file_path, req.line_start, req.line_end, req.dependency_count, req.related_tests.as_ref().map(|t| t.len())
         );
 
         self.selection = SelectionContext {
@@ -510,6 +587,10 @@ impl KycoApp {
             line_number: req.line_start,
             line_end: req.line_end,
             possible_files: Vec::new(),
+            dependencies: req.dependencies,
+            dependency_count: req.dependency_count,
+            additional_dependency_count: req.additional_dependency_count,
+            related_tests: req.related_tests,
         };
 
         // Show selection popup
@@ -541,15 +622,39 @@ impl KycoApp {
 
     /// Execute the task from selection popup
     fn execute_popup_task(&mut self) {
-        let (agent, mode, prompt) = self.parse_input();
+        // Use the multi-agent parser to support "claude+codex+gemini:mode" syntax
+        let (agents, mode, prompt) = parse_input_multi(&self.popup_input);
 
         if mode.is_empty() {
             self.popup_status = Some(("Please enter a mode (e.g., 'refactor', 'fix')".to_string(), true));
             return;
         }
 
-        // Create job in JobManager
-        if let Some(job_id) = self.create_job_from_selection(&agent, &mode, &prompt) {
+        // Resolve agent aliases
+        let resolved_agents: Vec<String> = agents
+            .iter()
+            .map(|a| {
+                self.config
+                    .agent
+                    .iter()
+                    .find(|(name, cfg)| {
+                        name.eq_ignore_ascii_case(a) || cfg.aliases.iter().any(|alias| alias.eq_ignore_ascii_case(a))
+                    })
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_else(|| a.clone())
+            })
+            .collect();
+
+        // Create job(s) - uses multi-agent creation for parallel execution
+        if let Some(result) = jobs::create_jobs_from_selection_multi(
+            &self.job_manager,
+            &self.group_manager,
+            &self.selection,
+            &resolved_agents,
+            &mode,
+            &prompt,
+            &mut self.logs,
+        ) {
             let selection_info = self
                 .selection
                 .selected_text
@@ -557,14 +662,35 @@ impl KycoApp {
                 .map(|s| format!("{} chars", s.len()))
                 .unwrap_or_else(|| "no selection".to_string());
 
-            self.popup_status = Some((
-                format!("Job #{} created: {}:{} ({})", job_id, agent, mode, selection_info),
-                false,
-            ));
+            if result.job_ids.len() == 1 {
+                // Single agent
+                let job_id = result.job_ids[0];
+                self.popup_status = Some((
+                    format!("Job #{} created: {}:{} ({})", job_id, resolved_agents[0], mode, selection_info),
+                    false,
+                ));
+                self.selected_job_id = Some(job_id);
+            } else {
+                // Multi-agent - show group info
+                let agent_list = resolved_agents.join("+");
+                self.popup_status = Some((
+                    format!(
+                        "Group #{} created: {} jobs ({}) for {}:{} ({})",
+                        result.group_id.unwrap_or(0),
+                        result.job_ids.len(),
+                        agent_list,
+                        agent_list,
+                        mode,
+                        selection_info
+                    ),
+                    false,
+                ));
+                // Select first job
+                self.selected_job_id = result.job_ids.first().copied();
+            }
 
-            // Refresh job list and select new job
+            // Refresh job list
             self.refresh_jobs();
-            self.selected_job_id = Some(job_id);
 
             // Return to job list view after a moment
             self.view_mode = ViewMode::JobList;
@@ -650,6 +776,69 @@ impl KycoApp {
             self.diff_state.clear();
         }
     }
+
+    /// Render the comparison popup for multi-agent results
+    fn render_comparison_popup(&mut self, ctx: &egui::Context) {
+        if let Some(action) = render_comparison_popup(ctx, &mut self.comparison_state) {
+            match action {
+                ComparisonAction::SelectJob(job_id) => {
+                    // Update the selection in the group manager
+                    if let Some(group_id) = self.comparison_state.group_id() {
+                        if let Ok(mut gm) = self.group_manager.lock() {
+                            gm.select_result(group_id, job_id);
+                        }
+                    }
+                    self.logs.push(LogEvent::system(format!("Selected job #{}", job_id)));
+                }
+                ComparisonAction::ViewDiff(job_id) => {
+                    // Load diff for the selected job
+                    if let Some(job) = self.cached_jobs.iter().find(|j| j.id == job_id) {
+                        if let Some(worktree) = &job.git_worktree_path {
+                            let git_manager = crate::git::GitManager::new(&self.work_dir).ok();
+                            if let Some(gm) = git_manager {
+                                match gm.diff(worktree) {
+                                    Ok(diff) => {
+                                        self.diff_state.set_content(diff);
+                                        // Note: We stay in comparison mode but could show diff as sub-modal
+                                    }
+                                    Err(e) => {
+                                        self.logs.push(LogEvent::error(format!("Failed to load diff: {}", e)));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ComparisonAction::MergeAndClose => {
+                    // Merge the selected job and cleanup
+                    if let Some(group_id) = self.comparison_state.group_id() {
+                        let result = super::groups::merge_and_cleanup(
+                            group_id,
+                            &mut *self.group_manager.lock().unwrap(),
+                            &mut *self.job_manager.lock().unwrap(),
+                            &crate::git::GitManager::new(&self.work_dir).unwrap(),
+                        );
+
+                        if result.success {
+                            self.logs.push(LogEvent::system(result.message));
+                        } else {
+                            self.logs.push(LogEvent::error(result.message));
+                        }
+                    }
+
+                    // Close popup and return to job list
+                    self.comparison_state.close();
+                    self.view_mode = ViewMode::JobList;
+                    self.refresh_jobs();
+                }
+                ComparisonAction::Cancel => {
+                    // Close popup without merging
+                    self.comparison_state.close();
+                    self.view_mode = ViewMode::JobList;
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for KycoApp {
@@ -692,9 +881,13 @@ impl eframe::App for KycoApp {
                 }
                 ExecutorEvent::JobCompleted(job_id) => {
                     self.logs.push(LogEvent::system(format!("Job #{} completed", job_id)));
+                    // Check if this job is part of a group and update group status
+                    self.check_group_completion(job_id);
                 }
                 ExecutorEvent::JobFailed(job_id, error) => {
                     self.logs.push(LogEvent::error(format!("Job #{} failed: {}", job_id, error)));
+                    // Check if this job is part of a group and update group status
+                    self.check_group_completion(job_id);
                 }
                 ExecutorEvent::ChainStepCompleted { job_id: _, step_index, total_steps, mode, state } => {
                     let state_str = state.as_deref().unwrap_or("none");
@@ -833,6 +1026,12 @@ impl eframe::App for KycoApp {
                     if i.key_pressed(Key::Escape) || i.key_pressed(Key::Q) {
                         self.view_mode = ViewMode::JobList;
                         self.diff_state.clear();
+                    }
+                }
+                ViewMode::ComparisonPopup => {
+                    if i.key_pressed(Key::Escape) || i.key_pressed(Key::Q) {
+                        self.comparison_state.close();
+                        self.view_mode = ViewMode::JobList;
                     }
                 }
                 ViewMode::JobList => {
@@ -986,6 +1185,14 @@ impl eframe::App for KycoApp {
                     .show(ctx, |_ui| {});
 
                 self.render_diff_popup(ctx);
+            }
+            ViewMode::ComparisonPopup => {
+                // Show main UI dimmed behind popup
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::none().fill(BG_PRIMARY.linear_multiply(0.3)))
+                    .show(ctx, |_ui| {});
+
+                self.render_comparison_popup(ctx);
             }
             ViewMode::Settings => {
                 self.render_settings(ctx);

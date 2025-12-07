@@ -129,6 +129,7 @@ pub struct ModeDefaults;
 /// Parser for KYCo comment markers
 ///
 /// New simplified syntax: {prefix}{agent:}?{mode} {description}?
+/// Multi-agent syntax: {prefix}{agent1+agent2+agent3:}{mode} {description}?
 pub struct CommentParser {
     /// Marker prefix (default: "@")
     prefix: String,
@@ -136,6 +137,8 @@ pub struct CommentParser {
     aliases: AliasResolver,
     /// Compiled regex pattern (built from prefix)
     pattern: Regex,
+    /// Compiled regex pattern for multi-agent syntax
+    multi_agent_pattern: Regex,
 }
 
 impl CommentParser {
@@ -148,34 +151,40 @@ impl CommentParser {
     pub fn with_prefix(prefix: &str) -> Self {
         let aliases = AliasResolver::new();
         let pattern = Self::build_pattern(prefix);
+        let multi_agent_pattern = Self::build_multi_agent_pattern(prefix);
         Self {
             prefix: prefix.to_string(),
             aliases,
             pattern,
+            multi_agent_pattern,
         }
     }
 
     /// Create a parser with custom aliases
     pub fn with_aliases(aliases: AliasResolver) -> Self {
         let pattern = Self::build_pattern("@");
+        let multi_agent_pattern = Self::build_multi_agent_pattern("@");
         Self {
             prefix: "@".to_string(),
             aliases,
             pattern,
+            multi_agent_pattern,
         }
     }
 
     /// Create a parser with custom prefix and aliases
     pub fn with_prefix_and_aliases(prefix: &str, aliases: AliasResolver) -> Self {
         let pattern = Self::build_pattern(prefix);
+        let multi_agent_pattern = Self::build_multi_agent_pattern(prefix);
         Self {
             prefix: prefix.to_string(),
             aliases,
             pattern,
+            multi_agent_pattern,
         }
     }
 
-    /// Build regex pattern for the given prefix
+    /// Build regex pattern for the given prefix (single agent)
     fn build_pattern(prefix: &str) -> Regex {
         // Escape special regex characters in prefix
         let escaped_prefix = regex::escape(prefix);
@@ -184,6 +193,24 @@ impl CommentParser {
         // Groups: 1=agent (optional, without :), 2=mode, 3=description (optional), 4=status, 5=id
         let pattern_str = format!(
             r"{}(?:(\w+):)?(\w+)(?:\s+(.+?))?(?:\s*\[(\w+)#(\d+)\])?\s*$",
+            escaped_prefix
+        );
+
+        Regex::new(&pattern_str).unwrap()
+    }
+
+    /// Build regex pattern for multi-agent syntax
+    ///
+    /// Multi-agent syntax: {prefix}{agent1+agent2+agent3:}{mode} {description}?
+    /// Example: @@claude+codex+gemini:refactor optimize this function
+    fn build_multi_agent_pattern(prefix: &str) -> Regex {
+        let escaped_prefix = regex::escape(prefix);
+
+        // Pattern: {prefix}({agent}+{agent}+...):({mode})(\s+{description})?(\s+\[{status}#{id}\])?
+        // Groups: 1=agents (with +), 2=mode, 3=description (optional), 4=status, 5=id
+        // The agents group captures "agent1+agent2+agent3"
+        let pattern_str = format!(
+            r"{}(\w+(?:\+\w+)+):(\w+)(?:\s+(.+?))?(?:\s*\[(\w+)#(\d+)\])?\s*$",
             escaped_prefix
         );
 
@@ -214,6 +241,12 @@ impl CommentParser {
 
     /// Parse a single line for a KYCo marker
     pub fn parse_line(&self, path: &Path, line_number: usize, line: &str) -> Option<CommentTag> {
+        // Try multi-agent pattern first (e.g., @@claude+codex+gemini:refactor)
+        if let Some(tag) = self.parse_multi_agent_line(path, line_number, line) {
+            return Some(tag);
+        }
+
+        // Fall back to single-agent pattern
         let captures = self.pattern.captures(line)?;
 
         let agent_raw = captures.get(1).map(|m| m.as_str());
@@ -250,6 +283,54 @@ impl CommentParser {
             line.to_string(),
             agent,
             mode,
+        );
+
+        // Set description if present
+        if let Some(desc) = description {
+            if !desc.is_empty() {
+                tag.description = Some(desc.to_string());
+            }
+        }
+
+        // Parse status marker if present
+        if let (Some(status), Some(id)) = (status_str, id_str) {
+            let marker_str = format!("{}#{}", status, id);
+            tag.status_marker = StatusMarker::parse(&marker_str);
+            tag.job_id = tag.status_marker.as_ref().map(|m| m.job_id);
+        }
+
+        Some(tag)
+    }
+
+    /// Parse a line for multi-agent syntax (e.g., @@claude+codex+gemini:refactor)
+    fn parse_multi_agent_line(&self, path: &Path, line_number: usize, line: &str) -> Option<CommentTag> {
+        let captures = self.multi_agent_pattern.captures(line)?;
+
+        let agents_raw = captures.get(1)?.as_str();
+        let mode_raw = captures.get(2)?.as_str();
+        let description = captures.get(3).map(|m| m.as_str().trim());
+        let status_str = captures.get(4).map(|m| m.as_str());
+        let id_str = captures.get(5).map(|m| m.as_str());
+
+        // Parse the agents list (e.g., "claude+codex+gemini" -> ["claude", "codex", "gemini"])
+        let agents: Vec<String> = agents_raw
+            .split('+')
+            .map(|a| self.aliases.resolve_agent(a.trim()))
+            .collect();
+
+        if agents.is_empty() {
+            return None;
+        }
+
+        let mode = self.aliases.resolve_mode(mode_raw);
+
+        let mut tag = CommentTag::new_multi_agent(
+            path.to_path_buf(),
+            line_number,
+            line.to_string(),
+            agents,
+            mode,
+            crate::Target::Block,
         );
 
         // Set description if present
@@ -517,5 +598,69 @@ fn process_order() {}"#;
         assert_eq!(tag.agent, "codex");
         assert_eq!(tag.mode, "implement");
         assert_eq!(tag.description, Some("fix this bug".to_string()));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Multi-agent syntax tests
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_multi_agent_basic() {
+        let parser = CommentParser::new();
+        let path = Path::new("test.rs");
+
+        let tag = parser.parse_line(path, 1, "// @@claude+codex:refactor").unwrap();
+        assert_eq!(tag.agents, vec!["claude", "codex"]);
+        assert_eq!(tag.agent, "claude"); // First agent for backwards compatibility
+        assert_eq!(tag.mode, "refactor");
+        assert!(tag.is_multi_agent());
+    }
+
+    #[test]
+    fn test_multi_agent_three_agents() {
+        let parser = CommentParser::new();
+        let path = Path::new("test.rs");
+
+        let tag = parser.parse_line(path, 1, "// @@claude+codex+gemini:fix optimize this").unwrap();
+        assert_eq!(tag.agents, vec!["claude", "codex", "gemini"]);
+        assert_eq!(tag.mode, "fix");
+        assert_eq!(tag.description, Some("optimize this".to_string()));
+        assert!(tag.is_multi_agent());
+    }
+
+    #[test]
+    fn test_multi_agent_with_aliases() {
+        let parser = CommentParser::new();
+        let path = Path::new("test.rs");
+
+        // c -> claude, x -> codex, g -> gemini
+        let tag = parser.parse_line(path, 1, "// @@c+x+g:r make this cleaner").unwrap();
+        assert_eq!(tag.agents, vec!["claude", "codex", "gemini"]);
+        assert_eq!(tag.mode, "refactor");
+        assert_eq!(tag.description, Some("make this cleaner".to_string()));
+    }
+
+    #[test]
+    fn test_multi_agent_with_status_marker() {
+        let parser = CommentParser::new();
+        let path = Path::new("test.rs");
+
+        let tag = parser.parse_line(path, 1, "// @@claude+codex:fix handle error [pending#42]").unwrap();
+        assert_eq!(tag.agents, vec!["claude", "codex"]);
+        assert_eq!(tag.mode, "fix");
+        assert_eq!(tag.description, Some("handle error".to_string()));
+        assert_eq!(tag.job_id, Some(42));
+    }
+
+    #[test]
+    fn test_single_agent_not_multi() {
+        let parser = CommentParser::new();
+        let path = Path::new("test.rs");
+
+        // Single agent should not be treated as multi-agent
+        let tag = parser.parse_line(path, 1, "// @@claude:refactor").unwrap();
+        assert_eq!(tag.agents, vec!["claude"]);
+        assert_eq!(tag.agent, "claude");
+        assert!(!tag.is_multi_agent());
     }
 }

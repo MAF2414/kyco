@@ -260,6 +260,7 @@ impl TerminalAdapter {
         let description = job.description.as_deref().unwrap_or("");
 
         // Replace template placeholders
+        let ide_context = job.ide_context.as_deref().unwrap_or("");
         template
             .prompt_template
             .replace("{file}", &file_path)
@@ -268,6 +269,7 @@ impl TerminalAdapter {
             .replace("{mode}", &job.mode)
             .replace("{description}", description)
             .replace("{scope_type}", "file")
+            .replace("{ide_context}", ide_context)
     }
 
     /// Build the system prompt for a job

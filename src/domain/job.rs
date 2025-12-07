@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use super::{LogEvent, ScopeDefinition};
+use super::{AgentGroupId, LogEvent, ScopeDefinition};
 
 /// Parsed output from the agent's ---kyco block
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -283,6 +283,14 @@ pub struct Job {
     /// When the job finished (done/failed)
     #[serde(default)]
     pub finished_at: Option<DateTime<Utc>>,
+
+    /// ID of the agent run group this job belongs to (for parallel multi-agent execution)
+    #[serde(default)]
+    pub group_id: Option<AgentGroupId>,
+
+    /// IDE context markdown (dependencies, related tests) for prompt injection
+    #[serde(default)]
+    pub ide_context: Option<String>,
 }
 
 impl Job {
@@ -323,6 +331,8 @@ impl Job {
             stats: None,
             started_at: None,
             finished_at: None,
+            group_id: None,
+            ide_context: None,
         }
     }
 

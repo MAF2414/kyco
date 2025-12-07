@@ -35,6 +35,7 @@ impl GeminiAdapter {
         let template = config.get_mode_template(&job.mode);
 
         let description = job.description.as_deref().unwrap_or("");
+        let ide_context = job.ide_context.as_deref().unwrap_or("");
 
         template
             .prompt_template
@@ -43,6 +44,7 @@ impl GeminiAdapter {
             .replace("{line}", &job.source_line.to_string())
             .replace("{description}", description)
             .replace("{mode}", &job.mode)
+            .replace("{ide_context}", ide_context)
     }
 
     /// Write system prompt to GEMINI.md if needed

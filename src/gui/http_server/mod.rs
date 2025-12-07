@@ -9,6 +9,13 @@ use std::thread;
 use tiny_http::{Response, Server};
 use tracing::{error, info};
 
+/// Dependency location from IDE
+#[derive(Debug, Clone, Deserialize)]
+pub struct Dependency {
+    pub file_path: String,
+    pub line: usize,
+}
+
 /// Selection data received from IDE extensions
 #[derive(Debug, Clone, Deserialize)]
 pub struct SelectionRequest {
@@ -17,6 +24,64 @@ pub struct SelectionRequest {
     pub line_start: Option<usize>,
     pub line_end: Option<usize>,
     pub workspace: Option<String>,
+    pub dependencies: Option<Vec<Dependency>>,
+    pub dependency_count: Option<usize>,
+    pub additional_dependency_count: Option<usize>,
+    pub related_tests: Option<Vec<String>>,
+}
+
+impl SelectionRequest {
+    /// Format IDE context as markdown for prompt injection
+    pub fn format_ide_context(&self) -> String {
+        let mut ctx = String::new();
+
+        ctx.push_str("## IDE Selection Context\n");
+
+        if let Some(ref path) = self.file_path {
+            ctx.push_str(&format!("- **File:** `{}`\n", path));
+        }
+
+        if let (Some(start), Some(end)) = (self.line_start, self.line_end) {
+            ctx.push_str(&format!("- **Lines:** {}-{}\n", start, end));
+        }
+
+        // Dependencies
+        if let Some(count) = self.dependency_count {
+            if count > 0 {
+                ctx.push_str(&format!("\n### Dependencies ({} total", count));
+                if let Some(additional) = self.additional_dependency_count {
+                    if additional > 0 {
+                        ctx.push_str(&format!(", showing {}", count - additional));
+                    }
+                }
+                ctx.push_str("):\n");
+
+                if let Some(ref deps) = self.dependencies {
+                    for dep in deps {
+                        ctx.push_str(&format!("- `{}:{}`\n", dep.file_path, dep.line));
+                    }
+                }
+
+                if let Some(additional) = self.additional_dependency_count {
+                    if additional > 0 {
+                        ctx.push_str(&format!("- *...and {} more*\n", additional));
+                    }
+                }
+            }
+        }
+
+        // Related Tests
+        if let Some(ref tests) = self.related_tests {
+            if !tests.is_empty() {
+                ctx.push_str("\n### Related Tests:\n");
+                for test in tests {
+                    ctx.push_str(&format!("- `{}`\n", test));
+                }
+            }
+        }
+
+        ctx
+    }
 }
 
 /// Start the HTTP server in a background thread

@@ -14,6 +14,7 @@ pub fn build_prompt_preview(job: &Job, config: &Config) -> String {
     let description = job.description.as_deref().unwrap_or("");
 
     // Build the main prompt
+    let ide_context = job.ide_context.as_deref().unwrap_or("");
     let prompt = template
         .prompt_template
         .replace("{file}", &file_path)
@@ -21,7 +22,8 @@ pub fn build_prompt_preview(job: &Job, config: &Config) -> String {
         .replace("{target}", &job.target)
         .replace("{mode}", &job.mode)
         .replace("{description}", description)
-        .replace("{scope_type}", "file");
+        .replace("{scope_type}", "file")
+        .replace("{ide_context}", ide_context);
 
     // Build system prompt if available
     let mut full_prompt = String::new();

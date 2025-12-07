@@ -38,6 +38,7 @@ impl CodexAdapter {
         let description = job.description.as_deref().unwrap_or("");
 
         // Replace template placeholders
+        let ide_context = job.ide_context.as_deref().unwrap_or("");
         template
             .prompt_template
             .replace("{file}", &file_path)
@@ -46,6 +47,7 @@ impl CodexAdapter {
             .replace("{mode}", &job.mode)
             .replace("{description}", description)
             .replace("{scope_type}", "file")
+            .replace("{ide_context}", ide_context)
     }
 
     /// Build command arguments for Codex CLI
