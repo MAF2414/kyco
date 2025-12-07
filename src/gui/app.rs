@@ -738,9 +738,33 @@ impl KycoApp {
                 DetailPanelAction::Queue(job_id) => self.queue_job(job_id),
                 DetailPanelAction::Apply(job_id) => self.apply_job(job_id),
                 DetailPanelAction::Reject(job_id) => self.reject_job(job_id),
-                DetailPanelAction::ViewDiff(_job_id) => {
-                    self.view_mode = ViewMode::DiffView;
-                    self.diff_state.set_content("Diff would appear here...".to_string());
+                DetailPanelAction::ViewDiff(job_id) => {
+                    // Load the real git diff for this job's worktree
+                    if let Some(job) = self.cached_jobs.iter().find(|j| j.id == job_id) {
+                        if let Some(worktree) = &job.git_worktree_path {
+                            if let Ok(gm) = crate::git::GitManager::new(&self.work_dir) {
+                                match gm.diff(worktree) {
+                                    Ok(diff) => {
+                                        if diff.is_empty() {
+                                            self.diff_state.set_content("No changes in worktree.".to_string());
+                                        } else {
+                                            self.diff_state.set_content(diff);
+                                        }
+                                        self.view_mode = ViewMode::DiffView;
+                                    }
+                                    Err(e) => {
+                                        self.logs.push(LogEvent::error(format!("Failed to load diff: {}", e)));
+                                    }
+                                }
+                            } else {
+                                self.logs.push(LogEvent::error("Failed to initialize git manager".to_string()));
+                            }
+                        } else {
+                            // Job has no worktree (worktree mode disabled or not yet created)
+                            self.diff_state.set_content("No worktree for this job (worktree mode may be disabled).".to_string());
+                            self.view_mode = ViewMode::DiffView;
+                        }
+                    }
                 }
             }
         }
