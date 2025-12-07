@@ -630,7 +630,8 @@ impl KycoApp {
     }
 
     /// Execute the task from selection popup
-    fn execute_popup_task(&mut self) {
+    /// If force_worktree is true, the job will run in a git worktree regardless of global settings
+    fn execute_popup_task(&mut self, force_worktree: bool) {
         // Use the multi-agent parser to support "claude+codex+gemini:mode" syntax
         let (agents, mode, prompt) = parse_input_multi(&self.popup_input);
 
@@ -663,6 +664,7 @@ impl KycoApp {
             &mode,
             &prompt,
             &mut self.logs,
+            force_worktree,
         ) {
             let selection_info = self
                 .selection
@@ -1028,7 +1030,8 @@ impl eframe::App for KycoApp {
                         self.autocomplete.select_previous();
                     }
                     if i.key_pressed(Key::Enter) {
-                        self.execute_popup_task();
+                        let force_worktree = i.modifiers.shift;
+                        self.execute_popup_task(force_worktree);
                     }
                 }
                 ViewMode::DiffView => {

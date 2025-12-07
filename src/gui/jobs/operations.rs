@@ -128,6 +128,7 @@ pub fn create_jobs_from_selection_multi(
     mode: &str,
     prompt: &str,
     logs: &mut Vec<LogEvent>,
+    force_worktree: bool,
 ) -> Option<CreateJobsResult> {
     let file_path = selection.file_path.clone()?;
     let line_number = selection.line_number.unwrap_or(1);
@@ -162,12 +163,13 @@ pub fn create_jobs_from_selection_multi(
         if let Ok(mut manager) = job_manager.lock() {
             match manager.create_job_with_range(&tag, agent, line_end) {
                 Ok(job_id) => {
-                    // Set IDE context if available
+                    // Set IDE context and force_worktree if available
                     if let Some(job) = manager.get_mut(job_id) {
                         let ide_context = selection.format_ide_context();
                         if !ide_context.trim().is_empty() && ide_context.lines().count() > 1 {
                             job.ide_context = Some(ide_context);
                         }
+                        job.force_worktree = force_worktree;
                     }
                     logs.push(LogEvent::system(format!("Created job #{}", job_id)));
                     return Some(CreateJobsResult {
@@ -214,13 +216,14 @@ pub fn create_jobs_from_selection_multi(
         if let Ok(mut manager) = job_manager.lock() {
             match manager.create_job_with_range(&tag, agent, line_end) {
                 Ok(job_id) => {
-                    // Set the group_id and IDE context on the job
+                    // Set the group_id, IDE context, and force_worktree on the job
                     if let Some(job) = manager.get_mut(job_id) {
                         job.group_id = Some(group_id);
                         let ide_context = selection.format_ide_context();
                         if !ide_context.trim().is_empty() && ide_context.lines().count() > 1 {
                             job.ide_context = Some(ide_context);
                         }
+                        job.force_worktree = force_worktree;
                     }
 
                     // Add to group

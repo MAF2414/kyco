@@ -161,7 +161,13 @@ async fn run_job(
     ))));
 
     // Determine working directory
-    let (worktree_path, _is_isolated) = if config.settings.use_worktree {
+    // Multi-agent jobs (jobs with group_id) ALWAYS require worktrees for isolation,
+    // regardless of the use_worktree config setting.
+    // Jobs with force_worktree=true (submitted with Shift+Enter) also use worktrees.
+    let is_multi_agent_job = job.group_id.is_some();
+    let should_use_worktree = config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
+
+    let (worktree_path, _is_isolated) = if should_use_worktree {
         if let Some(git) = git_manager {
             match git.create_worktree(job_id) {
                 Ok(path) => {
@@ -179,6 +185,25 @@ async fn run_job(
                     (path, true)
                 }
                 Err(e) => {
+                    // For multi-agent jobs, worktree creation failure is fatal
+                    if is_multi_agent_job {
+                        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                            "Multi-agent job requires worktree but creation failed: {}",
+                            e
+                        ))));
+                        let _ = event_tx.send(ExecutorEvent::JobFailed(
+                            job_id,
+                            format!("Worktree required for parallel execution: {}", e),
+                        ));
+                        {
+                            let mut manager = job_manager.lock().unwrap();
+                            manager.set_status(job_id, JobStatus::Failed);
+                            if let Some(j) = manager.get_mut(job_id) {
+                                j.error_message = Some(format!("Worktree creation failed: {}", e));
+                            }
+                        }
+                        return;
+                    }
                     let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
                         "Failed to create worktree: {}",
                         e
@@ -187,6 +212,24 @@ async fn run_job(
                 }
             }
         } else {
+            // No git manager available
+            if is_multi_agent_job {
+                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
+                    "Multi-agent job requires git repository for worktree isolation".to_string(),
+                )));
+                let _ = event_tx.send(ExecutorEvent::JobFailed(
+                    job_id,
+                    "Git repository required for parallel execution".to_string(),
+                ));
+                {
+                    let mut manager = job_manager.lock().unwrap();
+                    manager.set_status(job_id, JobStatus::Failed);
+                    if let Some(j) = manager.get_mut(job_id) {
+                        j.error_message = Some("Git repository required for parallel execution".to_string());
+                    }
+                }
+                return;
+            }
             (work_dir.clone(), false)
         }
     } else {
@@ -412,7 +455,11 @@ async fn run_chain_job(
     ))));
 
     // Determine working directory
-    let (worktree_path, _is_isolated) = if config.settings.use_worktree {
+    // Multi-agent jobs (jobs with group_id) ALWAYS require worktrees for isolation
+    let is_multi_agent_job = job.group_id.is_some();
+    let should_use_worktree = config.settings.use_worktree || is_multi_agent_job;
+
+    let (worktree_path, _is_isolated) = if should_use_worktree {
         if let Some(git) = git_manager {
             match git.create_worktree(job_id) {
                 Ok(path) => {
@@ -429,6 +476,25 @@ async fn run_chain_job(
                     (path, true)
                 }
                 Err(e) => {
+                    // For multi-agent jobs, worktree creation failure is fatal
+                    if is_multi_agent_job {
+                        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                            "Multi-agent chain job requires worktree but creation failed: {}",
+                            e
+                        ))));
+                        let _ = event_tx.send(ExecutorEvent::JobFailed(
+                            job_id,
+                            format!("Worktree required for parallel execution: {}", e),
+                        ));
+                        {
+                            let mut manager = job_manager.lock().unwrap();
+                            manager.set_status(job_id, JobStatus::Failed);
+                            if let Some(j) = manager.get_mut(job_id) {
+                                j.error_message = Some(format!("Worktree creation failed: {}", e));
+                            }
+                        }
+                        return;
+                    }
                     let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
                         "Failed to create worktree: {}",
                         e
@@ -437,6 +503,24 @@ async fn run_chain_job(
                 }
             }
         } else {
+            // No git manager available
+            if is_multi_agent_job {
+                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
+                    "Multi-agent chain job requires git repository for worktree isolation".to_string(),
+                )));
+                let _ = event_tx.send(ExecutorEvent::JobFailed(
+                    job_id,
+                    "Git repository required for parallel execution".to_string(),
+                ));
+                {
+                    let mut manager = job_manager.lock().unwrap();
+                    manager.set_status(job_id, JobStatus::Failed);
+                    if let Some(j) = manager.get_mut(job_id) {
+                        j.error_message = Some("Git repository required for parallel execution".to_string());
+                    }
+                }
+                return;
+            }
             (work_dir.clone(), false)
         }
     } else {

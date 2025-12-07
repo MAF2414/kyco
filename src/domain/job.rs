@@ -291,6 +291,10 @@ pub struct Job {
     /// IDE context markdown (dependencies, related tests) for prompt injection
     #[serde(default)]
     pub ide_context: Option<String>,
+
+    /// Force this job to run in a git worktree, regardless of global settings
+    #[serde(default)]
+    pub force_worktree: bool,
 }
 
 impl Job {
@@ -333,6 +337,7 @@ impl Job {
             finished_at: None,
             group_id: None,
             ide_context: None,
+            force_worktree: false,
         }
     }
 

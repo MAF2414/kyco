@@ -65,8 +65,12 @@ pub fn render_selection_popup(
             ui.add_space(8.0);
 
             // Main input with microphone button
-            if render_input_field(ui, state) {
+            let input_result = render_input_field(ui, state);
+            if input_result.input_changed {
                 action = Some(SelectionPopupAction::InputChanged);
+            }
+            if input_result.mic_clicked {
+                action = Some(SelectionPopupAction::ToggleRecording);
             }
 
             // Voice status indicator
@@ -150,10 +154,21 @@ fn render_selection_preview(ui: &mut egui::Ui, text: &str, start_line: Option<us
         });
 }
 
+/// Result from rendering the input field
+struct InputFieldResult {
+    /// True if the text input changed
+    input_changed: bool,
+    /// True if the microphone button was clicked
+    mic_clicked: bool,
+}
+
 /// Render the main input field with microphone button
-/// Returns true if input changed
-fn render_input_field(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) -> bool {
-    let mut input_changed = false;
+/// Returns the result indicating what actions occurred
+fn render_input_field(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) -> InputFieldResult {
+    let mut result = InputFieldResult {
+        input_changed: false,
+        mic_clicked: false,
+    };
 
     egui::Frame::none()
         .fill(BG_SECONDARY)
@@ -176,7 +191,7 @@ fn render_input_field(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) ->
                 let output = text_edit.show(ui);
 
                 if output.response.changed() {
-                    input_changed = true;
+                    result.input_changed = true;
                 }
                 output.response.request_focus();
 
@@ -195,45 +210,54 @@ fn render_input_field(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) ->
                 }
 
                 // Microphone button
-                render_microphone_button(ui, state);
+                if render_microphone_button(ui, state) {
+                    result.mic_clicked = true;
+                }
             });
         });
 
-    input_changed
+    result
 }
 
 /// Render the microphone button
-fn render_microphone_button(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) {
+/// Returns true if the button was clicked and voice is enabled
+fn render_microphone_button(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) -> bool {
+    let mut clicked = false;
+
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let (mic_icon, mic_color, mic_tooltip) = match state.voice_state {
-            VoiceState::Recording => ("⏺", ACCENT_RED, "Recording... Click to stop"),
+            VoiceState::Recording => ("⏺", ACCENT_RED, "Recording... Click to stop (Shift+V)"),
             VoiceState::Transcribing => ("⏳", STATUS_RUNNING, "Transcribing..."),
             VoiceState::Listening => ("👂", ACCENT_GREEN, "Listening for keywords..."),
-            VoiceState::Error => ("⚠", ACCENT_RED, "Voice error"),
+            VoiceState::Error => ("⚠", ACCENT_RED, "Voice error - click to retry"),
             VoiceState::Idle => {
                 if state.voice_mode == VoiceInputMode::Disabled {
-                    ("🎤", TEXT_MUTED, "Voice input disabled (enable in Settings)")
+                    ("🎤", TEXT_MUTED, "Voice disabled - enable in Settings")
                 } else {
-                    ("🎤", TEXT_DIM, "Click to record")
+                    ("🎤", ACCENT_CYAN, "Click to record (Shift+V)")
                 }
             }
         };
 
-        let mic_button = ui.add(
+        // Button is interactive unless transcribing
+        let is_enabled = state.voice_state != VoiceState::Transcribing
+            && state.voice_mode != VoiceInputMode::Disabled;
+
+        let mic_button = ui.add_enabled(
+            is_enabled,
             egui::Button::new(RichText::new(mic_icon).size(16.0).color(mic_color))
                 .fill(Color32::TRANSPARENT)
                 .frame(false),
         );
 
-        // Note: The actual toggle_recording() call must be done by the caller
-        // since we can't mutate voice_manager here
-        if mic_button.clicked() && state.voice_mode != VoiceInputMode::Disabled {
-            // The caller should handle this via SelectionPopupAction::ToggleRecording
-            // but for now we just consume the click
+        if mic_button.clicked() {
+            clicked = true;
         }
 
         mic_button.on_hover_text(mic_tooltip);
     });
+
+    clicked
 }
 
 /// Render the voice status indicator
@@ -347,6 +371,9 @@ fn render_help_bar(ui: &mut egui::Ui) {
             ui.add_space(12.0);
             ui.label(RichText::new("↵").small().monospace().color(TEXT_DIM));
             ui.label(RichText::new("run").small().color(TEXT_MUTED));
+            ui.add_space(12.0);
+            ui.label(RichText::new("⇧↵").small().monospace().color(TEXT_DIM));
+            ui.label(RichText::new("worktree").small().color(TEXT_MUTED));
             ui.add_space(12.0);
             ui.label(RichText::new("ESC").small().monospace().color(TEXT_DIM));
             ui.label(RichText::new("close").small().color(TEXT_MUTED));
