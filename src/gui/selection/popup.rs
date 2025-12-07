@@ -256,6 +256,9 @@ fn render_voice_status(ui: &mut egui::Ui, voice_state: VoiceState, last_error: O
     }
 }
 
+/// Maximum number of suggestions to display
+const MAX_SUGGESTIONS_VISIBLE: usize = 5;
+
 /// Render the suggestions dropdown
 /// Returns the index of clicked suggestion if any
 fn render_suggestions(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) -> Option<usize> {
@@ -269,7 +272,9 @@ fn render_suggestions(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) -> Opt
             .corner_radius(4.0)
             .inner_margin(4.0)
             .show(ui, |ui| {
-                for (idx, suggestion) in state.suggestions.iter().enumerate() {
+                // Only show up to MAX_SUGGESTIONS_VISIBLE suggestions
+                let visible_suggestions = state.suggestions.iter().take(MAX_SUGGESTIONS_VISIBLE);
+                for (idx, suggestion) in visible_suggestions.enumerate() {
                     let is_selected = idx == state.selected_suggestion;
                     let bg = if is_selected {
                         BG_HIGHLIGHT

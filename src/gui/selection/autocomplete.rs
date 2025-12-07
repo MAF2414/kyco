@@ -252,17 +252,30 @@ impl AutocompleteState {
         }
     }
 
+    /// Maximum number of suggestions to display (must match popup.rs)
+    const MAX_VISIBLE: usize = 5;
+
     /// Move selection down
     pub fn select_next(&mut self) {
         if !self.suggestions.is_empty() {
-            self.selected_suggestion = (self.selected_suggestion + 1) % self.suggestions.len();
+            let max_idx = self.suggestions.len().min(Self::MAX_VISIBLE) - 1;
+            if self.selected_suggestion < max_idx {
+                self.selected_suggestion += 1;
+            } else {
+                self.selected_suggestion = 0; // Wrap around
+            }
         }
     }
 
     /// Move selection up
     pub fn select_previous(&mut self) {
-        if self.selected_suggestion > 0 {
-            self.selected_suggestion -= 1;
+        if !self.suggestions.is_empty() {
+            let max_idx = self.suggestions.len().min(Self::MAX_VISIBLE) - 1;
+            if self.selected_suggestion > 0 {
+                self.selected_suggestion -= 1;
+            } else {
+                self.selected_suggestion = max_idx; // Wrap around
+            }
         }
     }
 }
