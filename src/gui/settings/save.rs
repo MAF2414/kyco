@@ -96,6 +96,8 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
                 return;
             }
             *state.settings_status = Some(("Settings saved!".to_string(), false));
+            // Signal that voice config needs to be applied to the VoiceManager
+            *state.voice_config_changed = true;
         }
         Err(e) => {
             *state.settings_status = Some((format!("Failed to serialize config: {}", e), true));

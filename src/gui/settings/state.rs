@@ -61,4 +61,7 @@ pub struct SettingsState<'a> {
     pub view_mode: &'a mut ViewMode,
     pub config: &'a mut Config,
     pub work_dir: &'a Path,
+
+    /// Flag to indicate voice config was changed and VoiceManager needs to be updated
+    pub voice_config_changed: &'a mut bool,
 }

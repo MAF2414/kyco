@@ -223,6 +223,8 @@ pub struct KycoApp {
     voice_test_status: super::settings::VoiceTestStatus,
     /// Voice test result (transcribed text)
     voice_test_result: Option<String>,
+    /// Flag to indicate voice config was changed and VoiceManager needs to be updated
+    voice_config_changed: bool,
     /// Selected chain for editing (None = list view)
     selected_chain: Option<String>,
     /// Chain editor: name field
@@ -369,6 +371,7 @@ impl KycoApp {
             chain_edit_steps: Vec::new(),
             chain_edit_stop_on_failure: true,
             chain_edit_status: None,
+            voice_config_changed: false,
         }
     }
 
@@ -411,6 +414,8 @@ impl KycoApp {
                 view_mode: &mut self.view_mode,
                 config: &mut self.config,
                 work_dir: &self.work_dir,
+                // Voice config change tracking
+                voice_config_changed: &mut self.voice_config_changed,
             },
         );
     }
@@ -874,6 +879,39 @@ impl KycoApp {
             }
         }
     }
+
+    /// Apply voice config from settings to the VoiceManager
+    fn apply_voice_config(&mut self) {
+        let voice_settings = &self.config.settings.gui.voice;
+        let action_registry = super::voice::VoiceActionRegistry::from_config(
+            &self.config.mode,
+            &self.config.chain,
+            &self.config.agent,
+        );
+
+        let new_config = VoiceConfig {
+            mode: match voice_settings.mode.as_str() {
+                "manual" => VoiceInputMode::Manual,
+                "hotkey_hold" => VoiceInputMode::HotkeyHold,
+                "continuous" => VoiceInputMode::Continuous,
+                _ => VoiceInputMode::Disabled,
+            },
+            keywords: voice_settings.keywords.clone(),
+            action_registry,
+            whisper_model: voice_settings.whisper_model.clone(),
+            language: voice_settings.language.clone(),
+            silence_threshold: voice_settings.silence_threshold,
+            silence_duration: voice_settings.silence_duration,
+            max_duration: voice_settings.max_duration,
+            vad_config: self.voice_manager.config.vad_config.clone(),
+            use_vad: self.voice_manager.config.use_vad,
+        };
+
+        self.voice_manager.update_config(new_config);
+        self.logs.push(crate::LogEvent::system(
+            "Voice settings applied".to_string(),
+        ));
+    }
 }
 
 impl eframe::App for KycoApp {
@@ -1232,6 +1270,11 @@ impl eframe::App for KycoApp {
             }
             ViewMode::Settings => {
                 self.render_settings(ctx);
+                // Apply voice config changes to VoiceManager after settings are saved
+                if self.voice_config_changed {
+                    self.voice_config_changed = false;
+                    self.apply_voice_config();
+                }
             }
             ViewMode::Modes => {
                 self.render_modes(ctx);

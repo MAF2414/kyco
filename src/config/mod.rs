@@ -325,6 +325,34 @@ impl Config {
             .unwrap_or_else(|| "claude".to_string())
     }
 
+    /// Get agent configuration with mode-specific tool overrides applied
+    ///
+    /// This merges the base agent config with mode-specific allowed/disallowed tools.
+    /// Mode tools take precedence over agent tools when specified.
+    pub fn get_agent_for_job(&self, agent_id: &str, mode: &str) -> Option<AgentConfig> {
+        let mut agent_config = self.get_agent(agent_id)?;
+
+        // Get mode config and apply tool overrides
+        if let Some(mode_config) = self.mode.get(mode) {
+            // Mode allowed_tools override agent allowed_tools when specified
+            if !mode_config.allowed_tools.is_empty() {
+                agent_config.allowed_tools = mode_config.allowed_tools.clone();
+            }
+
+            // Mode disallowed_tools are added to agent disallowed_tools
+            if !mode_config.disallowed_tools.is_empty() {
+                // Combine both, avoiding duplicates
+                for tool in &mode_config.disallowed_tools {
+                    if !agent_config.disallowed_tools.contains(tool) {
+                        agent_config.disallowed_tools.push(tool.clone());
+                    }
+                }
+            }
+        }
+
+        Some(agent_config)
+    }
+
     /// Get mode configuration
     pub fn get_mode(&self, mode: &str) -> Option<&ModeConfig> {
         self.mode.get(mode)

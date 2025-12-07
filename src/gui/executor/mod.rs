@@ -245,8 +245,10 @@ async fn run_job(
         // Continue anyway
     }
 
-    // Get agent config
-    let agent_config = config.get_agent(&job.agent_id).unwrap_or_default();
+    // Get agent config with mode-specific tool overrides
+    let agent_config = config
+        .get_agent_for_job(&job.agent_id, &job.mode)
+        .unwrap_or_default();
 
     // Get adapter
     let adapter = match agent_registry.get_for_config(&agent_config) {

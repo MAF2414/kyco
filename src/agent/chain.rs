@@ -134,10 +134,13 @@ impl<'a> ChainRunner<'a> {
             // Create a modified job for this step
             let step_job = self.create_step_job(initial_job, step, &chained_prompt);
 
-            // Get the agent config
+            // Get the agent config with mode-specific tool overrides
             let default_agent = self.config.get_agent_for_mode(&step.mode);
             let agent_id = step.agent.as_ref().unwrap_or(&default_agent);
-            let agent_config = self.config.get_agent(agent_id).unwrap_or_default();
+            let agent_config = self
+                .config
+                .get_agent_for_job(agent_id, &step.mode)
+                .unwrap_or_default();
 
             // Get the adapter
             let adapter = match self.agent_registry.get_for_config(&agent_config) {
