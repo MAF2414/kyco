@@ -1,30 +1,42 @@
 # KYCo - Know Your Codebase
 
-**The antidote to vibe coding.** KYCo is a desktop application that lets you trigger AI coding tasks directly from comments in your code - with full transparency about what the AI does and why.
+**The antidote to vibe coding.** KYCo is a desktop application that lets you trigger AI coding tasks directly from your IDE - with full transparency about what the AI does and why.
 
 ## Why KYCo?
 
 In the age of "vibe coding" where developers blindly accept AI-generated code, KYCo takes a different approach:
 
 - **Transparency**: Every mode requires the AI to explain what it changed and why
-- **Control**: You define tasks with simple comment markers
+- **Control**: You trigger tasks from your IDE, review diffs, accept or reject
 - **Understanding**: Stay in sync with your codebase, even when AI helps
 
 ## Features
 
+- **Native Desktop GUI**: Built with egui, runs as a standalone application
+- **IDE Integration**: VS Code and JetBrains extensions send selections directly to KYCo
 - **Multi-Agent Support**: Works with Claude, Codex, and Gemini CLI
-- **Desktop GUI**: Native application with global hotkey support
-- **IDE Integration**: Receives selections from IDE extensions via HTTP
 - **Concurrent Jobs**: Run multiple AI tasks in parallel
-- **Git Integration**: Isolate changes in git worktrees
-- **Cross-Platform**: macOS, Windows, and Linux support
+- **Chains**: Automated multi-step workflows (review → fix → test)
+- **Git Worktrees**: Optionally isolate changes in separate worktrees
+- **Voice Input**: Trigger tasks with voice commands (experimental)
+- **Cross-Platform**: macOS, Windows, and Linux
+
+## How It Works
+
+1. **Select code** in your IDE (VS Code or JetBrains)
+2. **Press the hotkey** (`Cmd+Alt+Y` / `Ctrl+Alt+Y`) to send the selection to KYCo
+3. **Choose a mode** in the KYCo GUI (refactor, fix, test, etc.)
+4. **Review the diff** when the AI completes the task
+5. **Accept or reject** the changes
+
+No comment markers required - just select and send!
 
 ## Installation
 
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/kyco.git
+git clone https://github.com/MAF2414/kyco.git
 cd kyco
 cargo install --path .
 ```
@@ -37,6 +49,18 @@ cargo install --path .
   - [Codex](https://github.com/openai/codex) (`codex`)
   - [Gemini CLI](https://github.com/google/gemini-cli) (`gemini`)
 
+### IDE Extensions
+
+**VS Code:**
+```bash
+cd vscode-extension
+npm install && npm run compile
+# Install the .vsix file
+```
+
+**JetBrains (IntelliJ, WebStorm, PyCharm, etc.):**
+- Install from `jetbrains-plugin/` or JetBrains Marketplace
+
 ## Quick Start
 
 1. **Initialize KYCo in your project:**
@@ -45,55 +69,55 @@ cargo install --path .
    ```
    This creates `.kyco/config.toml` with default configuration.
 
-2. **Add markers to your code:**
-   ```rust
-   // @@refactor simplify this function
-   fn complex_function() {
-       // ...
-   }
-
-   // @@docs add documentation
-   pub struct MyStruct {
-       // ...
-   }
-
-   // @@fix handle the edge case when input is empty
-   fn process(input: &str) {
-       // ...
-   }
-   ```
-
-3. **Launch KYCo:**
+2. **Launch KYCo:**
    ```bash
    kyco
    ```
 
-4. **Review changes** in the GUI before applying.
+3. **In your IDE**, select some code and press `Cmd+Alt+Y` (Mac) or `Ctrl+Alt+Y` (Windows/Linux)
 
-## Marker Syntax
+4. **In the KYCo GUI**, choose a mode and agent, then run the job
 
-```
-@@{agent:}?{mode} {description}?
-```
-
-Examples:
-- `@@docs` - Add documentation (default agent: claude)
-- `@@fix handle edge case` - Fix with description
-- `@@claude:refactor` - Explicit agent
-- `@@x:test add unit tests` - Codex with short alias
+5. **Review the diff** and accept/reject changes
 
 ## Built-in Modes
 
 | Mode | Aliases | Description |
 |------|---------|-------------|
-| `refactor` | `r`, `ref` | Improve code quality while preserving behavior |
+| `refactor` | `r`, `ref` | Improve code structure while preserving behavior |
 | `tests` | `t`, `test` | Write comprehensive unit tests |
-| `docs` | `d`, `doc` | Write documentation |
-| `review` | `v`, `rev` | Analyze code (read-only, no changes) |
-| `fix` | `f` | Fix specific bugs or issues |
-| `implement` | `i`, `impl` | Implement new functionality |
+| `docs` | `d`, `doc` | Add documentation |
+| `review` | `v`, `rev` | Analyze code for issues (read-only) |
+| `fix` | `f` | Fix specific bugs with minimal changes |
+| `implement` | `i`, `impl` | Implement new functionality (YAGNI-focused) |
 | `optimize` | `o`, `opt` | Optimize for performance |
+| `explain` | `e`, `exp` | Explain what code does (read-only) |
 | `commit` | `cm`, `git` | Create git commits with conventional messages |
+| `decouple` | `dec`, `di` | Introduce dependency injection |
+| `extract` | `ex`, `split` | Extract code into reusable units |
+| `logging` | `log`, `l` | Add meaningful logging (less is more) |
+| `security` | `sec`, `harden` | Fix security vulnerabilities (OWASP Top 10) |
+| `types` | `ty`, `typing` | Add type annotations |
+| `coverage` | `cov` | Improve test coverage |
+| `nullcheck` | `null`, `npe` | Find and fix null safety issues |
+| `migrate` | `mig`, `upgrade` | Migrate to new APIs/versions |
+| `cleanup` | `clean`, `tidy` | Remove dead code and cruft |
+
+## Chains (Multi-Step Workflows)
+
+Chains execute multiple modes in sequence with conditional triggers:
+
+```toml
+[chain.review-and-fix]
+description = "Review code, fix issues, then test"
+steps = [
+    { mode = "review" },
+    { mode = "fix", trigger_on = ["issues_found"] },
+    { mode = "tests", trigger_on = ["fixed"] },
+]
+```
+
+**Built-in chains:** `review-and-fix`, `implement-and-test`, `refactor-safe`, `secure-and-test`, `modernize`, `quality-gate`, and more.
 
 ## Configuration
 
@@ -102,19 +126,19 @@ Edit `.kyco/config.toml` to customize behavior:
 ```toml
 [settings]
 max_concurrent_jobs = 4      # Parallel job limit
-debounce_ms = 500            # File watcher debounce
-auto_run = false             # Auto-start jobs when found
-marker_prefix = "@@"         # Comment marker prefix
+auto_run = false             # Auto-start jobs
 use_worktree = false         # Isolate jobs in git worktrees
 
 [agent.claude]
 aliases = ["c", "cl"]
 binary = "claude"
+allowed_tools = ["Read"]     # Restrict agent tools
 
 [mode.refactor]
 aliases = ["r", "ref"]
 prompt = "..."
 system_prompt = "..."
+allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 ```
 
 ## CLI Commands
@@ -134,32 +158,29 @@ kyco --help             # Show all options
 src/
 ├── agent/      # AI agent integrations (Claude, Codex, Gemini)
 ├── cli/        # Command-line interface
-├── comment/    # Marker comment parsing
 ├── config/     # Configuration management
 ├── domain/     # Core domain models
 ├── git/        # Git and worktree integration
 ├── gui/        # Desktop GUI (eframe/egui)
+│   ├── jobs/       # Job list and management
+│   ├── selection/  # IDE selection handling
+│   ├── diff/       # Diff viewer
+│   ├── voice/      # Voice input (experimental)
+│   ├── modes/      # Mode configuration UI
+│   ├── agents/     # Agent configuration UI
+│   └── chains/     # Chain configuration UI
 ├── job/        # Job scheduling and execution
-├── scanner/    # Codebase scanning
-└── watcher/    # File system watching
+└── scanner/    # Codebase scanning
 ```
-
-## How It Works
-
-1. **Scan**: KYCo scans your codebase for marker comments
-2. **Parse**: Markers are parsed into jobs with mode, agent, and description
-3. **Execute**: Jobs run via the configured AI CLI
-4. **Explain**: The AI explains what it changed (transparency!)
-5. **Review**: You review and accept/reject changes in the GUI
 
 ## Philosophy
 
 KYCo is built on the belief that AI should augment, not replace, developer understanding. Every prompt is designed to:
 
-1. Make the AI explain its reasoning
-2. Keep changes minimal and focused
-3. Follow existing code patterns
-4. Never surprise the developer
+1. **Explain changes** - The AI must say what it did and why
+2. **Keep it minimal** - YAGNI: only implement what's requested
+3. **Match existing patterns** - Follow the codebase's conventions
+4. **Never surprise** - No hidden changes, everything in the diff
 
 **Know your codebase. Don't just vibe with it.**
 
