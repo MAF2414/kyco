@@ -62,7 +62,7 @@ binary = "claude"
 print_mode_args = ["-p"]
 output_format_args = ["--output-format", "stream-json", "--verbose"]
 system_prompt_mode = "append"
-allowed_tools = ["Read"]
+allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoRead", "TodoWrite"]
 
 [agent.codex]
 aliases = ["x", "cx"]
