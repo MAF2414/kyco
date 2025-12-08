@@ -170,19 +170,20 @@ async fn run_job(
     let (worktree_path, _is_isolated) = if should_use_worktree {
         if let Some(git) = git_manager {
             match git.create_worktree(job_id) {
-                Ok(path) => {
+                Ok(worktree_info) => {
                     let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
                         "Created worktree: {}",
-                        path.display()
+                        worktree_info.path.display()
                     ))));
-                    // Store worktree path
+                    // Store worktree path and base branch
                     {
                         let mut manager = job_manager.lock().unwrap();
                         if let Some(j) = manager.get_mut(job_id) {
-                            j.git_worktree_path = Some(path.clone());
+                            j.git_worktree_path = Some(worktree_info.path.clone());
+                            j.base_branch = Some(worktree_info.base_branch);
                         }
                     }
-                    (path, true)
+                    (worktree_info.path, true)
                 }
                 Err(e) => {
                     // For multi-agent jobs, worktree creation failure is fatal
@@ -464,18 +465,19 @@ async fn run_chain_job(
     let (worktree_path, _is_isolated) = if should_use_worktree {
         if let Some(git) = git_manager {
             match git.create_worktree(job_id) {
-                Ok(path) => {
+                Ok(worktree_info) => {
                     let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
                         "Created worktree: {}",
-                        path.display()
+                        worktree_info.path.display()
                     ))));
                     {
                         let mut manager = job_manager.lock().unwrap();
                         if let Some(j) = manager.get_mut(job_id) {
-                            j.git_worktree_path = Some(path.clone());
+                            j.git_worktree_path = Some(worktree_info.path.clone());
+                            j.base_branch = Some(worktree_info.base_branch);
                         }
                     }
-                    (path, true)
+                    (worktree_info.path, true)
                 }
                 Err(e) => {
                     // For multi-agent jobs, worktree creation failure is fatal

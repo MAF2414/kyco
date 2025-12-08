@@ -68,8 +68,14 @@ pub fn merge_and_cleanup(
         None => return GroupOperationResult::error("Selected job has no worktree"),
     };
 
-    // Merge the selected job's changes
-    if let Err(e) = git_manager.apply_changes(&worktree_path) {
+    // Check that the job has a base branch
+    let base_branch = match &selected_job.base_branch {
+        Some(b) => b.clone(),
+        None => return GroupOperationResult::error("Selected job has no base branch recorded"),
+    };
+
+    // Merge the selected job's changes into the base branch
+    if let Err(e) = git_manager.apply_changes(&worktree_path, &base_branch) {
         return GroupOperationResult::error(format!("Failed to merge changes: {}", e));
     }
 

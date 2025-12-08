@@ -245,6 +245,9 @@ pub struct Job {
     /// Branch name for this job's worktree
     pub branch_name: Option<String>,
 
+    /// The base branch from which the worktree was created (for merging back)
+    pub base_branch: Option<String>,
+
     /// Files changed by this job (populated after execution)
     pub changed_files: Vec<PathBuf>,
 
@@ -324,6 +327,7 @@ impl Job {
             git_base_revision: None,
             git_worktree_path: None,
             branch_name: None,
+            base_branch: None,
             changed_files: Vec::new(),
             log_events: Vec::new(),
             error_message: None,

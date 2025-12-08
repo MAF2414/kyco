@@ -7,6 +7,14 @@ use std::process::Command;
 
 use crate::JobId;
 
+/// Result of creating a worktree
+pub struct WorktreeInfo {
+    /// Path to the created worktree
+    pub path: PathBuf,
+    /// The base branch from which the worktree was created
+    pub base_branch: String,
+}
+
 /// Manages Git operations for KYCo
 #[derive(Clone)]
 pub struct GitManager {
@@ -60,16 +68,36 @@ impl GitManager {
             .unwrap_or(false)
     }
 
+    /// Get the current branch name
+    pub fn current_branch(&self) -> Result<String> {
+        let output = Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .current_dir(&self.root)
+            .output()
+            .context("Failed to get current branch")?;
+
+        if !output.status.success() {
+            bail!(
+                "Failed to get current branch: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
     /// Create a worktree for a job with automatic retry on conflicts
     ///
     /// If the worktree or branch already exists, this will retry with incrementing
     /// suffixes (e.g., job-1, job-1-2, job-1-3) up to `max_retries` times.
-    pub fn create_worktree(&self, job_id: JobId) -> Result<PathBuf> {
+    ///
+    /// Returns the worktree path and the base branch it was created from.
+    pub fn create_worktree(&self, job_id: JobId) -> Result<WorktreeInfo> {
         self.create_worktree_with_retries(job_id, 10)
     }
 
     /// Create a worktree for a job with configurable retry count
-    fn create_worktree_with_retries(&self, job_id: JobId, max_retries: u32) -> Result<PathBuf> {
+    fn create_worktree_with_retries(&self, job_id: JobId, max_retries: u32) -> Result<WorktreeInfo> {
         // Check if the repository has commits - worktrees require at least one commit
         if !self.has_commits() {
             bail!(
@@ -77,6 +105,9 @@ impl GitManager {
                 Please make an initial commit first, or disable use_worktree in config."
             );
         }
+
+        // Get the current branch name (base branch for the worktree)
+        let base_branch = self.current_branch()?;
 
         // Ensure the worktrees directory exists
         std::fs::create_dir_all(&self.worktrees_dir)?;
@@ -167,7 +198,10 @@ impl GitManager {
                 .context("Failed to create worktree")?;
 
             if output.status.success() {
-                return Ok(worktree_path);
+                return Ok(WorktreeInfo {
+                    path: worktree_path,
+                    base_branch: base_branch.clone(),
+                });
             }
 
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -371,11 +405,12 @@ impl GitManager {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    /// Merge a worktree branch into the main branch
+    /// Merge a worktree branch into the specified base branch
     ///
-    /// This performs a proper git merge of the worktree's branch into master.
+    /// This performs a proper git merge of the worktree's branch into the base branch.
     /// If there are uncommitted changes in the worktree, they are committed first.
-    pub fn apply_changes(&self, worktree: &Path) -> Result<()> {
+    /// The base_branch parameter specifies which branch to merge into.
+    pub fn apply_changes(&self, worktree: &Path, base_branch: &str) -> Result<()> {
         // First, check if there are uncommitted changes and commit them
         let status_output = Command::new("git")
             .args(["status", "--porcelain"])
@@ -420,18 +455,45 @@ impl GitManager {
             );
         }
 
-        let branch_name = String::from_utf8_lossy(&branch_output.stdout)
+        let worktree_branch = String::from_utf8_lossy(&branch_output.stdout)
             .trim()
             .to_string();
 
-        // Merge the branch into master from the main repo
+        // Get the current branch in the main repo so we can restore it
+        let current_branch = self.current_branch()?;
+
+        // Checkout the base branch if we're not already on it
+        if current_branch != base_branch {
+            let checkout_output = Command::new("git")
+                .args(["checkout", base_branch])
+                .current_dir(&self.root)
+                .output()
+                .context("Failed to checkout base branch")?;
+
+            if !checkout_output.status.success() {
+                bail!(
+                    "Failed to checkout base branch '{}': {}",
+                    base_branch,
+                    String::from_utf8_lossy(&checkout_output.stderr)
+                );
+            }
+        }
+
+        // Merge the worktree branch into the base branch
         let merge_output = Command::new("git")
-            .args(["merge", &branch_name, "--no-edit"])
+            .args(["merge", &worktree_branch, "--no-edit"])
             .current_dir(&self.root)
             .output()
             .context("Failed to merge branch")?;
 
         if !merge_output.status.success() {
+            // If merge failed and we changed branches, try to restore original branch
+            if current_branch != base_branch {
+                let _ = Command::new("git")
+                    .args(["checkout", &current_branch])
+                    .current_dir(&self.root)
+                    .output();
+            }
             bail!(
                 "git merge failed: {}",
                 String::from_utf8_lossy(&merge_output.stderr)

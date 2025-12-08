@@ -2,4 +2,4 @@
 
 mod manager;
 
-pub use manager::GitManager;
+pub use manager::{GitManager, WorktreeInfo};
