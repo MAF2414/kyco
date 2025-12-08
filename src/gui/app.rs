@@ -520,6 +520,18 @@ impl KycoApp {
         self.refresh_jobs();
     }
 
+    /// Kill/stop a running job
+    fn kill_job(&mut self, job_id: JobId) {
+        jobs::kill_job(&self.job_manager, job_id, &mut self.logs);
+        self.refresh_jobs();
+    }
+
+    /// Mark a REPL job as complete
+    fn mark_job_complete(&mut self, job_id: JobId) {
+        jobs::mark_job_complete(&self.job_manager, job_id, &mut self.logs);
+        self.refresh_jobs();
+    }
+
     /// Check if a job's completion means a group is ready for comparison
     fn check_group_completion(&mut self, job_id: JobId) {
         // Get the group ID for this job
@@ -771,6 +783,8 @@ impl KycoApp {
                         }
                     }
                 }
+                DetailPanelAction::Kill(job_id) => self.kill_job(job_id),
+                DetailPanelAction::MarkComplete(job_id) => self.mark_job_complete(job_id),
             }
         }
     }

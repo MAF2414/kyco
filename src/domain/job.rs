@@ -298,6 +298,10 @@ pub struct Job {
     /// Force this job to run in a git worktree, regardless of global settings
     #[serde(default)]
     pub force_worktree: bool,
+
+    /// Whether this job runs in REPL mode (Terminal.app) vs print mode
+    #[serde(default)]
+    pub is_repl: bool,
 }
 
 impl Job {
@@ -342,6 +346,7 @@ impl Job {
             group_id: None,
             ide_context: None,
             force_worktree: false,
+            is_repl: false,
         }
     }
 

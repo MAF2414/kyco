@@ -108,6 +108,48 @@ pub fn reject_job(
     }
 }
 
+/// Kill/stop a running job
+///
+/// For print-mode jobs, this signals the executor to cancel the job.
+/// The actual process termination happens in the executor via cancellation tokens.
+pub fn kill_job(
+    job_manager: &Arc<Mutex<JobManager>>,
+    job_id: JobId,
+    logs: &mut Vec<LogEvent>,
+) {
+    if let Ok(mut manager) = job_manager.lock() {
+        if let Some(job) = manager.get_mut(job_id) {
+            if job.status == JobStatus::Running {
+                job.fail("Job stopped by user".to_string());
+                logs.push(LogEvent::system(format!("Stopped job #{}", job_id)));
+            }
+        }
+    }
+}
+
+/// Mark a REPL job as complete
+///
+/// REPL jobs run in a separate Terminal.app window. The user clicks this
+/// when they've finished their work in the terminal.
+pub fn mark_job_complete(
+    job_manager: &Arc<Mutex<JobManager>>,
+    job_id: JobId,
+    logs: &mut Vec<LogEvent>,
+) {
+    // Mark the terminal session as completed (if it exists)
+    if let Some(session) = crate::agent::get_terminal_session(job_id) {
+        session.mark_completed();
+    }
+
+    if let Ok(mut manager) = job_manager.lock() {
+        manager.set_status(job_id, JobStatus::Done);
+        logs.push(LogEvent::system(format!(
+            "Marked job #{} as complete",
+            job_id
+        )));
+    }
+}
+
 /// Result of creating jobs (may be single or multi-agent)
 pub struct CreateJobsResult {
     /// All created job IDs

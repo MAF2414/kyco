@@ -21,6 +21,10 @@ pub enum DetailPanelAction {
     Apply(JobId),
     Reject(JobId),
     ViewDiff(JobId),
+    /// Stop/kill a running job
+    Kill(JobId),
+    /// Mark a REPL job as complete (user confirms they finished in Terminal)
+    MarkComplete(JobId),
 }
 
 /// State required for rendering the detail panel
@@ -255,6 +259,27 @@ fn render_action_buttons(ui: &mut egui::Ui, job: &Job) -> Option<DetailPanelActi
             }
             JobStatus::Running => {
                 ui.label(RichText::new("⟳ Running...").color(STATUS_RUNNING));
+                ui.add_space(8.0);
+
+                if job.is_repl {
+                    // REPL jobs: user can mark as complete when they're done in Terminal
+                    if ui
+                        .button(RichText::new("✓ Mark Complete").color(ACCENT_GREEN))
+                        .on_hover_text("Mark this Terminal session as complete")
+                        .clicked()
+                    {
+                        action = Some(DetailPanelAction::MarkComplete(current_job_id));
+                    }
+                } else {
+                    // Print mode jobs: can be stopped/killed
+                    if ui
+                        .button(RichText::new("■ Stop").color(ACCENT_RED))
+                        .on_hover_text("Stop this job")
+                        .clicked()
+                    {
+                        action = Some(DetailPanelAction::Kill(current_job_id));
+                    }
+                }
             }
             JobStatus::Queued => {
                 ui.label(RichText::new("◎ Queued").color(STATUS_QUEUED));

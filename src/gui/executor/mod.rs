@@ -12,7 +12,7 @@ use crate::agent::{AgentRegistry, ChainRunner};
 use crate::config::Config;
 use crate::git::GitManager;
 use crate::job::JobManager;
-use crate::{Job, JobResult, JobStatus, LogEvent};
+use crate::{AgentMode, Job, JobResult, JobStatus, LogEvent};
 
 /// Message to send back to GUI
 #[derive(Debug, Clone)]
@@ -261,6 +261,15 @@ async fn run_job(
     let agent_config = config
         .get_agent_for_job(&job.agent_id, &job.mode)
         .unwrap_or_default();
+
+    // Mark whether this is a REPL job (for UI to show correct buttons)
+    let is_repl = agent_config.mode == AgentMode::Repl;
+    {
+        let mut manager = job_manager.lock().unwrap();
+        if let Some(j) = manager.get_mut(job_id) {
+            j.is_repl = is_repl;
+        }
+    }
 
     // Get adapter
     let adapter = match agent_registry.get_for_config(&agent_config) {
