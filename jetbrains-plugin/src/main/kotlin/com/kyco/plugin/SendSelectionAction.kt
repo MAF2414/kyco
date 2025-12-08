@@ -61,12 +61,14 @@ class SendSelectionAction : AnAction() {
         // Get file path
         val filePath = virtualFile?.path ?: ""
 
-        // Get selected text
+        // Get selected text and selection offsets on EDT before background thread
         val selectedText = selectionModel.selectedText ?: ""
+        val selectionStart = selectionModel.selectionStart
+        val selectionEnd = selectionModel.selectionEnd
 
         // Get line numbers (1-indexed)
-        val lineStart = document.getLineNumber(selectionModel.selectionStart) + 1
-        val lineEnd = document.getLineNumber(selectionModel.selectionEnd) + 1
+        val lineStart = document.getLineNumber(selectionStart) + 1
+        val lineEnd = document.getLineNumber(selectionEnd) + 1
 
         // Get workspace path
         val workspace = project?.basePath ?: ""
@@ -74,7 +76,7 @@ class SendSelectionAction : AnAction() {
         // Find dependencies and tests in background
         ApplicationManager.getApplication().executeOnPooledThread {
             val (dependencies, totalCount, additionalCount) = if (project != null && psiFile != null) {
-                findDependencies(project, psiFile, selectionModel.selectionStart, selectionModel.selectionEnd)
+                findDependencies(project, psiFile, selectionStart, selectionEnd)
             } else {
                 Triple(emptyList(), 0, 0)
             }
