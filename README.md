@@ -33,6 +33,48 @@ No comment markers required - just select and send!
 
 ## Installation
 
+### Prerequisites
+
+You need one of the supported AI CLIs installed:
+- [Claude Code](https://claude.ai/code) (`claude`) - Recommended
+- [Codex](https://github.com/openai/codex) (`codex`)
+- [Gemini CLI](https://github.com/google/gemini-cli) (`gemini`)
+
+### macOS
+
+```bash
+# Apple Silicon (M1/M2/M3/M4)
+curl -L -o kyco https://github.com/MAF2414/kyco/releases/latest/download/kyco-macos-arm64
+
+# Intel Mac
+curl -L -o kyco https://github.com/MAF2414/kyco/releases/latest/download/kyco-macos-x64
+
+# Make executable and move to PATH
+chmod +x kyco
+sudo mv kyco /usr/local/bin/
+
+# Remove macOS quarantine (if blocked by Gatekeeper)
+xattr -d com.apple.quarantine /usr/local/bin/kyco
+```
+
+### Linux
+
+```bash
+curl -L -o kyco https://github.com/MAF2414/kyco/releases/latest/download/kyco-linux-x64
+chmod +x kyco
+sudo mv kyco /usr/local/bin/
+```
+
+### Windows
+
+Download `kyco-windows-x64.exe` from [Releases](https://github.com/MAF2414/kyco/releases/latest) and add to your PATH.
+
+Or with PowerShell:
+```powershell
+Invoke-WebRequest -Uri "https://github.com/MAF2414/kyco/releases/latest/download/kyco-windows-x64.exe" -OutFile "kyco.exe"
+Move-Item kyco.exe C:\Windows\System32\
+```
+
 ### From Source
 
 ```bash
@@ -40,26 +82,17 @@ git clone https://github.com/MAF2414/kyco.git
 cd kyco
 cargo install --path .
 ```
-
-### Prerequisites
-
-- Rust 1.75+ (for building)
-- One of the supported AI CLIs:
-  - [Claude Code](https://claude.ai/code) (`claude`)
-  - [Codex](https://github.com/openai/codex) (`codex`)
-  - [Gemini CLI](https://github.com/google/gemini-cli) (`gemini`)
+Requires Rust 1.75+
 
 ### IDE Extensions
 
 **VS Code:**
-```bash
-cd vscode-extension
-npm install && npm run compile
-# Install the .vsix file
-```
+1. Download `kyco-vscode.vsix` from [Releases](https://github.com/MAF2414/kyco/releases/latest)
+2. Install: `code --install-extension kyco-vscode.vsix`
 
 **JetBrains (IntelliJ, WebStorm, PyCharm, etc.):**
-- Install from `jetbrains-plugin/` or JetBrains Marketplace
+1. Download `kyco-jetbrains.zip` from [Releases](https://github.com/MAF2414/kyco/releases/latest)
+2. Settings → Plugins → ⚙️ → Install Plugin from Disk → Select the zip file
 
 ## Quick Start
 
@@ -186,4 +219,4 @@ KYCo is built on the belief that AI should augment, not replace, developer under
 
 ## License
 
-MIT
+[CC BY-NC-ND 4.0](LICENSE) - You may use and share this software, but commercial use and modifications require permission from the author.
