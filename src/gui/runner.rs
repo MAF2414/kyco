@@ -11,74 +11,27 @@ use tracing::info;
 
 use super::app::KycoApp;
 use super::executor::{start_executor, ExecutorEvent};
-use super::http_server::{start_http_server, SelectionRequest};
+use super::http_server::{start_http_server, BatchRequest, SelectionRequest};
 use crate::config::Config;
 use crate::job::JobManager;
 
-/// Create the KYCo app icon programmatically
-/// A stylized "K" with rail tracks - representing "Kyco" / "CodeRail"
-fn create_kyco_icon() -> IconData {
-    const SIZE: usize = 64;
-    let mut rgba = vec![0u8; SIZE * SIZE * 4];
+/// Load the KYCo app icon from embedded PNG
+fn load_kyco_icon() -> IconData {
+    // Embed the logo at compile time
+    const LOGO_BYTES: &[u8] = include_bytes!("../assets/Logo.png");
 
-    // Colors (RGBA)
-    let amber = [255u8, 176, 0, 255];      // Primary amber/gold color (matching theme)
-    let cyan = [0u8, 255, 200, 255];        // Accent cyan
-    let dark_bg = [18u8, 20, 24, 255];      // Dark background
+    // Decode PNG to RGBA
+    let img = image::load_from_memory(LOGO_BYTES)
+        .expect("Failed to decode embedded logo")
+        .into_rgba8();
 
-    // Fill background
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let idx = (y * SIZE + x) * 4;
-            rgba[idx..idx + 4].copy_from_slice(&dark_bg);
-        }
-    }
-
-    // Helper to draw a filled rectangle
-    let fill_rect = |rgba: &mut [u8], x0: usize, y0: usize, w: usize, h: usize, color: [u8; 4]| {
-        for y in y0..y0 + h {
-            for x in x0..x0 + w {
-                if x < SIZE && y < SIZE {
-                    let idx = (y * SIZE + x) * 4;
-                    rgba[idx..idx + 4].copy_from_slice(&color);
-                }
-            }
-        }
-    };
-
-    // Draw stylized "K" for Kyco
-    // Left vertical bar of K
-    fill_rect(&mut rgba, 12, 12, 8, 40, amber);
-
-    // Upper diagonal of K (going right-up from middle)
-    for i in 0..20 {
-        let x = 20 + i;
-        let y = 32 - i;
-        fill_rect(&mut rgba, x, y, 8, 4, amber);
-    }
-
-    // Lower diagonal of K (going right-down from middle)
-    for i in 0..20 {
-        let x = 20 + i;
-        let y = 32 + i;
-        fill_rect(&mut rgba, x, y, 8, 4, amber);
-    }
-
-    // Add rail track lines (representing CodeRail)
-    // Two horizontal cyan lines at bottom
-    fill_rect(&mut rgba, 4, 56, 56, 2, cyan);
-    fill_rect(&mut rgba, 4, 60, 56, 2, cyan);
-
-    // Rail ties (vertical short bars connecting the tracks)
-    for i in 0..7 {
-        let x = 8 + i * 8;
-        fill_rect(&mut rgba, x, 55, 3, 8, cyan);
-    }
+    let (width, height) = img.dimensions();
+    let rgba = img.into_raw();
 
     IconData {
         rgba,
-        width: SIZE as u32,
-        height: SIZE as u32,
+        width,
+        height,
     }
 }
 
@@ -100,14 +53,17 @@ pub fn run_gui() -> Result<()> {
 
     info!("[kyco] Starting GUI with HTTP server on port 9876...");
 
-    // Create channel for HTTP server -> GUI communication
+    // Create channel for HTTP server -> GUI communication (single selection)
     let (http_tx, http_rx): (mpsc::Sender<SelectionRequest>, mpsc::Receiver<SelectionRequest>) = mpsc::channel();
+
+    // Create channel for batch requests from IDE
+    let (batch_tx, batch_rx): (mpsc::Sender<BatchRequest>, mpsc::Receiver<BatchRequest>) = mpsc::channel();
 
     // Create channel for executor -> GUI communication
     let (executor_tx, executor_rx): (mpsc::Sender<ExecutorEvent>, mpsc::Receiver<ExecutorEvent>) = mpsc::channel();
 
-    // Start HTTP server in background
-    start_http_server(http_tx);
+    // Start HTTP server in background (handles both /selection and /batch)
+    start_http_server(http_tx, batch_tx);
 
     // Start job executor in background
     start_executor(
@@ -119,7 +75,7 @@ pub fn run_gui() -> Result<()> {
     );
 
     // Create app icon
-    let icon = create_kyco_icon();
+    let icon = load_kyco_icon();
 
     // Run GUI
     let options = eframe::NativeOptions {
@@ -133,7 +89,7 @@ pub fn run_gui() -> Result<()> {
         ..Default::default()
     };
 
-    let app = KycoApp::new(work_dir, config, job_manager, http_rx, executor_rx);
+    let app = KycoApp::new(work_dir, config, job_manager, http_rx, batch_rx, executor_rx);
 
     eframe::run_native("kyco", options, Box::new(|_cc| Ok(Box::new(app))))
         .map_err(|e| anyhow::anyhow!("Failed to run GUI: {}", e))?;

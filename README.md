@@ -1,14 +1,19 @@
+<p align="center">
+  <img src="assets/Logo.png" alt="KYCo Logo" width="200">
+</p>
+
 # KYCo - Know Your Codebase
 
-**The antidote to vibe coding.** KYCo is a desktop application that lets you trigger AI coding tasks directly from your IDE - with full transparency about what the AI does and why.
+**Stay in control with AI coding.** Select code in your IDE, run targeted AI tasks, review diffs. No more endless agent sessions - just focused changes where you need them.
 
 ## Why KYCo?
 
-In the age of "vibe coding" where developers blindly accept AI-generated code, KYCo takes a different approach:
+Coding agents can spiral into hour-long sessions that touch half your codebase. KYCo takes a different approach:
 
-- **Transparency**: Every mode requires the AI to explain what it changed and why
-- **Control**: You trigger tasks from your IDE, review diffs, accept or reject
-- **Understanding**: Stay in sync with your codebase, even when AI helps
+- **Focused Changes**: Select specific code lines, run a mode, get targeted changes - not a full repo rewrite
+- **Multi-Agent Power**: Run Claude, Codex, or Gemini in parallel with concurrent jobs and git worktree isolation
+- **Voice-First Workflow**: Define tasks via Whisper speech-to-text - faster than typing prompts
+- **You Stay in Control**: Review every diff, accept or reject changes, keep your codebase predictable
 
 ## Features
 

@@ -146,7 +146,7 @@ fn render_job_info(ui: &mut egui::Ui, job: &Job) {
 fn render_result_section(ui: &mut egui::Ui, job: &Job) {
     if let Some(result) = &job.result {
         ui.add_space(8.0);
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(BG_SECONDARY)
             .corner_radius(4.0)
             .inner_margin(8.0)

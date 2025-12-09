@@ -2,7 +2,7 @@
   "name": "kyco",
   "displayName": "KYCo",
   "description": "Send code selections to KYCo backend",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "kyco",
   "license": "CC-BY-NC-ND-4.0",
   "repository": {

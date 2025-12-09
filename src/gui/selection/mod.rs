@@ -11,4 +11,7 @@ mod popup;
 
 pub use autocomplete::{AutocompleteState, Suggestion};
 pub use context::SelectionContext;
-pub use popup::{render_selection_popup, SelectionPopupAction, SelectionPopupState};
+pub use popup::{
+    render_batch_popup, render_selection_popup, BatchPopupState, SelectionPopupAction,
+    SelectionPopupState,
+};

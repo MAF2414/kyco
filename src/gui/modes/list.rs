@@ -31,7 +31,7 @@ pub fn render_modes_list(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             for (name, aliases) in &modes {
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(BG_SECONDARY)
                     .corner_radius(4.0)
                     .inner_margin(12.0)

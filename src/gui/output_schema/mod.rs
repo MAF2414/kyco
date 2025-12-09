@@ -50,7 +50,7 @@ pub fn render_output_schema(ui: &mut egui::Ui, state: &mut OutputSchemaState<'_>
 
 /// Render a section frame with secondary background
 fn render_section_frame<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(BG_SECONDARY)
         .corner_radius(4.0)
         .inner_margin(12.0)

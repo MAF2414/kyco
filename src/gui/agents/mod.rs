@@ -20,7 +20,7 @@ use super::app::{ViewMode, BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY};
 /// Render the agents configuration view
 pub fn render_agents(ctx: &egui::Context, state: &mut AgentEditorState<'_>) {
     egui::CentralPanel::default()
-        .frame(egui::Frame::none().fill(BG_PRIMARY).inner_margin(16.0))
+        .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(16.0))
         .show(ctx, |ui| {
             ui.vertical(|ui| {
                 // Header

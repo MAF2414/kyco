@@ -84,7 +84,7 @@ pub fn render_chain_editor(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>, 
             let step_count = state.chain_edit_steps.len();
 
             for (i, step) in state.chain_edit_steps.iter_mut().enumerate() {
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(BG_SECONDARY)
                     .corner_radius(4.0)
                     .inner_margin(12.0)

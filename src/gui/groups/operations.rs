@@ -124,6 +124,7 @@ pub fn merge_and_cleanup(
 }
 
 /// Cancel a group and cleanup all worktrees
+#[allow(dead_code)]
 pub fn cancel_and_cleanup(
     group_id: AgentGroupId,
     group_manager: &mut GroupManager,

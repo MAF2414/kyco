@@ -63,7 +63,7 @@ pub fn render_job_list(
                         Color32::TRANSPARENT
                     };
 
-                    let response = egui::Frame::none()
+                    let response = egui::Frame::NONE
                         .fill(bg)
                         .inner_margin(egui::vec2(8.0, 4.0))
                         .show(ui, |ui| {

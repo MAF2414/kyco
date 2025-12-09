@@ -37,7 +37,7 @@ pub use app::{Agent, KycoApp, Mode};
 pub use selection::SelectionContext;
 pub use executor::{start_executor, ExecutorEvent};
 pub use groups::{ComparisonAction, ComparisonState};
-pub use http_server::SelectionRequest;
+pub use http_server::{BatchFile, BatchRequest, SelectionRequest};
 pub use runner::run_gui;
 pub use update::{UpdateChecker, UpdateInfo, UpdateStatus};
 pub use voice::{VoiceConfig, VoiceEvent, VoiceInputMode, VoiceManager, VoiceState};

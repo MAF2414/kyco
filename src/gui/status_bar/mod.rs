@@ -28,7 +28,7 @@ pub struct StatusBarState<'a> {
 /// Render the bottom status bar
 pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
     egui::TopBottomPanel::bottom("status_bar")
-        .frame(egui::Frame::none().fill(BG_SECONDARY).inner_margin(4.0))
+        .frame(egui::Frame::NONE.fill(BG_SECONDARY).inner_margin(4.0))
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // Auto-run toggle

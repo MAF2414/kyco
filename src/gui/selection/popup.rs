@@ -112,7 +112,7 @@ fn render_header(ui: &mut egui::Ui, selection: &SelectionContext) {
 /// Render the selection preview panel
 fn render_selection_preview(ui: &mut egui::Ui, text: &str, start_line: Option<usize>) {
     ui.add_space(4.0);
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(BG_SECONDARY)
         .stroke(Stroke::new(1.0, ACCENT_PURPLE.linear_multiply(0.3)))
         .corner_radius(4.0)
@@ -170,7 +170,7 @@ fn render_input_field(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) ->
         mic_clicked: false,
     };
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(BG_SECONDARY)
         .stroke(Stroke::new(2.0, TEXT_PRIMARY.linear_multiply(0.4)))
         .corner_radius(4.0)
@@ -290,7 +290,7 @@ fn render_suggestions(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) -> Opt
 
     if state.show_suggestions && !state.suggestions.is_empty() {
         ui.add_space(4.0);
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(BG_SECONDARY)
             .stroke(Stroke::new(1.0, TEXT_MUTED.linear_multiply(0.3)))
             .corner_radius(4.0)
@@ -306,7 +306,7 @@ fn render_suggestions(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) -> Opt
                         Color32::TRANSPARENT
                     };
 
-                    let response = egui::Frame::none()
+                    let response = egui::Frame::NONE
                         .fill(bg)
                         .corner_radius(2.0)
                         .inner_margin(egui::vec2(8.0, 4.0))
@@ -380,6 +380,276 @@ fn render_help_bar(ui: &mut egui::Ui) {
             ui.add_space(12.0);
             ui.label(RichText::new("ESC").small().monospace().color(TEXT_DIM));
             ui.label(RichText::new("close").small().color(TEXT_MUTED));
+        });
+    });
+}
+
+// =============================================================================
+// Batch Popup (for processing multiple files)
+// =============================================================================
+
+use crate::gui::http_server::BatchFile;
+
+/// State required for rendering the batch popup
+pub struct BatchPopupState<'a> {
+    pub batch_files: &'a [BatchFile],
+    pub popup_input: &'a mut String,
+    pub popup_status: &'a Option<(String, bool)>,
+    pub suggestions: &'a [Suggestion],
+    pub selected_suggestion: usize,
+    pub show_suggestions: bool,
+    pub cursor_to_end: &'a mut bool,
+}
+
+/// Render the batch popup and return any action triggered by the user
+pub fn render_batch_popup(
+    ctx: &egui::Context,
+    state: &mut BatchPopupState<'_>,
+) -> Option<SelectionPopupAction> {
+    let mut action: Option<SelectionPopupAction> = None;
+
+    egui::Window::new("kyco batch")
+        .collapsible(false)
+        .resizable(false)
+        .fixed_size(Vec2::new(500.0, 350.0))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+
+            // Header
+            render_batch_header(ui, state.batch_files.len());
+
+            // Files preview
+            render_batch_files_preview(ui, state.batch_files);
+
+            ui.add_space(8.0);
+
+            // Main input (no microphone for batch)
+            let input_changed = render_batch_input_field(ui, state);
+            if input_changed {
+                action = Some(SelectionPopupAction::InputChanged);
+            }
+
+            // Suggestions dropdown
+            if let Some(idx) = render_batch_suggestions(ui, state) {
+                action = Some(SelectionPopupAction::SuggestionClicked(idx));
+            }
+
+            // Status message
+            render_status_message(ui, state.popup_status);
+
+            // Help bar (simplified, no voice)
+            render_batch_help_bar(ui);
+        });
+
+    action
+}
+
+/// Render the batch popup header
+fn render_batch_header(ui: &mut egui::Ui, file_count: usize) {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("▶ kyco batch").monospace().size(18.0).color(TEXT_PRIMARY));
+        ui.label(RichText::new("█").monospace().color(TEXT_PRIMARY));
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(
+                RichText::new(format!("{} files", file_count))
+                    .small()
+                    .color(ACCENT_CYAN),
+            );
+        });
+    });
+}
+
+/// Render the batch files preview
+fn render_batch_files_preview(ui: &mut egui::Ui, files: &[BatchFile]) {
+    ui.add_space(4.0);
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .stroke(Stroke::new(1.0, ACCENT_CYAN.linear_multiply(0.3)))
+        .corner_radius(4.0)
+        .inner_margin(8.0)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("FILES").small().monospace().color(ACCENT_CYAN));
+                ui.label(
+                    RichText::new(format!("({} total)", files.len()))
+                        .small()
+                        .color(TEXT_MUTED),
+                );
+            });
+
+            // Show first few files
+            let max_display = 5;
+            egui::ScrollArea::vertical()
+                .max_height(80.0)
+                .show(ui, |ui| {
+                    for (i, file) in files.iter().take(max_display).enumerate() {
+                        let filename = PathBuf::from(&file.path)
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| file.path.clone());
+
+                        let line_info = match (file.line_start, file.line_end) {
+                            (Some(s), Some(e)) if s != e => format!(":{}-{}", s, e),
+                            (Some(s), _) => format!(":{}", s),
+                            _ => String::new(),
+                        };
+
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("{:2}.", i + 1))
+                                    .small()
+                                    .monospace()
+                                    .color(TEXT_MUTED),
+                            );
+                            ui.label(
+                                RichText::new(format!("{}{}", filename, line_info))
+                                    .small()
+                                    .monospace()
+                                    .color(TEXT_DIM),
+                            );
+                        });
+                    }
+
+                    if files.len() > max_display {
+                        ui.label(
+                            RichText::new(format!("   ... and {} more", files.len() - max_display))
+                                .small()
+                                .color(TEXT_MUTED),
+                        );
+                    }
+                });
+        });
+}
+
+/// Render the batch input field (no microphone)
+fn render_batch_input_field(ui: &mut egui::Ui, state: &mut BatchPopupState<'_>) -> bool {
+    let mut input_changed = false;
+
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .stroke(Stroke::new(2.0, TEXT_PRIMARY.linear_multiply(0.4)))
+        .corner_radius(4.0)
+        .inner_margin(egui::vec2(12.0, 10.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("❯").monospace().size(16.0).color(TEXT_PRIMARY));
+                ui.add_space(4.0);
+
+                let text_edit = egui::TextEdit::singleline(state.popup_input)
+                    .font(egui::TextStyle::Monospace)
+                    .text_color(TEXT_PRIMARY)
+                    .hint_text(RichText::new("[agent+agent:]mode [prompt]").color(TEXT_MUTED))
+                    .desired_width(ui.available_width())
+                    .frame(false)
+                    .lock_focus(true);
+
+                let output = text_edit.show(ui);
+
+                if output.response.changed() {
+                    input_changed = true;
+                }
+                output.response.request_focus();
+
+                // Move cursor to end if requested (after Tab completion)
+                if *state.cursor_to_end {
+                    *state.cursor_to_end = false;
+                    if let Some(mut edit_state) =
+                        egui::TextEdit::load_state(ui.ctx(), output.response.id)
+                    {
+                        let cursor_pos = egui::text::CCursor::new(state.popup_input.len());
+                        edit_state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::one(cursor_pos)));
+                        edit_state.store(ui.ctx(), output.response.id);
+                    }
+                }
+            });
+        });
+
+    input_changed
+}
+
+/// Render suggestions for batch popup
+fn render_batch_suggestions(ui: &mut egui::Ui, state: &BatchPopupState<'_>) -> Option<usize> {
+    let mut clicked_suggestion: Option<usize> = None;
+
+    if state.show_suggestions && !state.suggestions.is_empty() {
+        ui.add_space(4.0);
+        egui::Frame::NONE
+            .fill(BG_SECONDARY)
+            .stroke(Stroke::new(1.0, TEXT_MUTED.linear_multiply(0.3)))
+            .corner_radius(4.0)
+            .inner_margin(4.0)
+            .show(ui, |ui| {
+                let visible_suggestions = state.suggestions.iter().take(MAX_SUGGESTIONS_VISIBLE);
+                for (idx, suggestion) in visible_suggestions.enumerate() {
+                    let is_selected = idx == state.selected_suggestion;
+                    let bg = if is_selected {
+                        BG_HIGHLIGHT
+                    } else {
+                        Color32::TRANSPARENT
+                    };
+
+                    let response = egui::Frame::NONE
+                        .fill(bg)
+                        .corner_radius(2.0)
+                        .inner_margin(egui::vec2(8.0, 4.0))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let (badge_color, badge_text) = match suggestion.category {
+                                    "agent" => (ACCENT_CYAN, "AGT"),
+                                    "mode" => (ACCENT_GREEN, "MOD"),
+                                    _ => (TEXT_MUTED, "???"),
+                                };
+                                ui.label(
+                                    RichText::new(badge_text)
+                                        .small()
+                                        .monospace()
+                                        .color(badge_color),
+                                );
+                                ui.add_space(8.0);
+                                let text_color = if is_selected { TEXT_PRIMARY } else { TEXT_DIM };
+                                ui.label(
+                                    RichText::new(&suggestion.text)
+                                        .monospace()
+                                        .color(text_color),
+                                );
+                                ui.add_space(8.0);
+                                ui.label(
+                                    RichText::new(&suggestion.description)
+                                        .small()
+                                        .color(TEXT_MUTED),
+                                );
+                            });
+                        });
+
+                    if response.response.interact(egui::Sense::click()).clicked() {
+                        clicked_suggestion = Some(idx);
+                    }
+                }
+            });
+    }
+
+    clicked_suggestion
+}
+
+/// Render the batch help bar (no voice option)
+fn render_batch_help_bar(ui: &mut egui::Ui) {
+    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("TAB").small().monospace().color(TEXT_DIM));
+            ui.label(RichText::new("complete").small().color(TEXT_MUTED));
+            ui.add_space(12.0);
+            ui.label(RichText::new("↵").small().monospace().color(TEXT_DIM));
+            ui.label(RichText::new("run all").small().color(TEXT_MUTED));
+            ui.add_space(12.0);
+            ui.label(RichText::new("⇧↵").small().monospace().color(TEXT_DIM));
+            ui.label(RichText::new("worktree").small().color(TEXT_MUTED));
+            ui.add_space(12.0);
+            ui.label(RichText::new("ESC").small().monospace().color(TEXT_DIM));
+            ui.label(RichText::new("cancel").small().color(TEXT_MUTED));
         });
     });
 }

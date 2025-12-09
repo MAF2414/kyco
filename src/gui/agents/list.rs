@@ -31,7 +31,7 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             for (name, aliases, binary) in &agents {
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(BG_SECONDARY)
                     .corner_radius(4.0)
                     .inner_margin(12.0)

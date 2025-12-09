@@ -191,7 +191,7 @@ pub fn render_settings_ide_extensions(ui: &mut egui::Ui, state: &mut SettingsSta
     if let Some((msg, is_error)) = &state.extension_status {
         ui.add_space(16.0);
         let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };
-        egui::Frame::none()
+        egui::Frame::NONE
             .fill(if *is_error {
                 Color32::from_rgb(40, 20, 20)
             } else {
@@ -411,7 +411,7 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     );
     ui.add_space(8.0);
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgb(30, 30, 35))
         .corner_radius(4.0)
         .inner_margin(12.0)
@@ -529,7 +529,7 @@ fn render_voice_actions(ui: &mut egui::Ui, state: &SettingsState<'_>) {
     );
     ui.add_space(8.0);
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgb(30, 30, 35))
         .corner_radius(4.0)
         .inner_margin(12.0)
@@ -616,7 +616,7 @@ fn render_vad_settings(ui: &mut egui::Ui, _state: &mut SettingsState<'_>) {
     });
     ui.add_space(8.0);
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgb(30, 30, 35))
         .corner_radius(4.0)
         .inner_margin(12.0)
@@ -809,7 +809,7 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         VoiceTestStatus::Success => {
             if let Some(result) = &state.voice_test_result {
                 ui.add_space(8.0);
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(Color32::from_rgb(20, 40, 20))
                     .corner_radius(4.0)
                     .inner_margin(8.0)
@@ -821,7 +821,7 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         }
         VoiceTestStatus::Error(msg) => {
             ui.add_space(8.0);
-            egui::Frame::none()
+            egui::Frame::NONE
                 .fill(Color32::from_rgb(40, 20, 20))
                 .corner_radius(4.0)
                 .inner_margin(8.0)

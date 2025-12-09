@@ -81,7 +81,7 @@ pub fn render_voice_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'
 
 /// Render a section frame with secondary background
 fn render_section_frame<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(BG_SECONDARY)
         .corner_radius(4.0)
         .inner_margin(12.0)
@@ -131,22 +131,6 @@ fn render_mode_description(ui: &mut egui::Ui, mode: &str) {
         _ => "Voice input is disabled.",
     };
     ui.label(RichText::new(mode_desc).small().color(TEXT_MUTED));
-}
-
-/// Render the keywords text field
-fn render_keywords_field(ui: &mut egui::Ui, keywords: &mut String) {
-    render_text_field(
-        ui,
-        "Keywords:",
-        keywords,
-        300.0,
-        Some("refactor, fix, tests, docs"),
-    );
-    ui.label(
-        RichText::new("(comma-separated, used for continuous mode)")
-            .small()
-            .color(TEXT_MUTED),
-    );
 }
 
 /// Render the Whisper model combo box
@@ -226,7 +210,7 @@ fn render_voice_actions_section(ui: &mut egui::Ui, registry: &VoiceActionRegistr
     );
     ui.add_space(8.0);
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgb(30, 30, 35))
         .corner_radius(4.0)
         .inner_margin(12.0)
@@ -307,7 +291,7 @@ fn render_vad_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
     );
     ui.add_space(8.0);
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgb(30, 30, 35))
         .corner_radius(4.0)
         .inner_margin(12.0)
@@ -380,7 +364,7 @@ fn render_dependencies_section(ui: &mut egui::Ui, state: &mut VoiceSettingsState
     );
     ui.add_space(8.0);
 
-    egui::Frame::none()
+    egui::Frame::NONE
         .fill(Color32::from_rgb(30, 30, 35))
         .corner_radius(4.0)
         .inner_margin(12.0)
@@ -475,27 +459,6 @@ fn render_status_message(ui: &mut egui::Ui, status: &Option<(String, bool)>) {
         let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };
         ui.label(RichText::new(msg).color(color));
     }
-}
-
-/// Render a labeled text input field
-fn render_text_field(
-    ui: &mut egui::Ui,
-    label: &str,
-    value: &mut String,
-    width: f32,
-    hint: Option<&str>,
-) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(label).color(TEXT_MUTED));
-        let mut edit = egui::TextEdit::singleline(value)
-            .font(egui::TextStyle::Monospace)
-            .text_color(TEXT_PRIMARY)
-            .desired_width(width);
-        if let Some(h) = hint {
-            edit = edit.hint_text(h);
-        }
-        ui.add(edit);
-    });
 }
 
 /// Render a labeled text input field with a description on the same line

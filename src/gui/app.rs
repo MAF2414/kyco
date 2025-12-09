@@ -9,7 +9,7 @@
 use super::diff::DiffState;
 use super::executor::ExecutorEvent;
 use super::groups::{render_comparison_popup, ComparisonAction, ComparisonState};
-use super::http_server::SelectionRequest;
+use super::http_server::{BatchFile, BatchRequest, SelectionRequest};
 use super::jobs;
 use super::selection::autocomplete::parse_input_multi;
 use super::selection::{AutocompleteState, SelectionContext};
@@ -71,6 +71,8 @@ pub enum ViewMode {
     JobList,
     /// Selection popup (triggered by IDE extension)
     SelectionPopup,
+    /// Batch selection popup (triggered by IDE batch request)
+    BatchPopup,
     /// Diff view popup
     DiffView,
     /// Comparison popup for multi-agent results
@@ -104,10 +106,14 @@ pub struct KycoApp {
     logs: Vec<LogEvent>,
     /// Receiver for HTTP selection events from IDE extensions
     http_rx: Receiver<SelectionRequest>,
+    /// Receiver for batch processing requests from IDE extensions
+    batch_rx: Receiver<BatchRequest>,
     /// Receiver for executor events
     executor_rx: Receiver<ExecutorEvent>,
     /// Current selection context (from IDE extension)
     selection: SelectionContext,
+    /// Batch files for batch processing (from IDE extension)
+    batch_files: Vec<BatchFile>,
     /// Current view mode
     view_mode: ViewMode,
     /// Selection popup input
@@ -180,8 +186,6 @@ pub struct KycoApp {
     settings_debounce_ms: String,
     /// Settings editor: auto run
     settings_auto_run: bool,
-    /// Settings editor: auto scan (local state, not in config)
-    settings_auto_scan: bool,
     /// Settings editor: marker prefix
     settings_marker_prefix: String,
     /// Settings editor: use worktree
@@ -214,8 +218,6 @@ pub struct KycoApp {
     vad_speech_threshold: String,
     /// VAD settings: silence duration (ms)
     vad_silence_duration_ms: String,
-    /// Hotkey is currently held (for hotkey_hold mode)
-    hotkey_held: bool,
     /// Voice installation status message
     voice_install_status: Option<(String, bool)>,
     /// Voice installation in progress
@@ -251,6 +253,7 @@ impl KycoApp {
         config: Config,
         job_manager: Arc<Mutex<JobManager>>,
         http_rx: Receiver<SelectionRequest>,
+        batch_rx: Receiver<BatchRequest>,
         executor_rx: Receiver<ExecutorEvent>,
     ) -> Self {
         // Extract settings before moving config
@@ -306,8 +309,10 @@ impl KycoApp {
             selected_job_id: None,
             logs: vec![LogEvent::system("kyco GUI started")],
             http_rx,
+            batch_rx,
             executor_rx,
             selection: SelectionContext::default(),
+            batch_files: Vec::new(),
             view_mode: ViewMode::JobList,
             popup_input: String::new(),
             autocomplete: AutocompleteState::default(),
@@ -344,7 +349,6 @@ impl KycoApp {
             settings_max_concurrent,
             settings_debounce_ms,
             settings_auto_run,
-            settings_auto_scan: true,
             settings_marker_prefix,
             settings_use_worktree,
             settings_scan_exclude,
@@ -365,7 +369,6 @@ impl KycoApp {
             vad_enabled: true,
             vad_speech_threshold: "0.5".to_string(),
             vad_silence_duration_ms: "1000".to_string(),
-            hotkey_held: false,
             voice_install_status: None,
             voice_install_in_progress: false,
             voice_test_status: super::settings::VoiceTestStatus::Idle,
@@ -497,18 +500,6 @@ impl KycoApp {
         self.cached_jobs = jobs::refresh_jobs(&self.job_manager);
     }
 
-    /// Create a job from the selection popup
-    fn create_job_from_selection(&mut self, agent: &str, mode: &str, prompt: &str) -> Option<JobId> {
-        jobs::create_job_from_selection(
-            &self.job_manager,
-            &self.selection,
-            agent,
-            mode,
-            prompt,
-            &mut self.logs,
-        )
-    }
-
     /// Queue a job for execution
     fn queue_job(&mut self, job_id: JobId) {
         jobs::queue_job(&self.job_manager, job_id, &mut self.logs);
@@ -580,6 +571,7 @@ impl KycoApp {
     }
 
     /// Open the comparison popup for a group
+    #[allow(dead_code)]
     fn open_comparison_popup(&mut self, group_id: AgentGroupId) {
         // Get the group
         let group = {
@@ -636,6 +628,128 @@ impl KycoApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
     }
 
+    /// Handle incoming batch request from IDE extension
+    fn on_batch_received(&mut self, req: BatchRequest, ctx: &egui::Context) {
+        info!(
+            "[kyco:gui] Received batch: {} files",
+            req.files.len(),
+        );
+
+        if req.files.is_empty() {
+            self.logs.push(LogEvent::error("Batch request has no files".to_string()));
+            return;
+        }
+
+        // Store batch files and open popup for mode/agent/prompt selection
+        self.batch_files = req.files;
+        self.view_mode = ViewMode::BatchPopup;
+        self.popup_input.clear();
+        self.popup_status = None;
+        self.update_suggestions();
+
+        self.logs.push(LogEvent::system(format!(
+            "Batch: {} files selected, waiting for mode/prompt",
+            self.batch_files.len()
+        )));
+
+        // Bring window to front
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+    }
+
+    /// Execute batch task from batch popup
+    /// Creates jobs for all batch files with the selected mode/agents/prompt
+    fn execute_batch_task(&mut self, force_worktree: bool) {
+        // Parse input same as single selection
+        let (agents, mode, prompt) = parse_input_multi(&self.popup_input);
+
+        if mode.is_empty() {
+            self.popup_status = Some(("Please enter a mode (e.g., 'refactor', 'fix')".to_string(), true));
+            return;
+        }
+
+        if self.batch_files.is_empty() {
+            self.popup_status = Some(("No files in batch".to_string(), true));
+            return;
+        }
+
+        // Resolve agent aliases
+        let resolved_agents: Vec<String> = agents
+            .iter()
+            .map(|a| {
+                self.config
+                    .agent
+                    .iter()
+                    .find(|(name, cfg)| {
+                        name.eq_ignore_ascii_case(a) || cfg.aliases.iter().any(|alias| alias.eq_ignore_ascii_case(a))
+                    })
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_else(|| a.clone())
+            })
+            .collect();
+
+        self.logs.push(LogEvent::system(format!(
+            "Starting batch: {} files with agents {:?}, mode '{}'",
+            self.batch_files.len(),
+            resolved_agents,
+            mode
+        )));
+
+        let mut total_jobs = 0;
+        let mut total_groups = 0;
+
+        // Create jobs for each file
+        for file in &self.batch_files {
+            // Create SelectionContext for this file
+            let selection = SelectionContext {
+                app_name: Some("IDE Batch".to_string()),
+                file_path: Some(file.path.clone()),
+                selected_text: None,
+                line_number: file.line_start,
+                line_end: file.line_end,
+                possible_files: Vec::new(),
+                dependencies: None,
+                dependency_count: None,
+                additional_dependency_count: None,
+                related_tests: None,
+            };
+
+            // Create job(s) for this file
+            if let Some(result) = jobs::create_jobs_from_selection_multi(
+                &self.job_manager,
+                &self.group_manager,
+                &selection,
+                &resolved_agents,
+                &mode,
+                &prompt,
+                &mut self.logs,
+                force_worktree,
+            ) {
+                total_jobs += result.job_ids.len();
+                if result.group_id.is_some() {
+                    total_groups += 1;
+                }
+            }
+        }
+
+        self.popup_status = Some((
+            format!(
+                "Batch complete: {} jobs created{}",
+                total_jobs,
+                if total_groups > 0 {
+                    format!(" in {} groups", total_groups)
+                } else {
+                    String::new()
+                }
+            ),
+            false,
+        ));
+
+        // Clear batch files and return to job list
+        self.batch_files.clear();
+        self.refresh_jobs();
+        self.view_mode = ViewMode::JobList;
+    }
+
     /// Update autocomplete suggestions based on input
     fn update_suggestions(&mut self) {
         self.autocomplete.update_suggestions(&self.popup_input, &self.config);
@@ -646,11 +760,6 @@ impl KycoApp {
         if let Some(new_input) = self.autocomplete.apply_suggestion(&self.popup_input) {
             self.popup_input = new_input;
         }
-    }
-
-    /// Parse the popup input into agent, mode, and prompt
-    fn parse_input(&self) -> (String, String, String) {
-        super::selection::autocomplete::parse_input(&self.popup_input)
     }
 
     /// Execute the task from selection popup
@@ -830,6 +939,37 @@ impl KycoApp {
         }
     }
 
+    /// Render the batch popup (similar to selection popup but for multiple files)
+    fn render_batch_popup(&mut self, ctx: &egui::Context) {
+        use super::selection::{render_batch_popup, BatchPopupState, SelectionPopupAction};
+
+        let mut state = BatchPopupState {
+            batch_files: &self.batch_files,
+            popup_input: &mut self.popup_input,
+            popup_status: &self.popup_status,
+            suggestions: &self.autocomplete.suggestions,
+            selected_suggestion: self.autocomplete.selected_suggestion,
+            show_suggestions: self.autocomplete.show_suggestions,
+            cursor_to_end: &mut self.autocomplete.cursor_to_end,
+        };
+
+        if let Some(action) = render_batch_popup(ctx, &mut state) {
+            match action {
+                SelectionPopupAction::InputChanged => {
+                    self.update_suggestions();
+                }
+                SelectionPopupAction::SuggestionClicked(idx) => {
+                    self.autocomplete.selected_suggestion = idx;
+                    self.apply_suggestion();
+                    self.update_suggestions();
+                }
+                SelectionPopupAction::ToggleRecording => {
+                    // No voice in batch popup
+                }
+            }
+        }
+    }
+
     /// Render the diff view popup
     fn render_diff_popup(&mut self, ctx: &egui::Context) {
         if super::diff::render_diff_popup(ctx, &self.diff_state) {
@@ -943,6 +1083,11 @@ impl eframe::App for KycoApp {
         // Check for HTTP selection events from IDE extensions
         while let Ok(req) = self.http_rx.try_recv() {
             self.on_selection_received(req, ctx);
+        }
+
+        // Check for batch processing requests from IDE extensions
+        while let Ok(req) = self.batch_rx.try_recv() {
+            self.on_batch_received(req, ctx);
         }
 
         // Auto-run: Queue pending jobs automatically when auto_run is enabled
@@ -1150,6 +1295,27 @@ impl eframe::App for KycoApp {
                         // If transcribing, do nothing - wait for completion
                     }
                 }
+                ViewMode::BatchPopup => {
+                    // Batch popup uses same keyboard shortcuts as selection popup
+                    if i.key_pressed(Key::Escape) {
+                        self.batch_files.clear();
+                        self.view_mode = ViewMode::JobList;
+                    }
+                    if i.key_pressed(Key::Tab) && self.autocomplete.show_suggestions && !self.autocomplete.suggestions.is_empty() {
+                        self.apply_suggestion();
+                        self.update_suggestions();
+                    }
+                    if i.key_pressed(Key::ArrowDown) && self.autocomplete.show_suggestions {
+                        self.autocomplete.select_next();
+                    }
+                    if i.key_pressed(Key::ArrowUp) && self.autocomplete.show_suggestions {
+                        self.autocomplete.select_previous();
+                    }
+                    if i.key_pressed(Key::Enter) {
+                        let force_worktree = i.modifiers.shift;
+                        self.execute_batch_task(force_worktree);
+                    }
+                }
                 ViewMode::DiffView => {
                     if i.key_pressed(Key::Escape) || i.key_pressed(Key::Q) {
                         self.view_mode = ViewMode::JobList;
@@ -1278,13 +1444,13 @@ impl eframe::App for KycoApp {
                     .min_width(280.0)
                     .max_width(280.0)
                     .resizable(false)
-                    .frame(egui::Frame::none().fill(BG_PRIMARY).inner_margin(8.0))
+                    .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(8.0))
                     .show(ctx, |ui| {
                         self.render_job_list(ui);
                     });
 
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none().fill(BG_PRIMARY).inner_margin(8.0))
+                    .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(8.0))
                     .show(ctx, |ui| {
                         self.render_detail_panel(ui);
                     });
@@ -1292,14 +1458,22 @@ impl eframe::App for KycoApp {
             ViewMode::SelectionPopup => {
                 // Show main UI dimmed behind popup
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none().fill(BG_PRIMARY.linear_multiply(0.3)))
+                    .frame(egui::Frame::NONE.fill(BG_PRIMARY.linear_multiply(0.3)))
                     .show(ctx, |_ui| {});
 
                 self.render_selection_popup(ctx);
             }
+            ViewMode::BatchPopup => {
+                // Show main UI dimmed behind popup
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE.fill(BG_PRIMARY.linear_multiply(0.3)))
+                    .show(ctx, |_ui| {});
+
+                self.render_batch_popup(ctx);
+            }
             ViewMode::DiffView => {
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none().fill(BG_PRIMARY.linear_multiply(0.3)))
+                    .frame(egui::Frame::NONE.fill(BG_PRIMARY.linear_multiply(0.3)))
                     .show(ctx, |_ui| {});
 
                 self.render_diff_popup(ctx);
@@ -1307,7 +1481,7 @@ impl eframe::App for KycoApp {
             ViewMode::ComparisonPopup => {
                 // Show main UI dimmed behind popup
                 egui::CentralPanel::default()
-                    .frame(egui::Frame::none().fill(BG_PRIMARY.linear_multiply(0.3)))
+                    .frame(egui::Frame::NONE.fill(BG_PRIMARY.linear_multiply(0.3)))
                     .show(ctx, |_ui| {});
 
                 self.render_comparison_popup(ctx);

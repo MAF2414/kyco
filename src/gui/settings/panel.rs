@@ -15,7 +15,7 @@ use super::state::SettingsState;
 /// Render the settings configuration view
 pub fn render_settings(ctx: &egui::Context, state: &mut SettingsState<'_>) {
     egui::CentralPanel::default()
-        .frame(egui::Frame::none().fill(BG_PRIMARY).inner_margin(16.0))
+        .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(16.0))
         .show(ctx, |ui| {
             ui.vertical(|ui| {
                 // Header

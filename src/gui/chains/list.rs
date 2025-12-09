@@ -32,7 +32,7 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             for (name, description, step_count) in &chains {
-                egui::Frame::none()
+                egui::Frame::NONE
                     .fill(BG_SECONDARY)
                     .corner_radius(4.0)
                     .inner_margin(12.0)
