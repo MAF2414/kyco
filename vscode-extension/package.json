@@ -4,6 +4,11 @@
   "description": "Send code selections to KYCo backend",
   "version": "0.4.0",
   "publisher": "kyco",
+  "license": "CC-BY-NC-ND-4.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MAF2414/kyco"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
