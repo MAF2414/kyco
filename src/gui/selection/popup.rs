@@ -226,7 +226,7 @@ fn render_microphone_button(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) 
 
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let (mic_icon, mic_color, mic_tooltip) = match state.voice_state {
-            VoiceState::Recording => ("⏺", ACCENT_RED, "Recording... Click to stop (Shift+V)"),
+            VoiceState::Recording => ("⏺", ACCENT_RED, "Recording... Press Enter to run or ⌘D to stop"),
             VoiceState::Transcribing => ("⏳", STATUS_RUNNING, "Transcribing..."),
             VoiceState::Listening => ("👂", ACCENT_GREEN, "Listening for keywords..."),
             VoiceState::Error => ("⚠", ACCENT_RED, "Voice error - click to retry"),
@@ -234,7 +234,7 @@ fn render_microphone_button(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) 
                 if state.voice_mode == VoiceInputMode::Disabled {
                     ("🎤", TEXT_MUTED, "Voice disabled - enable in Settings")
                 } else {
-                    ("🎤", ACCENT_CYAN, "Click to record (Shift+V)")
+                    ("🎤", ACCENT_CYAN, "Click or ⌘D to record")
                 }
             }
         };
@@ -265,7 +265,7 @@ fn render_voice_status(ui: &mut egui::Ui, voice_state: VoiceState, last_error: O
     if voice_state != VoiceState::Idle {
         ui.add_space(4.0);
         let (status_icon, status_text, status_color) = match voice_state {
-            VoiceState::Recording => ("⏺", "Recording...", ACCENT_RED),
+            VoiceState::Recording => ("⏺", "Recording... Press Enter to run", ACCENT_RED),
             VoiceState::Transcribing => ("⏳", "Transcribing...", STATUS_RUNNING),
             VoiceState::Listening => ("👂", "Listening for mode keywords...", ACCENT_GREEN),
             VoiceState::Error => ("⚠", last_error.unwrap_or("Voice error"), ACCENT_RED),
@@ -366,6 +366,9 @@ fn render_status_message(ui: &mut egui::Ui, popup_status: &Option<(String, bool)
 fn render_help_bar(ui: &mut egui::Ui) {
     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
         ui.horizontal(|ui| {
+            ui.label(RichText::new("⌘D").small().monospace().color(TEXT_DIM));
+            ui.label(RichText::new("voice").small().color(TEXT_MUTED));
+            ui.add_space(12.0);
             ui.label(RichText::new("TAB").small().monospace().color(TEXT_DIM));
             ui.label(RichText::new("complete").small().color(TEXT_MUTED));
             ui.add_space(12.0);

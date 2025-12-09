@@ -13,7 +13,7 @@ use super::http_server::SelectionRequest;
 use super::jobs;
 use super::selection::autocomplete::parse_input_multi;
 use super::selection::{AutocompleteState, SelectionContext};
-use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager};
+use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager, VoiceState};
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
 use crate::{AgentGroupId, Job, JobId, LogEvent};
@@ -225,6 +225,8 @@ pub struct KycoApp {
     voice_test_result: Option<String>,
     /// Flag to indicate voice config was changed and VoiceManager needs to be updated
     voice_config_changed: bool,
+    /// Flag to execute popup task after voice transcription completes
+    voice_pending_execute: bool,
     /// Selected chain for editing (None = list view)
     selected_chain: Option<String>,
     /// Chain editor: name field
@@ -372,6 +374,7 @@ impl KycoApp {
             chain_edit_stop_on_failure: true,
             chain_edit_status: None,
             voice_config_changed: false,
+            voice_pending_execute: false,
         }
     }
 
@@ -1016,6 +1019,12 @@ impl eframe::App for KycoApp {
                         }
                         self.update_suggestions();
                         self.logs.push(LogEvent::system("Voice transcription complete".to_string()));
+
+                        // Auto-execute if Enter was pressed during recording
+                        if self.voice_pending_execute {
+                            self.voice_pending_execute = false;
+                            self.execute_popup_task(false); // Normal execution (no force worktree)
+                        }
                     } else {
                         // Continuous listening - try wakeword detection
                         if let Some(wakeword_match) = self.voice_manager.config.action_registry.match_text(&text) {
@@ -1083,6 +1092,7 @@ impl eframe::App for KycoApp {
                 }
                 super::voice::VoiceEvent::Error { message } => {
                     self.logs.push(LogEvent::error(format!("Voice error: {}", message)));
+                    self.voice_pending_execute = false; // Cancel pending execution on error
                 }
                 super::voice::VoiceEvent::RecordingStarted => {
                     self.logs.push(LogEvent::system("Voice recording started".to_string()));
@@ -1105,7 +1115,13 @@ impl eframe::App for KycoApp {
             match self.view_mode {
                 ViewMode::SelectionPopup => {
                     if i.key_pressed(Key::Escape) {
-                        self.view_mode = ViewMode::JobList;
+                        // Cancel recording if active, otherwise close popup
+                        if self.voice_manager.state.is_recording() {
+                            self.voice_manager.cancel();
+                            self.voice_pending_execute = false;
+                        } else {
+                            self.view_mode = ViewMode::JobList;
+                        }
                     }
                     if i.key_pressed(Key::Tab) && self.autocomplete.show_suggestions && !self.autocomplete.suggestions.is_empty() {
                         self.apply_suggestion();
@@ -1118,8 +1134,16 @@ impl eframe::App for KycoApp {
                         self.autocomplete.select_previous();
                     }
                     if i.key_pressed(Key::Enter) {
-                        let force_worktree = i.modifiers.shift;
-                        self.execute_popup_task(force_worktree);
+                        if self.voice_manager.state.is_recording() {
+                            // Stop recording and execute after transcription
+                            self.voice_pending_execute = true;
+                            self.voice_manager.stop_recording();
+                        } else if !self.voice_manager.state.is_busy() {
+                            // Normal execution (not recording/transcribing)
+                            let force_worktree = i.modifiers.shift;
+                            self.execute_popup_task(force_worktree);
+                        }
+                        // If transcribing, do nothing - wait for completion
                     }
                 }
                 ViewMode::DiffView => {
@@ -1204,28 +1228,18 @@ impl eframe::App for KycoApp {
                 self.auto_scan = !self.auto_scan;
             }
 
-            // Voice hotkey handling (Shift+V to toggle recording in selection popup)
+            // Voice hotkey handling (Cmd+D / Ctrl+D to start recording in selection popup)
+            // Using Cmd/Ctrl+D because it doesn't conflict with text input (unlike Shift+V)
             if self.view_mode == ViewMode::SelectionPopup {
-                // Check for voice recording hotkey (Shift+V or Cmd/Ctrl+Shift+V)
-                let voice_hotkey_pressed = i.modifiers.shift && i.key_pressed(Key::V);
+                let voice_hotkey_pressed = i.modifiers.command && i.key_pressed(Key::D);
 
-                if self.voice_manager.config.mode == VoiceInputMode::HotkeyHold {
-                    // Hotkey-hold mode: start recording when pressed, stop when released
-                    let hotkey_down = i.modifiers.shift && i.keys_down.contains(&Key::V);
-
-                    if hotkey_down && !self.hotkey_held {
-                        // Hotkey just pressed - start recording
-                        self.hotkey_held = true;
+                if voice_hotkey_pressed && self.voice_manager.config.mode != VoiceInputMode::Disabled {
+                    if self.voice_manager.state == VoiceState::Idle || self.voice_manager.state == VoiceState::Error {
+                        // Start recording
                         self.voice_manager.start_recording();
-                    } else if !hotkey_down && self.hotkey_held {
-                        // Hotkey just released - stop recording and transcribe
-                        self.hotkey_held = false;
+                    } else if self.voice_manager.state == VoiceState::Recording {
+                        // Stop recording (but don't execute - user can press Enter for that)
                         self.voice_manager.stop_recording();
-                    }
-                } else if voice_hotkey_pressed {
-                    // Manual mode: toggle recording on press
-                    if self.voice_manager.config.mode == VoiceInputMode::Manual {
-                        self.voice_manager.toggle_recording();
                     }
                 }
             }
