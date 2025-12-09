@@ -2,7 +2,7 @@
   "name": "kyco",
   "displayName": "KYCo",
   "description": "Send code selections to KYCo backend",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "kyco",
   "license": "CC-BY-NC-ND-4.0",
   "repository": {
@@ -22,6 +22,14 @@
       {
         "command": "kyco.sendSelection",
         "title": "KYCo: Send Selection"
+      },
+      {
+        "command": "kyco.sendBatch",
+        "title": "KYCo: Send Files (Batch)"
+      },
+      {
+        "command": "kyco.sendGrep",
+        "title": "KYCo: Search & Send (Grep)"
       }
     ],
     "keybindings": [
@@ -29,8 +37,22 @@
         "command": "kyco.sendSelection",
         "key": "ctrl+alt+y",
         "mac": "cmd+alt+y"
+      },
+      {
+        "command": "kyco.sendGrep",
+        "key": "ctrl+alt+shift+g",
+        "mac": "cmd+alt+shift+g"
       }
-    ]
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "kyco.sendBatch",
+          "group": "kyco@1",
+          "when": "explorerResourceIsFolder || explorerResourceIsRoot || resourceScheme == file"
+        }
+      ]
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",

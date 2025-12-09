@@ -5,7 +5,12 @@
     <description><![CDATA[
         Send code selections to Kyco server.<br/>
         <br/>
-        Use <b>Ctrl+Alt+Y</b> (or <b>Cmd+Option+Y</b> on Mac) to send the current selection to http://localhost:9876/selection
+        <b>Commands:</b><br/>
+        <ul>
+            <li><b>Ctrl+Alt+Y</b> (Cmd+Option+Y on Mac) - Send current selection</li>
+            <li><b>Ctrl+Alt+Shift+Y</b> (Cmd+Option+Shift+Y on Mac) - Send selected files (Batch)</li>
+            <li><b>Ctrl+Alt+Shift+G</b> (Cmd+Option+Shift+G on Mac) - Search &amp; Send (Grep)</li>
+        </ul>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
@@ -15,6 +20,7 @@
     </extensions>
 
     <actions>
+        <!-- Send Selection: from editor -->
         <action id="Kyco.SendSelection"
                 class="com.kyco.plugin.SendSelectionAction"
                 text="Kyco: Send Selection"
@@ -23,6 +29,29 @@
             <keyboard-shortcut first-keystroke="meta alt Y" keymap="Mac OS X"/>
             <keyboard-shortcut first-keystroke="meta alt Y" keymap="Mac OS X 10.5+"/>
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <!-- Send Batch: from project view -->
+        <action id="Kyco.SendBatch"
+                class="com.kyco.plugin.SendBatchAction"
+                text="Kyco: Send Files (Batch)"
+                description="Send selected files to Kyco as a batch">
+            <keyboard-shortcut first-keystroke="control alt shift Y" keymap="$default"/>
+            <keyboard-shortcut first-keystroke="meta alt shift Y" keymap="Mac OS X"/>
+            <keyboard-shortcut first-keystroke="meta alt shift Y" keymap="Mac OS X 10.5+"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <!-- Send Grep: search and send matching files -->
+        <action id="Kyco.SendGrep"
+                class="com.kyco.plugin.SendGrepAction"
+                text="Kyco: Search &amp; Send (Grep)"
+                description="Search for files matching a pattern and send to Kyco">
+            <keyboard-shortcut first-keystroke="control alt shift G" keymap="$default"/>
+            <keyboard-shortcut first-keystroke="meta alt shift G" keymap="Mac OS X"/>
+            <keyboard-shortcut first-keystroke="meta alt shift G" keymap="Mac OS X 10.5+"/>
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>

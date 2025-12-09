@@ -22,6 +22,17 @@ interface SelectionPayload {
     related_tests: string[];
 }
 
+interface BatchFile {
+    path: string;
+    workspace: string;
+    line_start: number | null;
+    line_end: number | null;
+}
+
+interface BatchPayload {
+    files: BatchFile[];
+}
+
 const MAX_DEPENDENCIES = 30;
 const LSP_RETRY_DELAY_MS = 500;
 const LSP_MAX_RETRIES = 3;
@@ -29,6 +40,7 @@ const LSP_MAX_RETRIES = 3;
 export function activate(context: vscode.ExtensionContext) {
     console.log('KYCo extension activated');
 
+    // Command 1: Send single selection
     const sendSelectionCommand = vscode.commands.registerCommand(
         'kyco.sendSelection',
         async () => {
@@ -74,11 +86,176 @@ export function activate(context: vscode.ExtensionContext) {
                 related_tests: relatedTests
             };
 
-            sendRequest(payload);
+            sendSelectionRequest(payload);
+        }
+    );
+
+    // Command 2: Send batch (multiple files selected in explorer)
+    const sendBatchCommand = vscode.commands.registerCommand(
+        'kyco.sendBatch',
+        async (clickedFile: vscode.Uri | undefined, selectedFiles: vscode.Uri[] | undefined) => {
+            // Get files from explorer selection
+            let files: vscode.Uri[] = [];
+
+            if (selectedFiles && selectedFiles.length > 0) {
+                // Called from explorer context menu with multiple selection
+                files = selectedFiles;
+            } else if (clickedFile) {
+                // Called from explorer context menu with single file
+                files = [clickedFile];
+            } else {
+                vscode.window.showErrorMessage('KYCo: No files selected. Right-click on files in the explorer.');
+                return;
+            }
+
+            // Filter out directories, keep only files
+            const fileStats = await Promise.all(
+                files.map(async (uri) => {
+                    try {
+                        const stat = await vscode.workspace.fs.stat(uri);
+                        return { uri, isFile: stat.type === vscode.FileType.File };
+                    } catch {
+                        return { uri, isFile: false };
+                    }
+                })
+            );
+            const validFiles = fileStats.filter(f => f.isFile).map(f => f.uri);
+
+            if (validFiles.length === 0) {
+                vscode.window.showErrorMessage('KYCo: No valid files selected');
+                return;
+            }
+
+            // Get workspace
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+            const workspace = workspaceFolder?.uri.fsPath ?? '';
+
+            const batchFiles: BatchFile[] = validFiles.map(uri => ({
+                path: uri.fsPath,
+                workspace: workspace,
+                line_start: null,
+                line_end: null
+            }));
+
+            const payload: BatchPayload = { files: batchFiles };
+            sendBatchRequest(payload, validFiles.length);
+        }
+    );
+
+    // Command 3: Grep and send matching files as batch
+    const sendGrepCommand = vscode.commands.registerCommand(
+        'kyco.sendGrep',
+        async () => {
+            // Ask user for search pattern
+            const pattern = await vscode.window.showInputBox({
+                prompt: 'Enter search pattern (regex supported)',
+                placeHolder: 'e.g., TODO|FIXME or function\\s+\\w+'
+            });
+
+            if (!pattern) {
+                return; // User cancelled
+            }
+
+            // Ask for file glob pattern (optional)
+            const globPattern = await vscode.window.showInputBox({
+                prompt: 'File pattern (leave empty for all files)',
+                placeHolder: 'e.g., **/*.ts or src/**/*.rs',
+                value: '**/*'
+            });
+
+            if (globPattern === undefined) {
+                return; // User cancelled
+            }
+
+            const finalGlob = globPattern || '**/*';
+
+            // Show progress while searching
+            await vscode.window.withProgress(
+                {
+                    location: vscode.ProgressLocation.Notification,
+                    title: 'KYCo: Searching files...',
+                    cancellable: true
+                },
+                async (progress, token) => {
+                    try {
+                        // Use VS Code's built-in search
+                        const files = await vscode.workspace.findFiles(
+                            finalGlob,
+                            '**/node_modules/**',
+                            1000 // Max files to search
+                        );
+
+                        if (token.isCancellationRequested) {
+                            return;
+                        }
+
+                        // Search for pattern in files
+                        const regex = new RegExp(pattern);
+                        const matchingFiles: vscode.Uri[] = [];
+
+                        for (const file of files) {
+                            if (token.isCancellationRequested) {
+                                return;
+                            }
+
+                            try {
+                                const content = await vscode.workspace.fs.readFile(file);
+                                const text = Buffer.from(content).toString('utf8');
+
+                                if (regex.test(text)) {
+                                    matchingFiles.push(file);
+                                }
+                            } catch {
+                                // Skip files that can't be read
+                            }
+
+                            progress.report({
+                                message: `Checked ${matchingFiles.length} matches in ${files.indexOf(file) + 1}/${files.length} files`
+                            });
+                        }
+
+                        if (matchingFiles.length === 0) {
+                            vscode.window.showInformationMessage(`KYCo: No files matching "${pattern}" found`);
+                            return;
+                        }
+
+                        // Confirm with user
+                        const confirm = await vscode.window.showInformationMessage(
+                            `Found ${matchingFiles.length} files matching "${pattern}". Send to KYCo?`,
+                            'Send',
+                            'Cancel'
+                        );
+
+                        if (confirm !== 'Send') {
+                            return;
+                        }
+
+                        // Get workspace
+                        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                        const workspace = workspaceFolder?.uri.fsPath ?? '';
+
+                        const batchFiles: BatchFile[] = matchingFiles.map(uri => ({
+                            path: uri.fsPath,
+                            workspace: workspace,
+                            line_start: null,
+                            line_end: null
+                        }));
+
+                        const payload: BatchPayload = { files: batchFiles };
+                        sendBatchRequest(payload, matchingFiles.length);
+
+                    } catch (error) {
+                        const errorMessage = error instanceof Error ? error.message : String(error);
+                        vscode.window.showErrorMessage(`KYCo: Search failed - ${errorMessage}`);
+                    }
+                }
+            );
         }
     );
 
     context.subscriptions.push(sendSelectionCommand);
+    context.subscriptions.push(sendBatchCommand);
+    context.subscriptions.push(sendGrepCommand);
 }
 
 function getOutputChannel(): vscode.OutputChannel {
@@ -297,7 +474,7 @@ async function findRelatedTests(filePath: string, workspace: string): Promise<st
     }
 }
 
-function sendRequest(payload: SelectionPayload): void {
+function sendSelectionRequest(payload: SelectionPayload): void {
     const jsonPayload = JSON.stringify(payload);
 
     const options: http.RequestOptions = {
@@ -322,6 +499,42 @@ function sendRequest(payload: SelectionPayload): void {
 
     req.on('error', (err) => {
         vscode.window.showErrorMessage(`KYCo: Failed to send selection - ${err.message}`);
+    });
+
+    req.on('timeout', () => {
+        req.destroy();
+        vscode.window.showErrorMessage('KYCo: Request timed out');
+    });
+
+    req.write(jsonPayload);
+    req.end();
+}
+
+function sendBatchRequest(payload: BatchPayload, fileCount: number): void {
+    const jsonPayload = JSON.stringify(payload);
+
+    const options: http.RequestOptions = {
+        hostname: 'localhost',
+        port: 9876,
+        path: '/batch',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(jsonPayload)
+        },
+        timeout: 5000
+    };
+
+    const req = http.request(options, (res) => {
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            vscode.window.showInformationMessage(`KYCo: Batch sent (${fileCount} files)`);
+        } else {
+            vscode.window.showErrorMessage(`KYCo: Server responded with status ${res.statusCode}`);
+        }
+    });
+
+    req.on('error', (err) => {
+        vscode.window.showErrorMessage(`KYCo: Failed to send batch - ${err.message}`);
     });
 
     req.on('timeout', () => {
