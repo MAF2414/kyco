@@ -6,9 +6,21 @@
 use eframe::egui::{self, RichText};
 
 use crate::gui::app::{
-    ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, BG_SECONDARY, TEXT_MUTED, TEXT_PRIMARY,
+    ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, ACCENT_RED, BG_SECONDARY, TEXT_MUTED, TEXT_PRIMARY,
 };
 use crate::gui::update::UpdateInfo;
+
+/// Install status for update button
+#[derive(Debug, Clone, Default)]
+pub enum InstallStatus {
+    #[default]
+    Ready,
+    /// User clicked install - app should start installation
+    InstallRequested,
+    Installing,
+    Success(String),
+    Error(String),
+}
 
 /// Status bar state that can be modified by the status bar UI
 pub struct StatusBarState<'a> {
@@ -23,6 +35,8 @@ pub struct StatusBarState<'a> {
     pub chain_edit_status: &'a mut Option<(String, bool)>,
     /// Update info if available
     pub update_info: Option<&'a UpdateInfo>,
+    /// Install status
+    pub install_status: &'a mut InstallStatus,
 }
 
 /// Render the bottom status bar
@@ -84,16 +98,38 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     let version_text = format!("kyco v{}", env!("CARGO_PKG_VERSION"));
                     ui.label(RichText::new(&version_text).small().color(TEXT_MUTED));
 
-                    // Show update notification if available
-                    if let Some(update_info) = state.update_info {
-                        ui.add_space(8.0);
-                        let update_text = format!("⬆ v{} available", update_info.version);
-                        if ui
-                            .button(RichText::new(&update_text).small().color(ACCENT_GREEN))
-                            .on_hover_text("Click to open download page")
-                            .clicked()
-                        {
-                            crate::gui::update::open_url(&update_info.release_url);
+                    // Show update notification/install status
+                    match state.install_status {
+                        InstallStatus::Ready => {
+                            if let Some(update_info) = state.update_info {
+                                ui.add_space(8.0);
+                                let update_text = format!("⬆ Install v{}", update_info.version);
+                                if ui
+                                    .button(RichText::new(&update_text).small().color(ACCENT_GREEN))
+                                    .on_hover_text("Click to download and install update")
+                                    .clicked()
+                                {
+                                    *state.install_status = InstallStatus::InstallRequested;
+                                }
+                            }
+                        }
+                        InstallStatus::InstallRequested | InstallStatus::Installing => {
+                            ui.add_space(8.0);
+                            ui.spinner();
+                            ui.label(RichText::new("Installing...").small().color(ACCENT_YELLOW));
+                        }
+                        InstallStatus::Success(msg) => {
+                            ui.add_space(8.0);
+                            ui.label(RichText::new(format!("✓ {}", msg)).small().color(ACCENT_GREEN));
+                        }
+                        InstallStatus::Error(err) => {
+                            ui.add_space(8.0);
+                            if ui.label(RichText::new(format!("✗ {}", err)).small().color(ACCENT_RED))
+                                .on_hover_text("Update failed - click to retry")
+                                .clicked()
+                            {
+                                *state.install_status = InstallStatus::InstallRequested;
+                            }
                         }
                     }
 

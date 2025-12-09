@@ -1,16 +1,22 @@
 //! Update checking module for Kyco
 //!
 //! Checks GitHub releases for newer versions and provides update notifications.
+//! Supports auto-installation and periodic checks.
 
 use semver::Version;
+use std::io::Read;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread;
+use std::time::{Duration, Instant};
 
 /// Current version from Cargo.toml
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// GitHub repository for update checks
 const GITHUB_REPO: &str = "MAF2414/kyco";
+
+/// How often to check for updates (5 minutes)
+const CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 /// Information about an available update
 #[derive(Debug, Clone)]
@@ -36,41 +42,65 @@ pub enum UpdateStatus {
     UpToDate,
     /// Update available
     UpdateAvailable(UpdateInfo),
-    /// Error during check
+    /// Currently downloading/installing
+    Installing(String),
+    /// Installation complete - restart required
+    InstallComplete(String),
+    /// Error during check or install
     Error(String),
 }
 
-/// Update checker that runs in a background thread
+/// Update checker that runs in a background thread with periodic checks
 pub struct UpdateChecker {
     /// Receiver for update check results
     rx: Receiver<UpdateStatus>,
+    /// Sender to trigger new checks
+    check_tx: Sender<()>,
     /// Current status
     status: UpdateStatus,
+    /// Last check time
+    last_check: Instant,
 }
 
 impl UpdateChecker {
     /// Create a new update checker and start checking in background
     pub fn new() -> Self {
-        let (tx, rx) = channel();
+        let (status_tx, status_rx) = channel();
+        let (check_tx, check_rx) = channel::<()>();
 
-        // Start background check
+        // Start background checker thread
         thread::spawn(move || {
-            check_for_updates(tx);
+            update_checker_loop(status_tx, check_rx);
         });
 
         Self {
-            rx,
+            rx: status_rx,
+            check_tx,
             status: UpdateStatus::Checking,
+            last_check: Instant::now(),
         }
     }
 
     /// Poll for update check results (non-blocking)
+    /// Also triggers periodic re-checks every 5 minutes
     pub fn poll(&mut self) -> &UpdateStatus {
         // Check if we have a result
-        if let Ok(status) = self.rx.try_recv() {
+        while let Ok(status) = self.rx.try_recv() {
             self.status = status;
         }
+
+        // Trigger periodic check every 5 minutes
+        if self.last_check.elapsed() >= CHECK_INTERVAL {
+            self.trigger_check();
+        }
+
         &self.status
+    }
+
+    /// Manually trigger a new check
+    pub fn trigger_check(&mut self) {
+        self.last_check = Instant::now();
+        let _ = self.check_tx.send(());
     }
 
     /// Get the current status
@@ -98,10 +128,18 @@ impl Default for UpdateChecker {
     }
 }
 
-/// Perform the actual update check (runs in background thread)
-fn check_for_updates(tx: Sender<UpdateStatus>) {
+/// Background thread that handles update checking
+fn update_checker_loop(tx: Sender<UpdateStatus>, rx: Receiver<()>) {
+    // Initial check
     let result = do_check();
     let _ = tx.send(result);
+
+    // Wait for periodic check signals
+    while rx.recv().is_ok() {
+        let _ = tx.send(UpdateStatus::Checking);
+        let result = do_check();
+        let _ = tx.send(result);
+    }
 }
 
 /// Execute the update check
@@ -202,6 +240,60 @@ fn get_platform_download_url(version: &str) -> String {
     {
         format!("https://github.com/{}/releases/latest", GITHUB_REPO)
     }
+}
+
+/// Download and install update, returns status message
+pub fn install_update(info: &UpdateInfo) -> Result<String, String> {
+    // Get the path to the current executable
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current executable path: {}", e))?;
+
+    // Download the new binary
+    let response = ureq::get(&info.download_url)
+        .set("User-Agent", "kyco-update-installer")
+        .call()
+        .map_err(|e| format!("Failed to download update: {}", e))?;
+
+    // Read binary data
+    let mut binary_data = Vec::new();
+    response
+        .into_reader()
+        .read_to_end(&mut binary_data)
+        .map_err(|e| format!("Failed to read download: {}", e))?;
+
+    // Create backup of current binary
+    let backup_path = current_exe.with_extension("backup");
+    if backup_path.exists() {
+        std::fs::remove_file(&backup_path)
+            .map_err(|e| format!("Failed to remove old backup: {}", e))?;
+    }
+    std::fs::rename(&current_exe, &backup_path)
+        .map_err(|e| format!("Failed to backup current binary: {}", e))?;
+
+    // Write new binary
+    std::fs::write(&current_exe, &binary_data)
+        .map_err(|e| {
+            // Try to restore backup on failure
+            let _ = std::fs::rename(&backup_path, &current_exe);
+            format!("Failed to write new binary: {}", e)
+        })?;
+
+    // Set executable permissions (Unix)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&current_exe)
+            .map_err(|e| format!("Failed to get permissions: {}", e))?
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&current_exe, perms)
+            .map_err(|e| format!("Failed to set permissions: {}", e))?;
+    }
+
+    // Clean up backup
+    let _ = std::fs::remove_file(&backup_path);
+
+    Ok(format!("Updated to v{}! Please restart kyco.", info.version))
 }
 
 /// Open a URL in the default browser

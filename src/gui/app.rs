@@ -232,6 +232,10 @@ pub struct KycoApp {
     voice_pending_execute: bool,
     /// Update checker for new version notifications
     update_checker: UpdateChecker,
+    /// Update install status
+    update_install_status: super::status_bar::InstallStatus,
+    /// Receiver for install results
+    update_install_rx: Option<std::sync::mpsc::Receiver<Result<String, String>>>,
     /// Selected chain for editing (None = list view)
     selected_chain: Option<String>,
     /// Chain editor: name field
@@ -382,6 +386,8 @@ impl KycoApp {
             voice_config_changed: false,
             voice_pending_execute: false,
             update_checker: UpdateChecker::new(),
+            update_install_status: super::status_bar::InstallStatus::default(),
+            update_install_rx: None,
         }
     }
 
@@ -1507,9 +1513,34 @@ impl eframe::App for KycoApp {
 
         // Poll update checker
         let update_info = match self.update_checker.poll() {
-            UpdateStatus::UpdateAvailable(info) => Some(info),
+            UpdateStatus::UpdateAvailable(info) => Some(info.clone()),
             _ => None,
         };
+
+        // Handle install request
+        if matches!(self.update_install_status, super::status_bar::InstallStatus::InstallRequested) {
+            if let Some(info) = &update_info {
+                self.update_install_status = super::status_bar::InstallStatus::Installing;
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.update_install_rx = Some(rx);
+                let info_clone = info.clone();
+                std::thread::spawn(move || {
+                    let result = super::update::install_update(&info_clone);
+                    let _ = tx.send(result);
+                });
+            }
+        }
+
+        // Poll install result if we're installing
+        if let Some(rx) = &self.update_install_rx {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(msg) => self.update_install_status = super::status_bar::InstallStatus::Success(msg),
+                    Err(err) => self.update_install_status = super::status_bar::InstallStatus::Error(err),
+                }
+                self.update_install_rx = None;
+            }
+        }
 
         // Bottom status bar
         super::status_bar::render_status_bar(
@@ -1524,7 +1555,8 @@ impl eframe::App for KycoApp {
                 agent_edit_status: &mut self.agent_edit_status,
                 selected_chain: &mut self.selected_chain,
                 chain_edit_status: &mut self.chain_edit_status,
-                update_info,
+                update_info: update_info.as_ref(),
+                install_status: &mut self.update_install_status,
             },
         );
 
