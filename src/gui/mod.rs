@@ -30,6 +30,7 @@ pub mod runner;
 pub mod selection;
 pub mod settings;
 pub mod status_bar;
+pub mod update;
 pub mod voice;
 
 pub use app::{Agent, KycoApp, Mode};
@@ -38,4 +39,5 @@ pub use executor::{start_executor, ExecutorEvent};
 pub use groups::{ComparisonAction, ComparisonState};
 pub use http_server::SelectionRequest;
 pub use runner::run_gui;
+pub use update::{UpdateChecker, UpdateInfo, UpdateStatus};
 pub use voice::{VoiceConfig, VoiceEvent, VoiceInputMode, VoiceManager, VoiceState};

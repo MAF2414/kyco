@@ -67,6 +67,12 @@ once_cell = "1.19"
 # HTTP server for extension communication
 tiny_http = "0.12"
 
+# HTTP client for update checks
+ureq = "2"
+
+# Semantic versioning for update comparison
+semver = "1"
+
 # macOS Accessibility API
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"

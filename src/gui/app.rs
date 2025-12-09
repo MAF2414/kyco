@@ -13,6 +13,7 @@ use super::http_server::SelectionRequest;
 use super::jobs;
 use super::selection::autocomplete::parse_input_multi;
 use super::selection::{AutocompleteState, SelectionContext};
+use super::update::{UpdateChecker, UpdateStatus};
 use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager, VoiceState};
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
@@ -227,6 +228,8 @@ pub struct KycoApp {
     voice_config_changed: bool,
     /// Flag to execute popup task after voice transcription completes
     voice_pending_execute: bool,
+    /// Update checker for new version notifications
+    update_checker: UpdateChecker,
     /// Selected chain for editing (None = list view)
     selected_chain: Option<String>,
     /// Chain editor: name field
@@ -375,6 +378,7 @@ impl KycoApp {
             chain_edit_status: None,
             voice_config_changed: false,
             voice_pending_execute: false,
+            update_checker: UpdateChecker::new(),
         }
     }
 
@@ -1327,6 +1331,12 @@ impl eframe::App for KycoApp {
             }
         }
 
+        // Poll update checker
+        let update_info = match self.update_checker.poll() {
+            UpdateStatus::UpdateAvailable(info) => Some(info),
+            _ => None,
+        };
+
         // Bottom status bar
         super::status_bar::render_status_bar(
             ctx,
@@ -1340,6 +1350,7 @@ impl eframe::App for KycoApp {
                 agent_edit_status: &mut self.agent_edit_status,
                 selected_chain: &mut self.selected_chain,
                 chain_edit_status: &mut self.chain_edit_status,
+                update_info,
             },
         );
 

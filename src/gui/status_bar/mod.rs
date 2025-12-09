@@ -1,13 +1,14 @@
 //! Status bar module for the GUI
 //!
 //! Renders the bottom status bar with auto-run/auto-scan toggles,
-//! settings button, modes button, and agents button.
+//! settings button, modes button, agents button, and update notifications.
 
 use eframe::egui::{self, RichText};
 
 use crate::gui::app::{
     ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, BG_SECONDARY, TEXT_MUTED, TEXT_PRIMARY,
 };
+use crate::gui::update::UpdateInfo;
 
 /// Status bar state that can be modified by the status bar UI
 pub struct StatusBarState<'a> {
@@ -20,6 +21,8 @@ pub struct StatusBarState<'a> {
     pub agent_edit_status: &'a mut Option<(String, bool)>,
     pub selected_chain: &'a mut Option<String>,
     pub chain_edit_status: &'a mut Option<(String, bool)>,
+    /// Update info if available
+    pub update_info: Option<&'a UpdateInfo>,
 }
 
 /// Render the bottom status bar
@@ -77,7 +80,23 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("kyco v0.1").small().color(TEXT_MUTED));
+                    // Show current version
+                    let version_text = format!("kyco v{}", env!("CARGO_PKG_VERSION"));
+                    ui.label(RichText::new(&version_text).small().color(TEXT_MUTED));
+
+                    // Show update notification if available
+                    if let Some(update_info) = state.update_info {
+                        ui.add_space(8.0);
+                        let update_text = format!("⬆ v{} available", update_info.version);
+                        if ui
+                            .button(RichText::new(&update_text).small().color(ACCENT_GREEN))
+                            .on_hover_text("Click to open download page")
+                            .clicked()
+                        {
+                            crate::gui::update::open_url(&update_info.release_url);
+                        }
+                    }
+
                     ui.add_space(16.0);
                     if ui
                         .button(RichText::new("⚙ Settings").small().color(ACCENT_CYAN))
