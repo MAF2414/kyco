@@ -2,7 +2,7 @@
   "name": "kyco",
   "displayName": "KYCo",
   "description": "Send code selections to KYCo backend",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "kyco",
   "engines": {
     "vscode": "^1.85.0"
