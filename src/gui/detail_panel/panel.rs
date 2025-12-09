@@ -162,6 +162,17 @@ fn render_result_section(ui: &mut egui::Ui, job: &Job) {
                     ui.label(RichText::new(details).color(TEXT_DIM));
                 }
 
+                // Summary (if present)
+                if let Some(summary) = &result.summary {
+                    if !summary.is_empty() {
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("Summary:").small().color(TEXT_MUTED));
+                        ui.label(RichText::new(summary).color(TEXT_DIM).small());
+                    }
+                }
+
                 // Stats bar
                 ui.add_space(8.0);
                 render_stats_bar(ui, job, result);

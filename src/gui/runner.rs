@@ -42,7 +42,8 @@ pub fn run_gui() -> Result<()> {
 
     // Load config
     let config_path = work_dir.join(".kyco").join("config.toml");
-    let config = if config_path.exists() {
+    let config_exists = config_path.exists();
+    let config = if config_exists {
         Config::from_file(&config_path).unwrap_or_default()
     } else {
         Config::default()
@@ -89,7 +90,7 @@ pub fn run_gui() -> Result<()> {
         ..Default::default()
     };
 
-    let app = KycoApp::new(work_dir, config, job_manager, http_rx, batch_rx, executor_rx);
+    let app = KycoApp::new(work_dir, config, config_exists, job_manager, http_rx, batch_rx, executor_rx);
 
     eframe::run_native("kyco", options, Box::new(|_cc| Ok(Box::new(app))))
         .map_err(|e| anyhow::anyhow!("Failed to run GUI: {}", e))?;

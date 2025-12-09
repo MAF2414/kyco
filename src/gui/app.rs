@@ -24,6 +24,32 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
+/// Minimal default config for GUI initialization
+const DEFAULT_CONFIG_MINIMAL: &str = r#"# KYCo Configuration
+# Run `kyco init` for full configuration with all options
+
+[settings]
+max_concurrent_jobs = 4
+auto_run = false
+use_worktree = false
+
+[agent.claude]
+aliases = ["c", "cl"]
+binary = "claude"
+
+[mode.refactor]
+aliases = ["r", "ref"]
+prompt = "Refactor this code to improve readability and maintainability."
+
+[mode.fix]
+aliases = ["f"]
+prompt = "Fix the bug or issue in this code."
+
+[mode.test]
+aliases = ["t"]
+prompt = "Write comprehensive unit tests for this code."
+"#;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // THEME: "Terminal Phosphor" - Retro CRT monitor aesthetic
 // ═══════════════════════════════════════════════════════════════════════════
@@ -94,6 +120,8 @@ pub struct KycoApp {
     /// Configuration
     #[allow(dead_code)]
     config: Config,
+    /// Whether config file exists (show init button if not)
+    config_exists: bool,
     /// Job manager (shared with async tasks)
     job_manager: Arc<Mutex<JobManager>>,
     /// Group manager for multi-agent parallel execution
@@ -182,16 +210,10 @@ pub struct KycoApp {
     mode_edit_disallowed_tools: String,
     /// Settings editor: max concurrent jobs
     settings_max_concurrent: String,
-    /// Settings editor: debounce ms
-    settings_debounce_ms: String,
     /// Settings editor: auto run
     settings_auto_run: bool,
-    /// Settings editor: marker prefix
-    settings_marker_prefix: String,
     /// Settings editor: use worktree
     settings_use_worktree: bool,
-    /// Settings editor: scan exclude patterns
-    settings_scan_exclude: String,
     /// Settings editor: output schema template
     settings_output_schema: String,
     /// Settings editor: status message
@@ -255,6 +277,7 @@ impl KycoApp {
     pub fn new(
         work_dir: PathBuf,
         config: Config,
+        config_exists: bool,
         job_manager: Arc<Mutex<JobManager>>,
         http_rx: Receiver<SelectionRequest>,
         batch_rx: Receiver<BatchRequest>,
@@ -262,11 +285,8 @@ impl KycoApp {
     ) -> Self {
         // Extract settings before moving config
         let settings_max_concurrent = config.settings.max_concurrent_jobs.to_string();
-        let settings_debounce_ms = config.settings.debounce_ms.to_string();
         let settings_auto_run = config.settings.auto_run;
-        let settings_marker_prefix = config.settings.marker_prefix.clone();
         let settings_use_worktree = config.settings.use_worktree;
-        let settings_scan_exclude = config.settings.scan_exclude.join(", ");
 
         // Extract voice settings
         let voice_settings = &config.settings.gui.voice;
@@ -307,6 +327,7 @@ impl KycoApp {
         Self {
             work_dir: work_dir.clone(),
             config,
+            config_exists,
             job_manager,
             group_manager: Arc::new(Mutex::new(GroupManager::new())),
             cached_jobs: Vec::new(),
@@ -351,11 +372,8 @@ impl KycoApp {
             agent_edit_allowed_tools: String::new(),
             agent_edit_status: None,
             settings_max_concurrent,
-            settings_debounce_ms,
             settings_auto_run,
-            settings_marker_prefix,
             settings_use_worktree,
-            settings_scan_exclude,
             settings_output_schema,
             settings_status: None,
             voice_manager: {
@@ -398,11 +416,8 @@ impl KycoApp {
             &mut super::settings::SettingsState {
                 // General settings
                 settings_max_concurrent: &mut self.settings_max_concurrent,
-                settings_debounce_ms: &mut self.settings_debounce_ms,
                 settings_auto_run: &mut self.settings_auto_run,
-                settings_marker_prefix: &mut self.settings_marker_prefix,
                 settings_use_worktree: &mut self.settings_use_worktree,
-                settings_scan_exclude: &mut self.settings_scan_exclude,
                 settings_output_schema: &mut self.settings_output_schema,
                 settings_status: &mut self.settings_status,
                 // Voice settings
@@ -1441,6 +1456,33 @@ impl eframe::App for KycoApp {
         style.visuals.selection.bg_fill = BG_HIGHLIGHT;
         style.visuals.selection.stroke = Stroke::new(1.0, TEXT_PRIMARY);
         ctx.set_style(style);
+
+        // Show init banner if config doesn't exist
+        if !self.config_exists {
+            egui::TopBottomPanel::top("init_banner")
+                .frame(egui::Frame::NONE.fill(ACCENT_YELLOW).inner_margin(8.0))
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("⚠ No configuration found.").color(BG_PRIMARY).strong());
+                        ui.add_space(8.0);
+                        if ui.button(egui::RichText::new("Initialize Project").color(BG_PRIMARY).strong()).clicked() {
+                            // Create .kyco directory and config.toml
+                            let config_dir = self.work_dir.join(".kyco");
+                            let config_path = config_dir.join("config.toml");
+                            if let Err(e) = std::fs::create_dir_all(&config_dir) {
+                                self.logs.push(LogEvent::error(format!("Failed to create .kyco directory: {}", e)));
+                            } else if let Err(e) = std::fs::write(&config_path, DEFAULT_CONFIG_MINIMAL) {
+                                self.logs.push(LogEvent::error(format!("Failed to write config: {}", e)));
+                            } else {
+                                self.config_exists = true;
+                                self.logs.push(LogEvent::system(format!("Created {}", config_path.display())));
+                            }
+                        }
+                        ui.add_space(16.0);
+                        ui.label(egui::RichText::new(format!("Working directory: {}", self.work_dir.display())).color(BG_PRIMARY).small());
+                    });
+                });
+        }
 
         // Render based on view mode
         match self.view_mode {

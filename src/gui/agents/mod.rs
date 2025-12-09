@@ -33,7 +33,7 @@ pub fn render_agents(ctx: &egui::Context, state: &mut AgentEditorState<'_>) {
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .button(RichText::new("x Close").color(TEXT_DIM))
+                            .button(RichText::new("✕ Close").color(TEXT_DIM))
                             .clicked()
                         {
                             *state.view_mode = ViewMode::JobList;
@@ -41,7 +41,7 @@ pub fn render_agents(ctx: &egui::Context, state: &mut AgentEditorState<'_>) {
                         if state.selected_agent.is_some() {
                             ui.add_space(8.0);
                             if ui
-                                .button(RichText::new("<- Back").color(TEXT_DIM))
+                                .button(RichText::new("← Back").color(TEXT_DIM))
                                 .clicked()
                             {
                                 *state.selected_agent = None;

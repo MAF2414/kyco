@@ -28,33 +28,6 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
             60.0,
             None,
         );
-        ui.add_space(8.0);
-
-        render_text_field_with_desc(
-            ui,
-            "Debounce (ms):",
-            state.settings_debounce_ms,
-            80.0,
-            "(delay before scanning after file changes)",
-        );
-        ui.add_space(8.0);
-
-        render_text_field_with_desc(
-            ui,
-            "Marker Prefix:",
-            state.settings_marker_prefix,
-            80.0,
-            "(e.g. @@, @, ::)",
-        );
-        ui.add_space(8.0);
-
-        render_text_field(
-            ui,
-            "Scan Exclude:",
-            state.settings_scan_exclude,
-            300.0,
-            Some("node_modules, .git, target"),
-        );
         ui.add_space(12.0);
 
         render_checkbox_field(

@@ -18,21 +18,6 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
         }
     };
 
-    let debounce_ms = match state.settings_debounce_ms.trim().parse::<u64>() {
-        Ok(n) => n,
-        _ => {
-            *state.settings_status = Some(("Invalid debounce ms".to_string(), true));
-            return;
-        }
-    };
-
-    let scan_exclude: Vec<String> = state
-        .settings_scan_exclude
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-
     // Parse voice settings
     let silence_threshold = match state.voice_settings_silence_threshold.trim().parse::<f32>() {
         Ok(n) if (0.0..=1.0).contains(&n) => n,
@@ -71,10 +56,7 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
 
     // Update the in-memory config with new values
     state.config.settings.max_concurrent_jobs = max_concurrent;
-    state.config.settings.debounce_ms = debounce_ms;
     state.config.settings.auto_run = *state.settings_auto_run;
-    state.config.settings.marker_prefix = state.settings_marker_prefix.clone();
-    state.config.settings.scan_exclude = scan_exclude;
     state.config.settings.use_worktree = *state.settings_use_worktree;
     state.config.settings.gui.output_schema = state.settings_output_schema.clone();
 
