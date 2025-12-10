@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.kyco"
-version = "0.6.2"
+version = "0.7.2"
 
 repositories {
     mavenCentral()
@@ -29,7 +29,7 @@ kotlin {
 intellijPlatform {
     pluginConfiguration {
         name = "Kyco"
-        version = "0.5.0"
+        version = "0.7.2"
         ideaVersion {
             sinceBuild = "241"
             untilBuild = provider { null }

@@ -1,6 +1,6 @@
 [package]
 name = "kyco"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2024"
 description = "Know Your Codebase - AI-powered code tasks with transparency"
 license = "MIT"
