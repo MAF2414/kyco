@@ -24,25 +24,47 @@ pub fn animated_button(
     let text = text.into();
     let id = Id::new(id_salt);
 
-    // Get hover animation progress (0.0 = not hovered, 1.0 = fully hovered)
-    let hover_anim = ui.ctx().animate_bool_with_time(id, false, 0.15);
+    // Read previous hover state from memory (defaults to false)
+    let was_hovered = ui.ctx().memory(|mem| {
+        mem.data.get_temp::<bool>(id).unwrap_or(false)
+    });
+
+    // Get smooth animation progress toward the previous hover state
+    let hover_anim = ui.ctx().animate_bool_with_time(id.with("anim"), was_hovered, 0.15);
+
+    // Calculate animated colors
+    let glow_alpha = (hover_anim * 40.0) as u8;
+    let fill_color = Color32::from_rgba_unmultiplied(
+        base_color.r(),
+        base_color.g(),
+        base_color.b(),
+        glow_alpha,
+    );
+    let stroke_alpha = (hover_anim * 0.6 * 255.0) as u8;
+    let stroke_color = Color32::from_rgba_unmultiplied(
+        base_color.r(),
+        base_color.g(),
+        base_color.b(),
+        stroke_alpha,
+    );
 
     // Create button with animated styling
     let button = egui::Button::new(text.color(base_color))
-        .fill(lerp_color(
-            Color32::TRANSPARENT,
-            Color32::from_rgba_unmultiplied(base_color.r(), base_color.g(), base_color.b(), 25),
-            hover_anim,
-        ))
-        .stroke(egui::Stroke::new(
-            1.0,
-            lerp_color(Color32::TRANSPARENT, base_color, hover_anim * 0.5),
-        ));
+        .fill(fill_color)
+        .stroke(egui::Stroke::new(1.0, stroke_color));
 
     let response = ui.add(button);
 
-    // Update animation state based on hover
-    ui.ctx().animate_bool_with_time(id, response.hovered(), 0.15);
+    // Store current hover state for next frame
+    let is_hovered = response.hovered();
+    ui.ctx().memory_mut(|mem| {
+        mem.data.insert_temp(id, is_hovered);
+    });
+
+    // Request repaint if animating
+    if is_hovered != was_hovered || hover_anim > 0.01 && hover_anim < 0.99 {
+        ui.ctx().request_repaint();
+    }
 
     response
 }
@@ -57,8 +79,13 @@ pub fn animated_icon_button(
 ) -> Response {
     let id = Id::new(id_salt);
 
+    // Read previous hover state from memory
+    let was_hovered = ui.ctx().memory(|mem| {
+        mem.data.get_temp::<bool>(id).unwrap_or(false)
+    });
+
     // Animate hover state
-    let hover_progress = ui.ctx().animate_bool_with_time(id, false, 0.12);
+    let hover_progress = ui.ctx().animate_bool_with_time(id.with("anim"), was_hovered, 0.12);
     let current_color = lerp_color(base_color, hover_color, hover_progress);
 
     let response = ui.add(
@@ -67,8 +94,16 @@ pub fn animated_icon_button(
             .frame(false),
     );
 
-    // Update animation
-    ui.ctx().animate_bool_with_time(id, response.hovered(), 0.12);
+    // Store current hover state for next frame
+    let is_hovered = response.hovered();
+    ui.ctx().memory_mut(|mem| {
+        mem.data.insert_temp(id, is_hovered);
+    });
+
+    // Request repaint if animating
+    if is_hovered != was_hovered || hover_progress > 0.01 && hover_progress < 0.99 {
+        ui.ctx().request_repaint();
+    }
 
     response
 }
@@ -229,6 +264,58 @@ pub fn colored_spinner(ui: &mut Ui, color: Color32, size: f32) {
     }
 
     ui.ctx().request_repaint();
+}
+
+/// Animated clickable list item with hover effect
+/// Returns (response, is_hovered) - response.clicked() can be used to detect clicks
+pub fn animated_list_item<R>(
+    ui: &mut Ui,
+    id_salt: impl std::hash::Hash,
+    base_fill: Color32,
+    hover_fill: Color32,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> (Response, bool) {
+    let id = Id::new(id_salt);
+
+    // Read previous hover state
+    let was_hovered = ui.ctx().memory(|mem| {
+        mem.data.get_temp::<bool>(id).unwrap_or(false)
+    });
+
+    // Get animation progress
+    let hover_anim = ui.ctx().animate_bool_with_time(id.with("hover"), was_hovered, 0.12);
+
+    // Calculate animated fill color
+    let fill = lerp_color(base_fill, hover_fill, hover_anim);
+
+    // Render frame with animated background
+    let frame_response = egui::Frame::NONE
+        .fill(fill)
+        .corner_radius(4.0)
+        .inner_margin(12.0)
+        .stroke(egui::Stroke::new(
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, (hover_anim * 20.0) as u8),
+        ))
+        .show(ui, |ui| {
+            add_contents(ui)
+        });
+
+    // Make the frame interactive
+    let response = frame_response.response.interact(egui::Sense::click());
+    let is_hovered = response.hovered();
+
+    // Store hover state
+    ui.ctx().memory_mut(|mem| {
+        mem.data.insert_temp(id, is_hovered);
+    });
+
+    // Request repaint if animating
+    if is_hovered != was_hovered || hover_anim > 0.01 && hover_anim < 0.99 {
+        ui.ctx().request_repaint();
+    }
+
+    (response, is_hovered)
 }
 
 /// Linear interpolation between two colors
