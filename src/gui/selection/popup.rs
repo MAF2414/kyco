@@ -3,7 +3,7 @@
 //! Renders the selection popup that appears when code is selected in an IDE.
 //! Allows the user to enter a mode and prompt to create a job.
 
-use eframe::egui::{self, Color32, RichText, Stroke, Vec2};
+use eframe::egui::{self, Color32, Id, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 
 use super::context::SelectionContext;
@@ -46,12 +46,27 @@ pub fn render_selection_popup(
 ) -> Option<SelectionPopupAction> {
     let mut action: Option<SelectionPopupAction> = None;
 
+    // Animate popup fade-in using egui's built-in animation
+    let fade_alpha = ctx.animate_bool_with_time(
+        Id::new("selection_popup_fade"),
+        true,
+        0.2,  // 200ms fade duration
+    );
+
+    // Apply fade to the window frame
+    let frame = egui::Frame::window(&ctx.style())
+        .fill(Color32::from_rgba_unmultiplied(30, 34, 42, (fade_alpha * 250.0) as u8))
+        .stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 176, 0, (fade_alpha * 100.0) as u8)));
+
     egui::Window::new("kyco")
         .collapsible(false)
         .resizable(false)
         .fixed_size(Vec2::new(450.0, 280.0))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .frame(frame)
         .show(ctx, |ui| {
+            // Fade content opacity
+            ui.set_opacity(fade_alpha);
             ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 
             // Header
@@ -227,14 +242,14 @@ fn render_microphone_button(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) 
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let (mic_icon, mic_color, mic_tooltip) = match state.voice_state {
             VoiceState::Recording => ("⏺", ACCENT_RED, "Recording... Press Enter to run or ⌘D to stop"),
-            VoiceState::Transcribing => ("⏳", STATUS_RUNNING, "Transcribing..."),
-            VoiceState::Listening => ("👂", ACCENT_GREEN, "Listening for keywords..."),
-            VoiceState::Error => ("⚠", ACCENT_RED, "Voice error - click to retry"),
+            VoiceState::Transcribing => ("◌", STATUS_RUNNING, "Transcribing..."),
+            VoiceState::Listening => ("◉", ACCENT_GREEN, "Listening for keywords..."),
+            VoiceState::Error => ("!", ACCENT_RED, "Voice error - click to retry"),
             VoiceState::Idle => {
                 if state.voice_mode == VoiceInputMode::Disabled {
-                    ("🎤", TEXT_MUTED, "Voice disabled - enable in Settings")
+                    ("○", TEXT_MUTED, "Voice disabled - enable in Settings")
                 } else {
-                    ("🎤", ACCENT_CYAN, "Click or ⌘D to record")
+                    ("●", ACCENT_CYAN, "Click or ⌘D to record")
                 }
             }
         };
@@ -267,7 +282,7 @@ fn render_voice_status(ui: &mut egui::Ui, voice_state: VoiceState, last_error: O
         let (status_icon, status_text, status_color) = match voice_state {
             VoiceState::Recording => ("⏺", "Recording... Press Enter to run", ACCENT_RED),
             VoiceState::Transcribing => ("⏳", "Transcribing...", STATUS_RUNNING),
-            VoiceState::Listening => ("👂", "Listening for mode keywords...", ACCENT_GREEN),
+            VoiceState::Listening => ("◉", "Listening for mode keywords...", ACCENT_GREEN),
             VoiceState::Error => ("⚠", last_error.unwrap_or("Voice error"), ACCENT_RED),
             VoiceState::Idle => ("", "", TEXT_MUTED),
         };

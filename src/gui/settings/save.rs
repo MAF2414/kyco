@@ -2,6 +2,8 @@
 //!
 //! Handles validation and persistence of settings to config file.
 
+use std::sync::atomic::Ordering;
+
 use super::state::SettingsState;
 
 /// Save settings to config file
@@ -59,6 +61,9 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
     state.config.settings.auto_run = *state.settings_auto_run;
     state.config.settings.use_worktree = *state.settings_use_worktree;
     state.config.settings.gui.output_schema = state.settings_output_schema.clone();
+
+    // Update the shared atomic value so executor picks up the change immediately
+    state.max_concurrent_jobs_shared.store(max_concurrent, Ordering::Relaxed);
 
     // Update voice settings
     state.config.settings.gui.voice.mode = state.voice_settings_mode.clone();

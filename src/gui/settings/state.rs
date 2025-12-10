@@ -3,6 +3,8 @@
 //! Contains the mutable state used during settings editing.
 
 use std::path::Path;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 use crate::config::Config;
 use crate::gui::app::ViewMode;
@@ -61,4 +63,7 @@ pub struct SettingsState<'a> {
 
     /// Flag to indicate voice config was changed and VoiceManager needs to be updated
     pub voice_config_changed: &'a mut bool,
+
+    /// Shared max concurrent jobs (updates executor in real-time)
+    pub max_concurrent_jobs_shared: &'a Arc<AtomicUsize>,
 }

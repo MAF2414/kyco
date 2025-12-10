@@ -4,6 +4,7 @@
 
 use eframe::egui::{self, RichText, ScrollArea};
 
+use crate::gui::animations::animated_button;
 use crate::gui::app::{ViewMode, BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY};
 
 use super::sections::{
@@ -21,16 +22,13 @@ pub fn render_settings(ctx: &egui::Context, state: &mut SettingsState<'_>) {
                 // Header
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("⚙ SETTINGS")
+                        RichText::new("SETTINGS")
                             .monospace()
                             .size(18.0)
                             .color(TEXT_PRIMARY),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(RichText::new("✕ Close").color(TEXT_DIM))
-                            .clicked()
-                        {
+                        if animated_button(ui, "Close", TEXT_DIM, "settings_close_btn").clicked() {
                             *state.view_mode = ViewMode::JobList;
                         }
                     });

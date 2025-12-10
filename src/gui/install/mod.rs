@@ -149,7 +149,7 @@ pub fn install_jetbrains_plugin(work_dir: &Path) -> ExtensionInstallResult {
         "JetBrains plugin downloaded!\n\n\
         To install:\n\
         1. Open your JetBrains IDE (IntelliJ, WebStorm, etc.)\n\
-        2. Go to Settings → Plugins → ⚙️ → Install Plugin from Disk\n\
+        2. Go to Settings → Plugins → Gear Icon → Install Plugin from Disk\n\
         3. Select: {}\n\
         4. Restart the IDE\n\n\
         Hotkey: Ctrl+Alt+Y (Cmd+Option+Y on Mac)",

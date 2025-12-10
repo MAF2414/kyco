@@ -15,6 +15,7 @@ pub use state::{ChainEditorState, ChainStepEdit};
 
 use eframe::egui::{self, RichText};
 
+use super::animations::animated_button;
 use super::app::{ViewMode, BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY};
 
 /// Render the chains configuration view
@@ -26,24 +27,18 @@ pub fn render_chains(ctx: &egui::Context, state: &mut ChainEditorState<'_>) {
                 // Header
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("🔗 CHAINS")
+                        RichText::new("CHAINS")
                             .monospace()
                             .size(18.0)
                             .color(TEXT_PRIMARY),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(RichText::new("✕ Close").color(TEXT_DIM))
-                            .clicked()
-                        {
+                        if animated_button(ui, "Close", TEXT_DIM, "chains_close_btn").clicked() {
                             *state.view_mode = ViewMode::JobList;
                         }
                         if state.selected_chain.is_some() {
                             ui.add_space(8.0);
-                            if ui
-                                .button(RichText::new("← Back").color(TEXT_DIM))
-                                .clicked()
-                            {
+                            if animated_button(ui, "<- Back", TEXT_DIM, "chains_back_btn").clicked() {
                                 *state.selected_chain = None;
                                 *state.chain_edit_status = None;
                             }

@@ -16,6 +16,7 @@ pub use state::ModeEditorState;
 
 use eframe::egui::{self, RichText};
 
+use super::animations::animated_button;
 use super::app::{ViewMode, BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY};
 
 /// Render the modes configuration view
@@ -27,24 +28,18 @@ pub fn render_modes(ctx: &egui::Context, state: &mut ModeEditorState<'_>) {
                 // Header
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("📋 MODES")
+                        RichText::new("MODES")
                             .monospace()
                             .size(18.0)
                             .color(TEXT_PRIMARY),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(RichText::new("✕ Close").color(TEXT_DIM))
-                            .clicked()
-                        {
+                        if animated_button(ui, "Close", TEXT_DIM, "modes_close_btn").clicked() {
                             *state.view_mode = ViewMode::JobList;
                         }
                         if state.selected_mode.is_some() {
                             ui.add_space(8.0);
-                            if ui
-                                .button(RichText::new("← Back").color(TEXT_DIM))
-                                .clicked()
-                            {
+                            if animated_button(ui, "<- Back", TEXT_DIM, "modes_back_btn").clicked() {
                                 *state.selected_mode = None;
                                 *state.mode_edit_status = None;
                             }

@@ -5,6 +5,7 @@
 
 use eframe::egui::{self, RichText};
 
+use crate::gui::animations::animated_button;
 use crate::gui::app::{
     ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, ACCENT_RED, BG_SECONDARY, TEXT_MUTED, TEXT_PRIMARY,
 };
@@ -134,35 +135,23 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     }
 
                     ui.add_space(16.0);
-                    if ui
-                        .button(RichText::new("⚙ Settings").small().color(ACCENT_CYAN))
-                        .clicked()
-                    {
+                    if animated_button(ui, "Settings", ACCENT_CYAN, "statusbar_settings").clicked() {
                         *state.view_mode = ViewMode::Settings;
                     }
                     ui.add_space(8.0);
-                    if ui
-                        .button(RichText::new("📋 Modes").small().color(ACCENT_PURPLE))
-                        .clicked()
-                    {
+                    if animated_button(ui, "Modes", ACCENT_PURPLE, "statusbar_modes").clicked() {
                         *state.view_mode = ViewMode::Modes;
                         *state.selected_mode = None;
                         *state.mode_edit_status = None;
                     }
                     ui.add_space(8.0);
-                    if ui
-                        .button(RichText::new("🤖 Agents").small().color(TEXT_PRIMARY))
-                        .clicked()
-                    {
+                    if animated_button(ui, "Agents", TEXT_PRIMARY, "statusbar_agents").clicked() {
                         *state.view_mode = ViewMode::Agents;
                         *state.selected_agent = None;
                         *state.agent_edit_status = None;
                     }
                     ui.add_space(8.0);
-                    if ui
-                        .button(RichText::new("🔗 Chains").small().color(ACCENT_YELLOW))
-                        .clicked()
-                    {
+                    if animated_button(ui, "Chains", ACCENT_YELLOW, "statusbar_chains").clicked() {
                         *state.view_mode = ViewMode::Chains;
                         *state.selected_chain = None;
                         *state.chain_edit_status = None;

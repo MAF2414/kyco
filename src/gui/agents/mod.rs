@@ -15,6 +15,7 @@ pub use state::AgentEditorState;
 
 use eframe::egui::{self, RichText};
 
+use super::animations::animated_button;
 use super::app::{ViewMode, BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY};
 
 /// Render the agents configuration view
@@ -32,18 +33,12 @@ pub fn render_agents(ctx: &egui::Context, state: &mut AgentEditorState<'_>) {
                             .color(TEXT_PRIMARY),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .button(RichText::new("✕ Close").color(TEXT_DIM))
-                            .clicked()
-                        {
+                        if animated_button(ui, "Close", TEXT_DIM, "agents_close_btn").clicked() {
                             *state.view_mode = ViewMode::JobList;
                         }
                         if state.selected_agent.is_some() {
                             ui.add_space(8.0);
-                            if ui
-                                .button(RichText::new("← Back").color(TEXT_DIM))
-                                .clicked()
-                            {
+                            if animated_button(ui, "<- Back", TEXT_DIM, "agents_back_btn").clicked() {
                                 *state.selected_agent = None;
                                 *state.agent_edit_status = None;
                             }

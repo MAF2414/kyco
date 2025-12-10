@@ -1,3 +1,43 @@
+[agent.codex]
+aliases = [
+    "x",
+    "cx",
+]
+cli_type = "codex"
+mode = "print"
+binary = "codex"
+print_mode_args = [
+    "exec",
+    "--sandbox",
+    "workspace-write",
+]
+output_format_args = ["--json"]
+repl_mode_args = []
+default_args = []
+system_prompt_mode = "configoverride"
+disallowed_tools = []
+allowed_tools = ["Read"]
+
+[agent.codex.env]
+
+[agent.gemini]
+aliases = [
+    "g",
+    "gm",
+]
+cli_type = "gemini"
+mode = "print"
+binary = "gemini"
+print_mode_args = []
+output_format_args = []
+repl_mode_args = []
+default_args = []
+system_prompt_mode = "replace"
+disallowed_tools = []
+allowed_tools = ["Read"]
+
+[agent.gemini.env]
+
 [agent.xr]
 aliases = []
 cli_type = "codex"
@@ -28,28 +68,6 @@ allowed_tools = ["Read"]
 
 [agent.cr.env]
 
-[agent.codex]
-aliases = [
-    "x",
-    "cx",
-]
-cli_type = "codex"
-mode = "print"
-binary = "codex"
-print_mode_args = [
-    "exec",
-    "--sandbox",
-    "workspace-write",
-]
-output_format_args = ["--json"]
-repl_mode_args = []
-default_args = []
-system_prompt_mode = "configoverride"
-disallowed_tools = []
-allowed_tools = ["Read"]
-
-[agent.codex.env]
-
 [agent.claude]
 aliases = [
     "c",
@@ -72,53 +90,35 @@ allowed_tools = ["Read"]
 
 [agent.claude.env]
 
-[agent.gemini]
-aliases = [
-    "g",
-    "gm",
-]
-cli_type = "gemini"
-mode = "print"
-binary = "gemini"
-print_mode_args = []
-output_format_args = []
-repl_mode_args = []
-default_args = []
-system_prompt_mode = "replace"
-disallowed_tools = []
-allowed_tools = ["Read"]
-
-[agent.gemini.env]
-
-[mode.optimize]
+[mode.cleanup]
 prompt = """
-Optimize `{target}`: {description}
+Clean up `{target}`: {description}
 
 {ide_context}
 
-1. Read the code and analyze call patterns from dependencies
-2. Identify actual bottlenecks
-3. Apply targeted optimizations
-4. Run related tests to verify correctness
-5. Set state to "optimized"
+1. Identify dead code, unused imports, obsolete comments
+2. Remove or fix identified issues
+3. Verify nothing breaks via dependencies and tests
+4. Set state to "cleaned"
 """
 system_prompt = """
-You optimize code for performance. Never sacrifice correctness.
+You clean up code. Remove cruft, keep functionality.
 
-FOCUS ON:
-- Algorithm complexity (O(n²) → O(n log n))
-- Data structure choice
-- Reducing allocations
-- Caching and batching
+REMOVE:
+- Unused imports and variables
+- Dead code (unreachable, commented out)
+- Obsolete TODOs and FIXMEs
+- Redundant type casts
 
 DO:
-- Use dependency info to understand hot paths
-- Document tradeoffs
-- Preserve exact behavior
+- Verify removal won't break dependents
+- Run tests after cleanup
+- Keep meaningful comments
 
 DON'T:
-- Premature micro-optimizations
-- Sacrifice readability for minor gains
+- Remove code that looks unused but isn't (reflection, dynamic)
+- Delete TODOs without checking if still relevant
+- Clean up code you don't understand
 """
 allowed_tools = [
     "Read",
@@ -130,35 +130,36 @@ allowed_tools = [
 ]
 disallowed_tools = []
 aliases = [
-    "o",
-    "opt",
+    "clean",
+    "tidy",
 ]
-output_states = ["optimized"]
+output_states = ["cleaned"]
 
-[mode.refactor]
+[mode.types]
 prompt = """
-Refactor `{target}`: {description}
+Add types to `{target}`: {description}
 
 {ide_context}
 
-1. Read and understand the code
-2. Check dependencies to avoid breaking changes
-3. Refactor for clarity while preserving exact behavior
-4. Set state to "refactored"
+1. Analyze the code and infer types
+2. Add type annotations matching project style
+3. Fix any type errors introduced
+4. Set state to "typed"
 """
 system_prompt = """
-You refactor code. Preserve exact behavior. Match project style.
+You add type annotations. Improve type safety.
 
 DO:
-- Improve naming, structure, readability
-- Extract duplicated logic
-- Simplify complex conditionals
-- Check listed dependencies before changing signatures
+- Use specific types (not any/unknown unless necessary)
+- Add return types to functions
+- Type function parameters
+- Create interfaces/types for complex objects
+- Match existing project type patterns
 
 DON'T:
-- Change public APIs
-- Add features or fix bugs
-- Over-engineer
+- Over-type obvious literals
+- Use overly complex generic types
+- Add types that reduce flexibility without benefit
 """
 allowed_tools = [
     "Read",
@@ -169,174 +170,10 @@ allowed_tools = [
 ]
 disallowed_tools = []
 aliases = [
-    "r",
-    "ref",
+    "ty",
+    "typing",
 ]
-output_states = ["refactored"]
-
-[mode.extract]
-prompt = """
-Extract from `{target}`: {description}
-
-{ide_context}
-
-1. Identify the code to extract
-2. Create new function/module/service
-3. Replace original with call to extracted code
-4. Update imports in dependencies
-5. Set state to "extracted"
-"""
-system_prompt = """
-You extract code into reusable units. Improve modularity.
-
-DO:
-- Give clear, descriptive names
-- Define clean interface (minimal parameters)
-- Place in appropriate location (same file, new file, new module)
-- Update all callers from dependency list
-
-DON'T:
-- Extract code only used once (unless for clarity)
-- Create deep call hierarchies
-- Change behavior while extracting
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "ex",
-    "split",
-]
-output_states = ["extracted"]
-
-[mode.review]
-prompt = """
-Review `{target}`: {description}
-
-{ide_context}
-
-1. Read the code and its dependencies
-2. Identify bugs, security issues, performance problems
-3. Output findings with SEVERITY, LOCATION, ISSUE, SUGGESTION
-4. Set state to "issues_found" or "no_issues"
-"""
-system_prompt = """
-You review code. READ-ONLY - no edits.
-
-CHECK FOR:
-- Bugs: logic errors, null handling, race conditions
-- Security: injection, auth issues, data exposure
-- Performance: N+1 queries, memory leaks, missing caching
-- Maintainability: complexity, unclear naming, missing error handling
-
-OUTPUT FORMAT (per issue):
-- SEVERITY: Critical / High / Medium / Low
-- LOCATION: file:line
-- ISSUE: description
-- SUGGESTION: how to fix
-
-Use dependency list to check for broader impact.
-"""
-allowed_tools = []
-disallowed_tools = [
-    "Write",
-    "Edit",
-]
-aliases = [
-    "v",
-    "rev",
-]
-output_states = [
-    "issues_found",
-    "no_issues",
-]
-
-[mode.decouple]
-prompt = """
-Decouple dependency at `{target}`: {description}
-
-{ide_context}
-
-1. Identify the direct dependency to abstract
-2. Create an interface/trait for the dependency
-3. Inject the dependency instead of hardcoding
-4. Update all usages in listed dependencies
-5. Set state to "decoupled"
-"""
-system_prompt = """
-You decouple code by introducing abstractions. Enable testability and flexibility.
-
-DO:
-- Create interface/trait matching current usage
-- Use constructor/parameter injection
-- Update all callers from dependency list
-- Keep interface minimal
-
-DON'T:
-- Over-abstract (one interface per concrete type is usually wrong)
-- Change behavior while decoupling
-- Add unused interface methods
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "dec",
-    "inject",
-    "di",
-]
-output_states = ["decoupled"]
-
-[mode.fix]
-prompt = """
-Fix `{target}`: {description}
-
-{ide_context}
-
-1. Read the code and understand the issue
-2. Check dependencies for impact of fix
-3. Implement minimal, targeted fix
-4. Run related tests if available
-5. Set state to "fixed" or "unfixable"
-"""
-system_prompt = """
-You fix bugs. Minimal, surgical changes only.
-
-DO:
-- Fix the root cause
-- Keep changes small
-- Match existing code style
-- Verify fix with related tests
-
-DON'T:
-- Refactor surrounding code
-- Add features while fixing
-- Change public APIs unless necessary
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
-]
-disallowed_tools = []
-aliases = ["f"]
-output_states = [
-    "fixed",
-    "unfixable",
-]
+output_states = ["typed"]
 
 [mode.security]
 prompt = """
@@ -387,46 +224,6 @@ output_states = [
     "vulnerabilities_remain",
 ]
 
-[mode.types]
-prompt = """
-Add types to `{target}`: {description}
-
-{ide_context}
-
-1. Analyze the code and infer types
-2. Add type annotations matching project style
-3. Fix any type errors introduced
-4. Set state to "typed"
-"""
-system_prompt = """
-You add type annotations. Improve type safety.
-
-DO:
-- Use specific types (not any/unknown unless necessary)
-- Add return types to functions
-- Type function parameters
-- Create interfaces/types for complex objects
-- Match existing project type patterns
-
-DON'T:
-- Over-type obvious literals
-- Use overly complex generic types
-- Add types that reduce flexibility without benefit
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "ty",
-    "typing",
-]
-output_states = ["typed"]
-
 [mode.commit]
 prompt = """
 Commit staged changes: {description}
@@ -465,32 +262,302 @@ aliases = [
 ]
 output_states = ["committed"]
 
-[mode.tests]
+[mode.docs]
 prompt = """
-Write tests for `{target}`: {description}
+Document `{target}`: {description}
 
 {ide_context}
 
-1. Check related tests for existing patterns
-2. Write tests covering happy path, edge cases, and errors
-3. Run tests and set state to "tests_pass" or "tests_fail"
+1. Read the code and identify existing doc style
+2. Write clear documentation with examples
+3. Set state to "documented"
 """
 system_prompt = """
-You write tests. Use the project's existing test framework and patterns.
+You write documentation. Match the project's existing doc format.
 
-COVER:
-- Happy path (normal inputs)
-- Edge cases (empty, boundary, null)
-- Error cases (invalid inputs, exceptions)
-
-DO:
-- Check related tests first for style/framework
-- One assertion focus per test
-- Descriptive test names
+INCLUDE:
+- Purpose (what and why)
+- Parameters (types, constraints, defaults)
+- Returns (types, possible values)
+- Examples for non-trivial code
 
 DON'T:
-- Test implementation details
-- Depend on external services without mocking
+- Over-document obvious code
+- Include implementation details that may change
+"""
+allowed_tools = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+]
+disallowed_tools = []
+aliases = [
+    "d",
+    "doc",
+]
+output_states = ["documented"]
+
+[mode.decouple]
+prompt = """
+Decouple dependency at `{target}`: {description}
+
+{ide_context}
+
+1. Identify the direct dependency to abstract
+2. Create an interface/trait for the dependency
+3. Inject the dependency instead of hardcoding
+4. Update all usages in listed dependencies
+5. Set state to "decoupled"
+"""
+system_prompt = """
+You decouple code by introducing abstractions. Enable testability and flexibility.
+
+DO:
+- Create interface/trait matching current usage
+- Use constructor/parameter injection
+- Update all callers from dependency list
+- Keep interface minimal
+
+DON'T:
+- Over-abstract (one interface per concrete type is usually wrong)
+- Change behavior while decoupling
+- Add unused interface methods
+"""
+allowed_tools = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+]
+disallowed_tools = []
+aliases = [
+    "dec",
+    "inject",
+    "di",
+]
+output_states = ["decoupled"]
+
+[mode.explain]
+prompt = """
+Explain `{target}`: {description}
+
+{ide_context}
+
+1. Read and understand the code
+2. Explain what it does and how it connects to dependencies
+3. Set state to "explained"
+"""
+system_prompt = """
+You explain code. READ-ONLY - no edits.
+
+STRUCTURE:
+- One-sentence summary first
+- Step-by-step breakdown of logic
+- How it connects to listed dependencies
+- Key patterns and concepts used
+- Non-obvious behavior or gotchas
+
+Explain the "why", not just the "what".
+"""
+allowed_tools = []
+disallowed_tools = [
+    "Write",
+    "Edit",
+]
+aliases = [
+    "e",
+    "exp",
+]
+output_states = ["explained"]
+
+[mode.extract]
+prompt = """
+Extract from `{target}`: {description}
+
+{ide_context}
+
+1. Identify the code to extract
+2. Create new function/module/service
+3. Replace original with call to extracted code
+4. Update imports in dependencies
+5. Set state to "extracted"
+"""
+system_prompt = """
+You extract code into reusable units. Improve modularity.
+
+DO:
+- Give clear, descriptive names
+- Define clean interface (minimal parameters)
+- Place in appropriate location (same file, new file, new module)
+- Update all callers from dependency list
+
+DON'T:
+- Extract code only used once (unless for clarity)
+- Create deep call hierarchies
+- Change behavior while extracting
+"""
+allowed_tools = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+]
+disallowed_tools = []
+aliases = [
+    "ex",
+    "split",
+]
+output_states = ["extracted"]
+
+[mode.fix]
+prompt = """
+Fix `{target}`: {description}
+
+{ide_context}
+
+1. Read the code and understand the issue
+2. Check dependencies for impact of fix
+3. Implement minimal, targeted fix
+4. Run related tests if available
+5. Set state to "fixed" or "unfixable"
+"""
+system_prompt = """
+You fix bugs. Minimal, surgical changes only.
+
+DO:
+- Fix the root cause
+- Keep changes small
+- Match existing code style
+- Verify fix with related tests
+
+DON'T:
+- Refactor surrounding code
+- Add features while fixing
+- Change public APIs unless necessary
+"""
+allowed_tools = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "Bash",
+]
+disallowed_tools = []
+aliases = ["f"]
+output_states = [
+    "fixed",
+    "unfixable",
+]
+
+[mode.review]
+prompt = """
+Review `{target}`: {description}
+
+{ide_context}
+
+1. Read the code and its dependencies
+2. Identify bugs, security issues, performance problems
+3. Output findings with SEVERITY, LOCATION, ISSUE, SUGGESTION
+4. Set state to "issues_found" or "no_issues"
+"""
+system_prompt = """
+You review code. READ-ONLY - no edits.
+
+CHECK FOR:
+- Bugs: logic errors, null handling, race conditions
+- Security: injection, auth issues, data exposure
+- Performance: N+1 queries, memory leaks, missing caching
+- Maintainability: complexity, unclear naming, missing error handling
+
+OUTPUT FORMAT (per issue):
+- SEVERITY: Critical / High / Medium / Low
+- LOCATION: file:line
+- ISSUE: description
+- SUGGESTION: how to fix
+
+Use dependency list to check for broader impact.
+"""
+allowed_tools = []
+disallowed_tools = [
+    "Write",
+    "Edit",
+]
+aliases = [
+    "v",
+    "rev",
+]
+output_states = [
+    "issues_found",
+    "no_issues",
+]
+
+[mode.refactor]
+prompt = """
+Refactor `{target}`: {description}
+
+{ide_context}
+
+1. Read and understand the code
+2. Check dependencies to avoid breaking changes
+3. Refactor for clarity while preserving exact behavior
+4. Set state to "refactored"
+"""
+system_prompt = """
+You refactor code. Preserve exact behavior. Match project style.
+
+DO:
+- Improve naming, structure, readability
+- Extract duplicated logic
+- Simplify complex conditionals
+- Check listed dependencies before changing signatures
+
+DON'T:
+- Change public APIs
+- Add features or fix bugs
+- Over-engineer
+"""
+allowed_tools = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+]
+disallowed_tools = []
+aliases = [
+    "r",
+    "ref",
+]
+output_states = ["refactored"]
+
+[mode.implement]
+prompt = """
+Implement at `{target}`: {description}
+
+{ide_context}
+
+1. Read surrounding code and dependencies to understand patterns
+2. Implement the functionality
+3. Handle errors appropriately
+4. Set state to "implemented" or "blocked"
+"""
+system_prompt = """
+You implement features. Match existing codebase style and patterns.
+
+DO:
+- Reuse existing utilities from dependencies
+- Handle errors consistently
+- Write clear, idiomatic code
+
+DON'T:
+- Over-engineer
+- Add unnecessary dependencies
+- Break existing functionality
 """
 allowed_tools = [
     "Read",
@@ -502,13 +569,58 @@ allowed_tools = [
 ]
 disallowed_tools = []
 aliases = [
-    "t",
-    "test",
+    "i",
+    "impl",
 ]
 output_states = [
-    "tests_pass",
-    "tests_fail",
+    "implemented",
+    "blocked",
 ]
+
+[mode.logging]
+prompt = """
+Add logging to `{target}`: {description}
+
+{ide_context}
+
+1. Identify the existing logging framework
+2. Add structured logging at appropriate points
+3. Use correct log levels (error, warn, info, debug, trace)
+4. Set state to "logged"
+"""
+system_prompt = """
+You add logging. Use the project's existing logging framework.
+
+LOG LEVELS:
+- error: failures requiring attention
+- warn: unexpected but handled situations
+- info: significant business events
+- debug: diagnostic information
+- trace: detailed execution flow
+
+DO:
+- Include relevant context (IDs, parameters)
+- Use structured logging (key=value)
+- Log at entry/exit of important operations
+
+DON'T:
+- Log sensitive data (passwords, tokens, PII)
+- Over-log in hot paths (performance impact)
+- Use string concatenation for log messages
+"""
+allowed_tools = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+]
+disallowed_tools = []
+aliases = [
+    "log",
+    "l",
+]
+output_states = ["logged"]
 
 [mode.migrate]
 prompt = """
@@ -596,35 +708,35 @@ disallowed_tools = []
 aliases = ["cov"]
 output_states = ["coverage_improved"]
 
-[mode.cleanup]
+[mode.optimize]
 prompt = """
-Clean up `{target}`: {description}
+Optimize `{target}`: {description}
 
 {ide_context}
 
-1. Identify dead code, unused imports, obsolete comments
-2. Remove or fix identified issues
-3. Verify nothing breaks via dependencies and tests
-4. Set state to "cleaned"
+1. Read the code and analyze call patterns from dependencies
+2. Identify actual bottlenecks
+3. Apply targeted optimizations
+4. Run related tests to verify correctness
+5. Set state to "optimized"
 """
 system_prompt = """
-You clean up code. Remove cruft, keep functionality.
+You optimize code for performance. Never sacrifice correctness.
 
-REMOVE:
-- Unused imports and variables
-- Dead code (unreachable, commented out)
-- Obsolete TODOs and FIXMEs
-- Redundant type casts
+FOCUS ON:
+- Algorithm complexity (O(n²) → O(n log n))
+- Data structure choice
+- Reducing allocations
+- Caching and batching
 
 DO:
-- Verify removal won't break dependents
-- Run tests after cleanup
-- Keep meaningful comments
+- Use dependency info to understand hot paths
+- Document tradeoffs
+- Preserve exact behavior
 
 DON'T:
-- Remove code that looks unused but isn't (reflection, dynamic)
-- Delete TODOs without checking if still relevant
-- Clean up code you don't understand
+- Premature micro-optimizations
+- Sacrifice readability for minor gains
 """
 allowed_tools = [
     "Read",
@@ -636,67 +748,37 @@ allowed_tools = [
 ]
 disallowed_tools = []
 aliases = [
-    "clean",
-    "tidy",
+    "o",
+    "opt",
 ]
-output_states = ["cleaned"]
+output_states = ["optimized"]
 
-[mode.explain]
+[mode.tests]
 prompt = """
-Explain `{target}`: {description}
+Write tests for `{target}`: {description}
 
 {ide_context}
 
-1. Read and understand the code
-2. Explain what it does and how it connects to dependencies
-3. Set state to "explained"
+1. Check related tests for existing patterns
+2. Write tests covering happy path, edge cases, and errors
+3. Run tests and set state to "tests_pass" or "tests_fail"
 """
 system_prompt = """
-You explain code. READ-ONLY - no edits.
+You write tests. Use the project's existing test framework and patterns.
 
-STRUCTURE:
-- One-sentence summary first
-- Step-by-step breakdown of logic
-- How it connects to listed dependencies
-- Key patterns and concepts used
-- Non-obvious behavior or gotchas
-
-Explain the "why", not just the "what".
-"""
-allowed_tools = []
-disallowed_tools = [
-    "Write",
-    "Edit",
-]
-aliases = [
-    "e",
-    "exp",
-]
-output_states = ["explained"]
-
-[mode.implement]
-prompt = """
-Implement at `{target}`: {description}
-
-{ide_context}
-
-1. Read surrounding code and dependencies to understand patterns
-2. Implement the functionality
-3. Handle errors appropriately
-4. Set state to "implemented" or "blocked"
-"""
-system_prompt = """
-You implement features. Match existing codebase style and patterns.
+COVER:
+- Happy path (normal inputs)
+- Edge cases (empty, boundary, null)
+- Error cases (invalid inputs, exceptions)
 
 DO:
-- Reuse existing utilities from dependencies
-- Handle errors consistently
-- Write clear, idiomatic code
+- Check related tests first for style/framework
+- One assertion focus per test
+- Descriptive test names
 
 DON'T:
-- Over-engineer
-- Add unnecessary dependencies
-- Break existing functionality
+- Test implementation details
+- Depend on external services without mocking
 """
 allowed_tools = [
     "Read",
@@ -708,110 +790,43 @@ allowed_tools = [
 ]
 disallowed_tools = []
 aliases = [
-    "i",
-    "impl",
+    "t",
+    "test",
 ]
 output_states = [
-    "implemented",
-    "blocked",
+    "tests_pass",
+    "tests_fail",
 ]
 
-[mode.docs]
-prompt = """
-Document `{target}`: {description}
-
-{ide_context}
-
-1. Read the code and identify existing doc style
-2. Write clear documentation with examples
-3. Set state to "documented"
-"""
-system_prompt = """
-You write documentation. Match the project's existing doc format.
-
-INCLUDE:
-- Purpose (what and why)
-- Parameters (types, constraints, defaults)
-- Returns (types, possible values)
-- Examples for non-trivial code
-
-DON'T:
-- Over-document obvious code
-- Include implementation details that may change
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "d",
-    "doc",
-]
-output_states = ["documented"]
-
-[mode.logging]
-prompt = """
-Add logging to `{target}`: {description}
-
-{ide_context}
-
-1. Identify the existing logging framework
-2. Add structured logging at appropriate points
-3. Use correct log levels (error, warn, info, debug, trace)
-4. Set state to "logged"
-"""
-system_prompt = """
-You add logging. Use the project's existing logging framework.
-
-LOG LEVELS:
-- error: failures requiring attention
-- warn: unexpected but handled situations
-- info: significant business events
-- debug: diagnostic information
-- trace: detailed execution flow
-
-DO:
-- Include relevant context (IDs, parameters)
-- Use structured logging (key=value)
-- Log at entry/exit of important operations
-
-DON'T:
-- Log sensitive data (passwords, tokens, PII)
-- Over-log in hot paths (performance impact)
-- Use string concatenation for log messages
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "log",
-    "l",
-]
-output_states = ["logged"]
-
-[chain.review-and-fix]
-description = "Review code, fix any issues found, then run tests"
+[chain.implement-and-test]
+description = "Implement a feature, then write and run tests"
 stop_on_failure = true
 
-[[chain.review-and-fix.steps]]
+[[chain.implement-and-test.steps]]
+mode = "implement"
+
+[[chain.implement-and-test.steps]]
+mode = "tests"
+trigger_on = ["implemented"]
+
+[chain.full-review]
+description = "Review, fix, test, then document"
+stop_on_failure = false
+
+[[chain.full-review.steps]]
 mode = "review"
 
-[[chain.review-and-fix.steps]]
+[[chain.full-review.steps]]
 mode = "fix"
 trigger_on = ["issues_found"]
 
-[[chain.review-and-fix.steps]]
+[[chain.full-review.steps]]
 mode = "tests"
 trigger_on = ["fixed"]
+
+[[chain.full-review.steps]]
+mode = "docs"
+skip_on = ["tests_fail"]
 
 [chain.migrate-safe]
 description = "Review, migrate, test, then cleanup"
@@ -831,6 +846,29 @@ trigger_on = ["migrated"]
 [[chain.migrate-safe.steps]]
 mode = "cleanup"
 trigger_on = ["tests_pass"]
+
+[chain.implement-full]
+description = "Implement, add types, logging, docs, then test"
+stop_on_failure = true
+
+[[chain.implement-full.steps]]
+mode = "implement"
+
+[[chain.implement-full.steps]]
+mode = "types"
+trigger_on = ["implemented"]
+
+[[chain.implement-full.steps]]
+mode = "logging"
+trigger_on = ["typed"]
+
+[[chain.implement-full.steps]]
+mode = "docs"
+trigger_on = ["logged"]
+
+[[chain.implement-full.steps]]
+mode = "tests"
+trigger_on = ["documented"]
 
 [chain.decouple-and-test]
 description = "Decouple dependencies, then verify with tests"
@@ -862,117 +900,6 @@ trigger_on = ["issues_found"]
 mode = "tests"
 trigger_on = ["fixed"]
 
-[chain.refactor-full]
-description = "Extract, decouple, refactor, then test"
-stop_on_failure = true
-
-[[chain.refactor-full.steps]]
-mode = "extract"
-
-[[chain.refactor-full.steps]]
-mode = "decouple"
-trigger_on = ["extracted"]
-
-[[chain.refactor-full.steps]]
-mode = "refactor"
-trigger_on = ["decoupled"]
-
-[[chain.refactor-full.steps]]
-mode = "tests"
-trigger_on = ["refactored"]
-
-[chain.quality-gate]
-description = "Full quality check: review, security, types, coverage"
-stop_on_failure = false
-
-[[chain.quality-gate.steps]]
-mode = "review"
-
-[[chain.quality-gate.steps]]
-mode = "security"
-trigger_on = ["issues_found"]
-
-[[chain.quality-gate.steps]]
-mode = "types"
-
-[[chain.quality-gate.steps]]
-mode = "coverage"
-
-[chain.secure-and-test]
-description = "Security audit, fix vulnerabilities, then verify with tests"
-stop_on_failure = true
-
-[[chain.secure-and-test.steps]]
-mode = "security"
-
-[[chain.secure-and-test.steps]]
-mode = "tests"
-trigger_on = ["secured"]
-
-[chain.implement-and-test]
-description = "Implement a feature, then write and run tests"
-stop_on_failure = true
-
-[[chain.implement-and-test.steps]]
-mode = "implement"
-
-[[chain.implement-and-test.steps]]
-mode = "tests"
-trigger_on = ["implemented"]
-
-[chain.implement-full]
-description = "Implement, add types, logging, docs, then test"
-stop_on_failure = true
-
-[[chain.implement-full.steps]]
-mode = "implement"
-
-[[chain.implement-full.steps]]
-mode = "types"
-trigger_on = ["implemented"]
-
-[[chain.implement-full.steps]]
-mode = "logging"
-trigger_on = ["typed"]
-
-[[chain.implement-full.steps]]
-mode = "docs"
-trigger_on = ["logged"]
-
-[[chain.implement-full.steps]]
-mode = "tests"
-trigger_on = ["documented"]
-
-[chain.extract-and-test]
-description = "Extract code into module/service, then test"
-stop_on_failure = true
-
-[[chain.extract-and-test.steps]]
-mode = "extract"
-
-[[chain.extract-and-test.steps]]
-mode = "tests"
-trigger_on = ["extracted"]
-
-[chain.full-review]
-description = "Review, fix, test, then document"
-stop_on_failure = false
-
-[[chain.full-review.steps]]
-mode = "review"
-
-[[chain.full-review.steps]]
-mode = "fix"
-trigger_on = ["issues_found"]
-
-[[chain.full-review.steps]]
-mode = "tests"
-trigger_on = ["fixed"]
-
-[[chain.full-review.steps]]
-mode = "docs"
-skip_on = ["tests_fail"]
-
 [chain.harden]
 description = "Security fix, add logging, then test"
 stop_on_failure = true
@@ -1003,6 +930,34 @@ trigger_on = ["typed"]
 mode = "tests"
 trigger_on = ["cleaned"]
 
+[chain.quality-gate]
+description = "Full quality check: review, security, types, coverage"
+stop_on_failure = false
+
+[[chain.quality-gate.steps]]
+mode = "review"
+
+[[chain.quality-gate.steps]]
+mode = "security"
+trigger_on = ["issues_found"]
+
+[[chain.quality-gate.steps]]
+mode = "types"
+
+[[chain.quality-gate.steps]]
+mode = "coverage"
+
+[chain.extract-and-test]
+description = "Extract code into module/service, then test"
+stop_on_failure = true
+
+[[chain.extract-and-test.steps]]
+mode = "extract"
+
+[[chain.extract-and-test.steps]]
+mode = "tests"
+trigger_on = ["extracted"]
+
 [chain.refactor-safe]
 description = "Review first, then refactor, then test"
 stop_on_failure = true
@@ -1018,6 +973,51 @@ trigger_on = ["no_issues"]
 mode = "tests"
 trigger_on = ["refactored"]
 
+[chain.refactor-full]
+description = "Extract, decouple, refactor, then test"
+stop_on_failure = true
+
+[[chain.refactor-full.steps]]
+mode = "extract"
+
+[[chain.refactor-full.steps]]
+mode = "decouple"
+trigger_on = ["extracted"]
+
+[[chain.refactor-full.steps]]
+mode = "refactor"
+trigger_on = ["decoupled"]
+
+[[chain.refactor-full.steps]]
+mode = "tests"
+trigger_on = ["refactored"]
+
+[chain.review-and-fix]
+description = "Review code, fix any issues found, then run tests"
+stop_on_failure = true
+
+[[chain.review-and-fix.steps]]
+mode = "review"
+
+[[chain.review-and-fix.steps]]
+mode = "fix"
+trigger_on = ["issues_found"]
+
+[[chain.review-and-fix.steps]]
+mode = "tests"
+trigger_on = ["fixed"]
+
+[chain.secure-and-test]
+description = "Security audit, fix vulnerabilities, then verify with tests"
+stop_on_failure = true
+
+[[chain.secure-and-test.steps]]
+mode = "security"
+
+[[chain.secure-and-test.steps]]
+mode = "tests"
+trigger_on = ["secured"]
+
 [scope]
 
 [target]
@@ -1031,7 +1031,7 @@ trigger_on = ["refactored"]
 [alias.target]
 
 [settings]
-max_concurrent_jobs = 4
+max_concurrent_jobs = 10
 debounce_ms = 500
 auto_run = true
 scan_exclude = []

@@ -4,6 +4,7 @@ use eframe::egui::{self, RichText, ScrollArea};
 
 use super::persistence::{delete_agent_from_config, save_agent_to_config};
 use super::state::AgentEditorState;
+use crate::gui::animations::animated_button;
 use crate::gui::app::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, TEXT_MUTED, TEXT_PRIMARY};
 
 /// Render the agent editor form
@@ -234,18 +235,12 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
 
             // Save button
             ui.horizontal(|ui| {
-                if ui
-                    .button(RichText::new("Save to Config").color(ACCENT_GREEN))
-                    .clicked()
-                {
+                if animated_button(ui, "Save to Config", ACCENT_GREEN, "agent_save_btn").clicked() {
                     save_agent_to_config(state, is_new);
                 }
                 if !is_new {
                     ui.add_space(16.0);
-                    if ui
-                        .button(RichText::new("Delete").color(ACCENT_RED))
-                        .clicked()
-                    {
+                    if animated_button(ui, "Delete", ACCENT_RED, "agent_delete_btn").clicked() {
                         delete_agent_from_config(state);
                     }
                 }

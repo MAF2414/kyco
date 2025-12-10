@@ -50,7 +50,7 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
     ui.add_space(12.0);
     ui.horizontal(|ui| {
         if ui
-            .button(RichText::new("💾 Save Settings").color(ACCENT_GREEN))
+            .button(RichText::new("Save Settings").color(ACCENT_GREEN))
             .clicked()
         {
             save_settings_to_config(state);
@@ -365,7 +365,7 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.add_space(12.0);
     ui.horizontal(|ui| {
         if ui
-            .button(RichText::new("💾 Save Voice Settings").color(ACCENT_GREEN))
+            .button(RichText::new("Save Voice Settings").color(ACCENT_GREEN))
             .clicked()
         {
             save_settings_to_config(state);
@@ -660,7 +660,7 @@ fn install_voice_dependencies(state: &mut SettingsState<'_>) {
 /// Render voice test section with microphone test button and status
 fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.label(
-        RichText::new("🎤 Test Microphone")
+        RichText::new("Test Microphone")
             .color(TEXT_PRIMARY),
     );
     ui.add_space(4.0);
@@ -743,11 +743,11 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     );
 
     let button_text = match &*state.voice_test_status {
-        VoiceTestStatus::Idle => "🎤 Test Microphone (3 sec)",
-        VoiceTestStatus::Recording => "🔴 Recording...",
-        VoiceTestStatus::Transcribing => "⏳ Transcribing...",
-        VoiceTestStatus::Success => "🎤 Test Again",
-        VoiceTestStatus::Error(_) => "🎤 Try Again",
+        VoiceTestStatus::Idle => "Test Microphone (3 sec)",
+        VoiceTestStatus::Recording => "● Recording...",
+        VoiceTestStatus::Transcribing => "◌ Transcribing...",
+        VoiceTestStatus::Success => "Test Again",
+        VoiceTestStatus::Error(_) => "Try Again",
     };
 
     let button_enabled = all_deps_available && !is_testing;

@@ -1,7 +1,50 @@
-//! Chain execution for sequential mode runs
+//! Chain execution for sequential mode runs.
 //!
-//! Chains allow executing multiple modes sequentially, where each mode
-//! receives the output/summary of the previous mode as context.
+//! This module provides the [`ChainRunner`] which orchestrates multi-step workflows
+//! by executing a sequence of modes where each step can pass context to the next.
+//! Chains enable complex agent pipelines like "review → fix → test" with conditional
+//! branching based on previous step outcomes.
+//!
+//! # Architecture
+//!
+//! A chain consists of [`ChainStep`]s that are executed in order. Each step:
+//! - Runs a specific mode (e.g., "review", "fix", "test")
+//! - Can be conditionally triggered based on the previous step's state
+//! - Receives accumulated context from prior steps via the `summary` field
+//! - Produces a state identifier that subsequent steps can react to
+//!
+//! # State-Based Control Flow
+//!
+//! Steps can use `trigger_on` and `skip_on` to create conditional workflows:
+//!
+//! ```text
+//! review ──┬── [issues_found] ──► fix ──► test
+//!          │
+//!          └── [no_issues] ──► (chain ends early)
+//! ```
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use kyco::agent::{ChainRunner, ChainResult};
+//! use kyco::config::ModeChain;
+//!
+//! // Create a chain runner
+//! let runner = ChainRunner::new(&config, &agent_registry, &work_dir);
+//!
+//! // Execute a chain (steps defined in config)
+//! let result: ChainResult = runner.run_chain(
+//!     "review-fix",
+//!     &chain_config,
+//!     &initial_job,
+//!     event_tx,
+//! ).await;
+//!
+//! // Check results
+//! if result.success {
+//!     println!("Chain completed: {:?}", result.final_state);
+//! }
+//! ```
 
 use std::path::Path;
 use tokio::sync::mpsc;
@@ -11,52 +54,100 @@ use crate::{Job, JobResult, LogEvent};
 
 use super::AgentRegistry;
 
-/// Result of a single step in a chain
+/// Result of a single step in a chain.
+///
+/// Captures the outcome of executing one step, including whether it was skipped
+/// due to trigger conditions not being met. When a step runs, both `job_result`
+/// (parsed YAML output) and `agent_result` (execution metadata) are populated.
 #[derive(Debug, Clone)]
 pub struct ChainStepResult {
-    /// The mode that was executed
+    /// The mode that was executed (e.g., "review", "fix").
     pub mode: String,
-    /// The step index in the chain
+    /// Zero-based index of this step in the chain.
     pub step_index: usize,
-    /// Whether this step was skipped (due to trigger conditions)
+    /// `true` if the step was skipped due to `trigger_on`/`skip_on` conditions.
     pub skipped: bool,
-    /// The job result from this step (if not skipped)
+    /// Parsed job result from the agent's YAML output block, if the step ran.
     pub job_result: Option<JobResult>,
-    /// The agent result (if not skipped)
+    /// Summary of agent execution (success, errors, file changes), if the step ran.
     pub agent_result: Option<AgentResultSummary>,
 }
 
-/// Summarized agent result (without large data)
+/// Summarized agent result for chain step tracking.
+///
+/// A lightweight view of [`super::AgentResult`] that omits large fields like
+/// full output text and file diffs, suitable for storing in chain history.
 #[derive(Debug, Clone)]
 pub struct AgentResultSummary {
+    /// Whether the agent completed without errors.
     pub success: bool,
+    /// Error message if the agent failed.
     pub error: Option<String>,
+    /// Number of files modified by this step.
     pub files_changed: usize,
 }
 
-/// Result of running a complete chain
+/// Result of running a complete chain.
+///
+/// Contains the full execution history of the chain, including results from
+/// each step (whether skipped or executed) and accumulated context summaries.
+///
+/// # Fields
+///
+/// - `success`: `true` only if all executed steps succeeded. A chain with
+///   skipped steps can still be successful if no executed step failed.
+/// - `final_state`: The state identifier from the last **executed** step,
+///   used for downstream decision-making or reporting.
+/// - `accumulated_summaries`: Ordered list of `"[mode] summary"` strings
+///   from all executed steps, useful for debugging or generating reports.
 #[derive(Debug)]
 pub struct ChainResult {
-    /// Name of the chain
+    /// Name of the chain that was executed.
     pub chain_name: String,
-    /// Results from each step
+    /// Results from each step in order, including skipped steps.
     pub step_results: Vec<ChainStepResult>,
-    /// Whether the chain completed successfully
+    /// `true` if no executed step failed.
     pub success: bool,
-    /// Final state from the last executed step
+    /// State identifier from the last executed step (e.g., "issues_found").
     pub final_state: Option<String>,
-    /// Accumulated context from all steps
+    /// Accumulated `"[mode] summary"` entries from all executed steps.
     pub accumulated_summaries: Vec<String>,
 }
 
-/// Executes mode chains
+/// Executes mode chains by orchestrating sequential agent runs.
+///
+/// `ChainRunner` is the core executor for multi-step workflows. It iterates
+/// through chain steps, evaluates trigger conditions, builds prompts with
+/// accumulated context, and dispatches jobs to the appropriate agents.
+///
+/// # Lifetime
+///
+/// The `'a` lifetime ties the runner to its configuration and registry,
+/// ensuring they remain valid throughout chain execution.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let runner = ChainRunner::new(&config, &registry, &work_dir);
+/// let result = runner.run_chain("my-chain", &chain, &job, event_tx).await;
+/// ```
 pub struct ChainRunner<'a> {
+    /// Application configuration with mode and agent definitions.
     config: &'a Config,
+    /// Registry providing access to agent adapters.
     agent_registry: &'a AgentRegistry,
+    /// Working directory for agent execution.
     work_dir: &'a Path,
 }
 
 impl<'a> ChainRunner<'a> {
+    /// Creates a new chain runner with the given configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Application configuration containing mode definitions
+    /// * `agent_registry` - Registry for looking up agent adapters
+    /// * `work_dir` - Working directory where agents will execute
     pub fn new(
         config: &'a Config,
         agent_registry: &'a AgentRegistry,
@@ -69,7 +160,23 @@ impl<'a> ChainRunner<'a> {
         }
     }
 
-    /// Run a mode chain
+    /// Executes a complete mode chain.
+    ///
+    /// Iterates through each step in the chain, evaluating trigger conditions
+    /// and executing the appropriate agent. Context (summaries) from each step
+    /// is accumulated and passed to subsequent steps.
+    ///
+    /// # Arguments
+    ///
+    /// * `chain_name` - Identifier for this chain execution (for logging)
+    /// * `chain` - The chain configuration defining steps and behavior
+    /// * `initial_job` - The originating job that triggered this chain
+    /// * `event_tx` - Channel for streaming log events during execution
+    ///
+    /// # Returns
+    ///
+    /// A [`ChainResult`] containing the outcome of each step and overall success status.
+    /// If `chain.stop_on_failure` is `true`, execution halts on the first failure.
     pub async fn run_chain(
         &self,
         chain_name: &str,
@@ -279,7 +386,21 @@ impl<'a> ChainRunner<'a> {
         }
     }
 
-    /// Check if a step should run based on its trigger conditions
+    /// Evaluates whether a step should execute based on trigger conditions.
+    ///
+    /// The evaluation order is:
+    /// 1. If `skip_on` contains the previous state → skip (return `false`)
+    /// 2. If `trigger_on` is specified and doesn't contain the previous state → skip
+    /// 3. Otherwise → run (return `true`)
+    ///
+    /// # Arguments
+    ///
+    /// * `step` - The step configuration with optional `trigger_on`/`skip_on`
+    /// * `last_state` - State from the previous step (e.g., "issues_found")
+    ///
+    /// # Returns
+    ///
+    /// `true` if the step should execute, `false` if it should be skipped.
     fn should_step_run(&self, step: &ChainStep, last_state: &Option<String>) -> bool {
         // Check skip_on first - if matched, don't run
         if let Some(skip_states) = &step.skip_on {
@@ -302,7 +423,20 @@ impl<'a> ChainRunner<'a> {
         }
     }
 
-    /// Build a prompt that includes context from previous chain steps
+    /// Builds a prompt that includes context from previous chain steps.
+    ///
+    /// Constructs the full prompt for a step by combining:
+    /// 1. The base mode prompt (from configuration)
+    /// 2. The summary from the immediately previous step
+    /// 3. Any custom `inject_context` from the step configuration
+    /// 4. Chain history (summaries from all prior steps, for later steps)
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_job` - The original job for scope/target information
+    /// * `step` - Current step configuration
+    /// * `last_summary` - Summary text from the previous step
+    /// * `accumulated_summaries` - All summaries from prior steps
     fn build_chained_prompt(
         &self,
         initial_job: &Job,
@@ -356,7 +490,18 @@ impl<'a> ChainRunner<'a> {
         prompt
     }
 
-    /// Create a job for a specific chain step
+    /// Creates a job for a specific chain step.
+    ///
+    /// Clones the initial job and modifies it for this step by:
+    /// - Setting the mode to the step's mode
+    /// - Replacing the description with the chained prompt
+    /// - Overriding the agent if specified in the step configuration
+    ///
+    /// # Arguments
+    ///
+    /// * `initial_job` - The original job to clone
+    /// * `step` - Step configuration with mode and optional agent override
+    /// * `prompt` - The full prompt built by [`Self::build_chained_prompt`]
     fn create_step_job(&self, initial_job: &Job, step: &ChainStep, prompt: &str) -> Job {
         let mut step_job = initial_job.clone();
         step_job.mode = step.mode.clone();

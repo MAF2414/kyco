@@ -19,6 +19,8 @@ Coding agents can spiral into hour-long sessions that touch half your codebase. 
 
 - **Native Desktop GUI**: Built with egui, runs as a standalone application
 - **IDE Integration**: VS Code and JetBrains extensions send selections directly to KYCo
+- **Batch Processing**: Process multiple files at once with the same mode
+- **Grep Search**: Find files by pattern and process them as a batch
 - **Multi-Agent Support**: Works with Claude, Codex, and Gemini CLI
 - **Concurrent Jobs**: Run multiple AI tasks in parallel
 - **Chains**: Automated multi-step workflows (review → fix → test)
@@ -28,6 +30,7 @@ Coding agents can spiral into hour-long sessions that touch half your codebase. 
 
 ## How It Works
 
+### Single Selection
 1. **Select code** in your IDE (VS Code or JetBrains)
 2. **Press the hotkey** (`Cmd+Alt+Y` / `Ctrl+Alt+Y`) to send the selection to KYCo
 3. **Choose a mode** in the KYCo GUI (refactor, fix, test, etc.)
@@ -35,6 +38,39 @@ Coding agents can spiral into hour-long sessions that touch half your codebase. 
 5. **Accept or reject** the changes
 
 No comment markers required - just select and send!
+
+### Batch Processing
+Process multiple files at once with the same mode and prompt:
+
+1. **Select files** in your IDE's file explorer (multi-select with Cmd/Ctrl+Click)
+2. **Right-click** and choose "KYCo: Send Files (Batch)"
+3. **Enter mode and prompt** in the KYCo batch popup (e.g., `refactor clean up formatting`)
+4. **Jobs are created** for each file with the same configuration
+5. **Review each diff** as jobs complete
+
+**Use cases:**
+- Refactor all files in a directory
+- Add documentation to multiple modules
+- Apply consistent style changes across files
+- Add tests to multiple related files
+
+### Grep Search & Send
+Find files matching a pattern and process them as a batch:
+
+1. **Press hotkey** (`Cmd+Alt+Shift+G` / `Ctrl+Alt+Shift+G`) or use Command Palette: "KYCo: Search & Send (Grep)"
+2. **Enter search pattern** (regex supported, e.g., `TODO|FIXME`, `async function`, `#\[deprecated\]`)
+3. **Enter file filter** (optional glob pattern, e.g., `**/*.ts`, `src/**/*.rs`)
+4. **Confirm** the matching files to send to KYCo
+5. **Enter mode and prompt** in the batch popup
+
+**Example workflows:**
+| Pattern | Use Case |
+|---------|----------|
+| `TODO\|FIXME` | Find and fix all TODO comments |
+| `console\.log` | Remove debug logging |
+| `any` | Fix TypeScript `any` types |
+| `unsafe\s*\{` | Review unsafe Rust blocks |
+| `@deprecated` | Migrate deprecated code |
 
 ## Installation
 
@@ -178,6 +214,30 @@ prompt = "..."
 system_prompt = "..."
 allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 ```
+
+## Keyboard Shortcuts
+
+### IDE Extension (VS Code / JetBrains)
+
+| Action | macOS | Windows/Linux |
+|--------|-------|---------------|
+| Send Selection | `Cmd+Alt+Y` | `Ctrl+Alt+Y` |
+| Grep & Send | `Cmd+Alt+Shift+G` | `Ctrl+Alt+Shift+G` |
+| Batch (Context Menu) | Right-click in Explorer | Right-click in Explorer |
+
+### KYCo GUI
+
+| Action | Key |
+|--------|-----|
+| Tab completion | `Tab` |
+| Execute job | `Enter` |
+| Execute in worktree | `Shift+Enter` |
+| Voice input | `Cmd+D` / `Ctrl+D` |
+| Close popup | `Esc` |
+| Navigate suggestions | `↑` / `↓` |
+| Navigate jobs | `j` / `k` or `↑` / `↓` |
+| Toggle auto-run | `Shift+A` |
+| Toggle auto-scan | `Shift+S` |
 
 ## CLI Commands
 

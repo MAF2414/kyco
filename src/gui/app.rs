@@ -20,6 +20,7 @@ use crate::job::{GroupManager, JobManager};
 use crate::{AgentGroupId, Job, JobId, LogEvent};
 use eframe::egui::{self, Color32, Key, Stroke};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
 use tracing::info;
@@ -138,6 +139,8 @@ pub struct KycoApp {
     batch_rx: Receiver<BatchRequest>,
     /// Receiver for executor events
     executor_rx: Receiver<ExecutorEvent>,
+    /// Shared max concurrent jobs (runtime-adjustable)
+    max_concurrent_jobs: Arc<AtomicUsize>,
     /// Current selection context (from IDE extension)
     selection: SelectionContext,
     /// Batch files for batch processing (from IDE extension)
@@ -282,6 +285,7 @@ impl KycoApp {
         http_rx: Receiver<SelectionRequest>,
         batch_rx: Receiver<BatchRequest>,
         executor_rx: Receiver<ExecutorEvent>,
+        max_concurrent_jobs: Arc<AtomicUsize>,
     ) -> Self {
         // Extract settings before moving config
         let settings_max_concurrent = config.settings.max_concurrent_jobs.to_string();
@@ -336,6 +340,7 @@ impl KycoApp {
             http_rx,
             batch_rx,
             executor_rx,
+            max_concurrent_jobs,
             selection: SelectionContext::default(),
             batch_files: Vec::new(),
             view_mode: ViewMode::JobList,
@@ -447,6 +452,8 @@ impl KycoApp {
                 work_dir: &self.work_dir,
                 // Voice config change tracking
                 voice_config_changed: &mut self.voice_config_changed,
+                // Shared max concurrent jobs (for runtime updates to executor)
+                max_concurrent_jobs_shared: &self.max_concurrent_jobs,
             },
         );
     }

@@ -3,8 +3,9 @@
 //! The GUI receives selections from IDE extensions via HTTP server
 
 use anyhow::Result;
-use eframe::egui::{self, IconData};
+use eframe::egui::{self, FontData, FontDefinitions, FontFamily, IconData};
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use tracing::info;
@@ -66,13 +67,16 @@ pub fn run_gui() -> Result<()> {
     // Start HTTP server in background (handles both /selection and /batch)
     start_http_server(http_tx, batch_tx);
 
+    // Create shared max_concurrent_jobs so GUI can update it at runtime
+    let max_concurrent_jobs = Arc::new(AtomicUsize::new(config.settings.max_concurrent_jobs));
+
     // Start job executor in background
     start_executor(
         work_dir.clone(),
         config.clone(),
         job_manager.clone(),
         executor_tx,
-        config.settings.max_concurrent_jobs,
+        Arc::clone(&max_concurrent_jobs),
     );
 
     // Create app icon
@@ -90,10 +94,61 @@ pub fn run_gui() -> Result<()> {
         ..Default::default()
     };
 
-    let app = KycoApp::new(work_dir, config, config_exists, job_manager, http_rx, batch_rx, executor_rx);
+    let app = KycoApp::new(work_dir, config, config_exists, job_manager, http_rx, batch_rx, executor_rx, max_concurrent_jobs);
 
-    eframe::run_native("kyco", options, Box::new(|_cc| Ok(Box::new(app))))
+    eframe::run_native("kyco", options, Box::new(|cc| {
+        configure_fonts(&cc.egui_ctx);
+        Ok(Box::new(app))
+    }))
         .map_err(|e| anyhow::anyhow!("Failed to run GUI: {}", e))?;
 
     Ok(())
+}
+
+/// Configure fonts with system fallbacks for Unicode symbols and emojis
+fn configure_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+
+    // Platform-specific font configurations
+    // Each entry: (name, path) - will be tried in order
+    #[cfg(target_os = "macos")]
+    let font_fallbacks: &[(&str, &str)] = &[
+        ("symbols", "/System/Library/Fonts/Apple Symbols.ttf"),
+        ("arial_unicode", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+    ];
+
+    #[cfg(target_os = "windows")]
+    let font_fallbacks: &[(&str, &str)] = &[
+        ("symbols", "C:\\Windows\\Fonts\\seguisym.ttf"),
+        ("segoe", "C:\\Windows\\Fonts\\segoeui.ttf"),
+    ];
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let font_fallbacks: &[(&str, &str)] = &[
+        ("symbols", "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf"),
+        ("symbols_alt", "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf"),
+        ("dejavu", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+    ];
+
+    // Load all available fallback fonts
+    for (name, path) in font_fallbacks {
+        if let Ok(font_data) = std::fs::read(path) {
+            fonts.font_data.insert(
+                (*name).to_owned(),
+                FontData::from_owned(font_data).into(),
+            );
+
+            // Add as fallback for both font families
+            if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
+                family.push((*name).to_owned());
+            }
+            if let Some(family) = fonts.families.get_mut(&FontFamily::Monospace) {
+                family.push((*name).to_owned());
+            }
+
+            info!("[kyco] Loaded fallback font '{}' from: {}", name, path);
+        }
+    }
+
+    ctx.set_fonts(fonts);
 }

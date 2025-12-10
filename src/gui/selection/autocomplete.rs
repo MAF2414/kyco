@@ -79,7 +79,7 @@ impl AutocompleteState {
                 });
                 self.suggestions.push(Suggestion {
                     text: chain_name.to_string(),
-                    description: format!("🔗 {}", desc),
+                    description: format!("[chain] {}", desc),
                     category: "chain",
                 });
             }
@@ -162,7 +162,7 @@ impl AutocompleteState {
                     });
                     self.suggestions.push(Suggestion {
                         text: format!("{}:{}", agent_part, chain_name),
-                        description: format!("🔗 {}", desc),
+                        description: format!("[chain] {}", desc),
                         category: "chain",
                     });
                 }
@@ -225,7 +225,7 @@ impl AutocompleteState {
                     });
                     self.suggestions.push(Suggestion {
                         text: chain_name.to_string(),
-                        description: format!("🔗 {}", desc),
+                        description: format!("[chain] {}", desc),
                         category: "chain",
                     });
                 }

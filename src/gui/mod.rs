@@ -15,6 +15,7 @@
 //! 2. Speech recognition (whisper-rs or external API)
 
 pub mod agents;
+pub mod animations;
 pub mod app;
 pub mod chains;
 pub mod detail_panel;

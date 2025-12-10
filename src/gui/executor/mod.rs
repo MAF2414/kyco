@@ -3,6 +3,7 @@
 //! Runs in a background thread and processes queued jobs
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -48,7 +49,7 @@ pub fn start_executor(
     config: Config,
     job_manager: Arc<Mutex<JobManager>>,
     event_tx: Sender<ExecutorEvent>,
-    max_concurrent_jobs: usize,
+    max_concurrent_jobs: Arc<AtomicUsize>,
 ) {
     thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -67,7 +68,7 @@ async fn executor_loop(
     config: Config,
     job_manager: Arc<Mutex<JobManager>>,
     event_tx: Sender<ExecutorEvent>,
-    max_concurrent_jobs: usize,
+    max_concurrent_jobs: Arc<AtomicUsize>,
 ) {
     let agent_registry = AgentRegistry::with_defaults();
 
@@ -91,8 +92,8 @@ async fn executor_loop(
             (running, next)
         };
 
-        // Start next job if we have capacity
-        if running_count < max_concurrent_jobs {
+        // Start next job if we have capacity (read current limit each iteration)
+        if running_count < max_concurrent_jobs.load(Ordering::Relaxed) {
             if let Some(job) = next_queued {
                 // Spawn job in background so we can start multiple jobs concurrently
                 let work_dir = work_dir.clone();

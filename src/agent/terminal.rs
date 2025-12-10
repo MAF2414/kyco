@@ -1,7 +1,42 @@
-//! Default terminal integration for REPL mode on macOS
+//! Default terminal integration for REPL mode on macOS.
 //!
-//! Spawns agent processes in a new terminal window (foreground),
-//! tracks them via PID, and detects completion when the process exits.
+//! This module provides the [`TerminalAdapter`] for spawning AI agent processes
+//! (Claude, Codex, Gemini) in a separate Terminal.app window. This is useful
+//! for REPL-style interactions where the user can see and interact with the
+//! agent's output in real-time.
+//!
+//! # Architecture
+//!
+//! The terminal integration works by:
+//! 1. Creating a temporary shell script with the agent command
+//! 2. Using AppleScript to open Terminal.app and execute the script
+//! 3. Writing the shell's PID to a temp file for tracking
+//! 4. Polling the PID file and process status to detect completion
+//!
+//! # Session Management
+//!
+//! Active sessions are tracked in a global registry ([`SESSIONS`]) allowing
+//! the TUI to focus specific terminal windows by job ID.
+//!
+//! # Platform Support
+//!
+//! Currently only supports macOS with Terminal.app. The adapter reports
+//! unavailable on other platforms.
+//!
+//! # Example
+//!
+//! ```ignore
+//! use crate::agent::TerminalAdapter;
+//!
+//! // Create an adapter for Claude CLI
+//! let adapter = TerminalAdapter::claude();
+//!
+//! // Check availability before use
+//! if adapter.is_available() {
+//!     // Run a job (normally called via AgentRunner trait)
+//!     let result = adapter.run(&job, &worktree, &config, event_tx).await?;
+//! }
+//! ```
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -16,22 +51,64 @@ use tokio::sync::mpsc;
 use super::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, CliType, Job, LogEvent};
 
-/// A running terminal session
+/// A running terminal session representing an agent executing in Terminal.app.
+///
+/// Each session tracks a single job's execution, including its process ID
+/// for lifecycle monitoring. Sessions are registered globally and can be
+/// retrieved by job ID for operations like focusing the terminal window.
+///
+/// # Fields
+///
+/// - `job_id`: Unique identifier linking this session to a [`Job`]
+/// - `pid`: Process ID of the shell (if successfully captured)
+/// - `running`: Atomic flag for thread-safe status checking
+///
+/// # Lifecycle
+///
+/// 1. Created via [`TerminalSession::spawn`]
+/// 2. Registered in global [`SESSIONS`] map
+/// 3. Polled via [`is_running`](Self::is_running) until completion
+/// 4. Unregistered when the agent finishes
 #[derive(Debug)]
 pub struct TerminalSession {
     /// Job ID this session belongs to
     pub job_id: u64,
-    /// Process ID of the shell running the agent
+    /// Process ID of the shell running the agent (captured from temp PID file)
     pub pid: Option<u32>,
-    /// Whether the session is still running
+    /// Whether the session is still running (atomic for thread-safe access)
     running: Arc<AtomicBool>,
 }
 
 impl TerminalSession {
-    /// Spawn a new terminal session for an agent
+    /// Spawn a new terminal session for an agent.
     ///
-    /// Opens the default terminal in the foreground, runs the command,
-    /// and returns a session handle for tracking.
+    /// Opens Terminal.app in the foreground, executes the agent command,
+    /// and returns a session handle for tracking the process lifecycle.
+    ///
+    /// # Arguments
+    ///
+    /// * `job_id` - Unique job identifier for tracking
+    /// * `binary` - Path to the agent CLI binary (e.g., "claude", "codex")
+    /// * `args` - Additional CLI arguments (system prompts, tool configs, etc.)
+    /// * `prompt` - The task prompt to send to the agent
+    /// * `cwd` - Working directory for the agent process
+    ///
+    /// # Returns
+    ///
+    /// A [`TerminalSession`] handle, or an error if spawning failed.
+    ///
+    /// # Implementation Details
+    ///
+    /// 1. Builds a shell script that writes its PID to a temp file
+    /// 2. Uses AppleScript to open Terminal.app and run the script
+    /// 3. Waits briefly (1.5s) for the PID file to be written
+    /// 4. Returns the session with the captured PID
+    ///
+    /// # Errors
+    ///
+    /// - Script file creation fails
+    /// - AppleScript execution fails
+    /// - Terminal.app is not available
     pub fn spawn(
         job_id: u64,
         binary: &str,
@@ -117,7 +194,17 @@ impl TerminalSession {
         })
     }
 
-    /// Check if the session is still running
+    /// Check if the session is still running.
+    ///
+    /// Uses a two-phase check:
+    /// 1. Checks if the PID file still exists (deleted when script exits)
+    /// 2. Verifies the process is alive via `kill -0`
+    ///
+    /// Updates the internal `running` flag atomically on state change.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the agent process is still executing, `false` otherwise.
     pub fn is_running(&self) -> bool {
         if !self.running.load(Ordering::SeqCst) {
             return false;
@@ -141,7 +228,15 @@ impl TerminalSession {
         true
     }
 
-    /// Focus the terminal window (bring to front)
+    /// Focus the terminal window (bring to front).
+    ///
+    /// Activates Terminal.app, bringing the most recent window to the foreground.
+    /// Note: This brings Terminal.app to focus but doesn't specifically select
+    /// this job's tab/window if multiple are open.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the `open` command fails to execute.
     pub fn focus(&self) -> Result<()> {
         // Just activate Terminal app - it will bring the most recent window to front
         Command::new("open")
@@ -153,7 +248,14 @@ impl TerminalSession {
         Ok(())
     }
 
-    /// Wait for the session to complete
+    /// Wait synchronously for the session to complete.
+    ///
+    /// Blocks the current thread, polling every 500ms until the agent
+    /// process exits. Prefer using async polling in production code.
+    ///
+    /// # Returns
+    ///
+    /// Always returns `true` (success assumed on completion).
     pub fn wait(&self) -> bool {
         while self.is_running() {
             std::thread::sleep(Duration::from_millis(500));
@@ -161,15 +263,28 @@ impl TerminalSession {
         true // Assume success if we got here
     }
 
-    /// Mark the session as completed
+    /// Mark the session as completed manually.
+    ///
+    /// Sets the internal `running` flag to `false`. Useful for external
+    /// cancellation or cleanup scenarios.
     pub fn mark_completed(&self) {
         self.running.store(false, Ordering::SeqCst);
     }
 }
 
-/// Check if a process with the given PID is still running
+/// Check if a process with the given PID is still running.
+///
+/// Uses `kill -0` which sends no signal but checks process existence.
+/// This is a POSIX-standard way to verify a process is alive.
+///
+/// # Arguments
+///
+/// * `pid` - The process ID to check
+///
+/// # Returns
+///
+/// `true` if the process exists and is accessible, `false` otherwise.
 fn is_process_running(pid: u32) -> bool {
-    // Use kill -0 to check if process exists
     Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
@@ -178,58 +293,131 @@ fn is_process_running(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
-/// Escape a string for shell use
+/// Escape a string for safe shell use.
+///
+/// Wraps the string in single quotes and escapes embedded single quotes
+/// using the `'\''` technique (end quote, escaped quote, start quote).
+///
+/// # Example
+///
+/// ```ignore
+/// assert_eq!(shell_escape("hello"), "'hello'");
+/// assert_eq!(shell_escape("it's"), "'it'\\''s'");
+/// ```
 fn shell_escape(s: &str) -> String {
-    // Wrap in single quotes and escape any single quotes
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// Quote a string for AppleScript
-/// Uses the 'quoted form of' equivalent: wrap in double quotes and escape
+/// Quote a string for AppleScript embedding.
+///
+/// Escapes backslashes and double quotes, then wraps in double quotes.
+/// Equivalent to AppleScript's `quoted form of` for string literals.
+///
+/// # Arguments
+///
+/// * `s` - The string to quote
+///
+/// # Returns
+///
+/// A properly escaped string safe for AppleScript interpolation.
 #[allow(dead_code)]
 fn applescript_quote(s: &str) -> String {
-    // Escape backslashes first, then double quotes
     let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
     format!("\"{}\"", escaped)
 }
 
-/// Global registry of active terminal sessions
-/// Used to look up sessions for focus commands
+/// Global registry of active terminal sessions.
+///
+/// Maps job IDs to their corresponding [`TerminalSession`] handles.
+/// Used by the TUI to look up sessions for focus commands (e.g., when
+/// a user presses 'f' to bring a job's terminal to the foreground).
+///
+/// Thread-safe via [`Mutex`] wrapping.
 static SESSIONS: once_cell::sync::Lazy<Mutex<HashMap<u64, Arc<TerminalSession>>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Get a terminal session by job ID
+/// Get a terminal session by job ID.
+///
+/// # Arguments
+///
+/// * `job_id` - The job ID to look up
+///
+/// # Returns
+///
+/// The session handle if found and the mutex is accessible, `None` otherwise.
 pub fn get_session(job_id: u64) -> Option<Arc<TerminalSession>> {
     SESSIONS.lock().ok()?.get(&job_id).cloned()
 }
 
-/// Register a terminal session
+/// Register a terminal session in the global registry.
+///
+/// Called automatically when a new session is spawned via [`TerminalAdapter::run`].
 fn register_session(session: Arc<TerminalSession>) {
     if let Ok(mut sessions) = SESSIONS.lock() {
         sessions.insert(session.job_id, session);
     }
 }
 
-/// Unregister a terminal session
+/// Remove a terminal session from the global registry.
+///
+/// Called automatically when a job completes.
 fn unregister_session(job_id: u64) {
     if let Ok(mut sessions) = SESSIONS.lock() {
         sessions.remove(&job_id);
     }
 }
 
-/// Terminal-based agent adapter for REPL mode
+/// Terminal-based agent adapter for REPL mode.
 ///
-/// Spawns agents in a separate Terminal.app window (minimized by default).
-/// The TUI can focus the terminal window when the user selects the job.
+/// Implements the [`AgentRunner`] trait to spawn AI agents in a separate
+/// Terminal.app window. This adapter is designed for interactive REPL sessions
+/// where users want to see agent output in real-time and potentially interact.
+///
+/// # Supported CLIs
+///
+/// - **Claude** (`claude`): Anthropic's Claude Code CLI
+/// - **Codex** (`codex`): OpenAI's Codex CLI
+/// - **Gemini** (`gemini`): Google's Gemini CLI
+///
+/// # Usage
+///
+/// ```ignore
+/// // Create adapter for specific CLI
+/// let adapter = TerminalAdapter::claude();
+///
+/// // Or use generic constructor
+/// let adapter = TerminalAdapter::new("my-claude", CliType::Claude);
+///
+/// // Check availability (verifies binary exists)
+/// if adapter.is_available() {
+///     // Use via AgentRunner trait
+/// }
+/// ```
+///
+/// # Behavior
+///
+/// When [`run`](AgentRunner::run) is called:
+/// 1. Builds the prompt from job + config templates
+/// 2. Spawns a [`TerminalSession`] with the agent command
+/// 3. Registers the session for focus commands
+/// 4. Polls until the agent process exits
+/// 5. Returns an [`AgentResult`] (success assumed on completion)
 pub struct TerminalAdapter {
+    /// Unique identifier for this adapter instance
     id: String,
+    /// The CLI type this adapter manages
     cli_type: CliType,
 }
 
 use crate::SystemPromptMode;
 
 impl TerminalAdapter {
-    /// Create a new terminal adapter for a given CLI type
+    /// Create a new terminal adapter for a given CLI type.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Unique identifier for this adapter (e.g., "claude-terminal")
+    /// * `cli_type` - The CLI variant to use
     pub fn new(id: impl Into<String>, cli_type: CliType) -> Self {
         Self {
             id: id.into(),
@@ -237,22 +425,31 @@ impl TerminalAdapter {
         }
     }
 
-    /// Create a terminal adapter for Claude
+    /// Create a terminal adapter for Claude Code CLI.
+    ///
+    /// Uses the identifier "claude-terminal".
     pub fn claude() -> Self {
         Self::new("claude-terminal", CliType::Claude)
     }
 
-    /// Create a terminal adapter for Codex
+    /// Create a terminal adapter for OpenAI Codex CLI.
+    ///
+    /// Uses the identifier "codex-terminal".
     pub fn codex() -> Self {
         Self::new("codex-terminal", CliType::Codex)
     }
 
-    /// Create a terminal adapter for Gemini
+    /// Create a terminal adapter for Google Gemini CLI.
+    ///
+    /// Uses the identifier "gemini-terminal".
     pub fn gemini() -> Self {
         Self::new("gemini-terminal", CliType::Gemini)
     }
 
-    /// Build the prompt for a job using the mode template from config
+    /// Build the prompt for a job using the mode template from config.
+    ///
+    /// Substitutes template placeholders (`{file}`, `{line}`, `{target}`, etc.)
+    /// with actual job values.
     fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
         let template = config.get_mode_template(&job.mode);
         let file_path = job.source_file.display().to_string();
@@ -272,7 +469,10 @@ impl TerminalAdapter {
             .replace("{ide_context}", ide_context)
     }
 
-    /// Build the system prompt for a job
+    /// Build the system prompt for a job.
+    ///
+    /// Returns the mode's system prompt with any worktree-specific instructions
+    /// appended. Returns `None` if no system prompt is configured.
     fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
         let template = config.get_mode_template(&job.mode);
         let mut system_prompt = template.system_prompt.unwrap_or_default();
@@ -290,7 +490,13 @@ impl TerminalAdapter {
         }
     }
 
-    /// Build command arguments including system prompt for REPL mode
+    /// Build command arguments including system prompt for REPL mode.
+    ///
+    /// Constructs the CLI arguments based on the agent type and configuration:
+    /// - Adds system prompt flags (`--append-system-prompt` or `--system-prompt`)
+    /// - Adds tool restrictions (`--disallowedTools`, `--allowedTools`)
+    ///
+    /// The handling varies by CLI type due to different CLI interfaces.
     fn build_repl_args(&self, job: &Job, config: &AgentConfig) -> Vec<String> {
         let mut args = config.get_repl_args();
 
