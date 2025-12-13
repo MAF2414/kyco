@@ -235,7 +235,7 @@ fn render_input_field(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) ->
 }
 
 /// Render the microphone button
-/// Returns true if the button was clicked and voice is enabled
+/// Returns true if the button was clicked
 fn render_microphone_button(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) -> bool {
     let mut clicked = false;
 
@@ -246,17 +246,13 @@ fn render_microphone_button(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) 
             VoiceState::Listening => ("◉", ACCENT_GREEN, "Listening for keywords..."),
             VoiceState::Error => ("!", ACCENT_RED, "Voice error - click to retry"),
             VoiceState::Idle => {
-                if state.voice_mode == VoiceInputMode::Disabled {
-                    ("○", TEXT_MUTED, "Voice disabled - enable in Settings")
-                } else {
-                    ("●", ACCENT_CYAN, "Click or ⌘D to record")
-                }
+                // Always show as clickable - will auto-install if needed
+                ("●", ACCENT_CYAN, "Click or ⌘D to record")
             }
         };
 
-        // Button is interactive unless transcribing
-        let is_enabled = state.voice_state != VoiceState::Transcribing
-            && state.voice_mode != VoiceInputMode::Disabled;
+        // Button is interactive unless transcribing (will auto-install if dependencies missing)
+        let is_enabled = state.voice_state != VoiceState::Transcribing;
 
         let mic_button = ui.add_enabled(
             is_enabled,

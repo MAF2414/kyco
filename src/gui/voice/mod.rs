@@ -85,9 +85,9 @@ impl std::fmt::Display for VoiceState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VoiceInputMode {
     /// Voice input disabled
-    #[default]
     Disabled,
     /// Manual: Click microphone button or press hotkey to record
+    #[default]
     Manual,
     /// Hotkey: Holding the hotkey records, releasing transcribes
     HotkeyHold,
@@ -138,7 +138,7 @@ impl Default for VoiceConfig {
         let keywords = action_registry.get_all_wakewords();
 
         Self {
-            mode: VoiceInputMode::Disabled,
+            mode: VoiceInputMode::Manual,
             keywords,
             action_registry,
             whisper_model: "base".to_string(),

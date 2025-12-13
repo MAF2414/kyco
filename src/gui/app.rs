@@ -1482,7 +1482,27 @@ impl KycoApp {
                     self.update_suggestions();
                 }
                 SelectionPopupAction::ToggleRecording => {
-                    self.voice_manager.toggle_recording();
+                    // Auto-install voice dependencies if not available
+                    if !self.voice_manager.is_available() && !self.voice_install_in_progress {
+                        self.voice_install_in_progress = true;
+                        self.voice_install_status = Some(("Installing voice dependencies...".to_string(), false));
+
+                        let model_name = &self.voice_manager.config.whisper_model;
+                        let result = crate::gui::voice::install::install_voice_dependencies(
+                            &self.work_dir,
+                            model_name,
+                        );
+
+                        self.voice_install_status = Some((result.message.clone(), result.is_error));
+                        self.voice_install_in_progress = result.in_progress;
+
+                        // Invalidate availability cache so next check sees the new installation
+                        if !result.is_error {
+                            self.voice_manager.reset();
+                        }
+                    } else if !self.voice_install_in_progress {
+                        self.voice_manager.toggle_recording();
+                    }
                 }
             }
         }
@@ -2096,13 +2116,33 @@ impl eframe::App for KycoApp {
             if self.view_mode == ViewMode::SelectionPopup {
                 let voice_hotkey_pressed = i.modifiers.command && i.key_pressed(Key::D);
 
-                if voice_hotkey_pressed && self.voice_manager.config.mode != VoiceInputMode::Disabled {
-                    if self.voice_manager.state == VoiceState::Idle || self.voice_manager.state == VoiceState::Error {
-                        // Start recording
-                        self.voice_manager.start_recording();
-                    } else if self.voice_manager.state == VoiceState::Recording {
-                        // Stop recording (but don't execute - user can press Enter for that)
-                        self.voice_manager.stop_recording();
+                if voice_hotkey_pressed {
+                    // Auto-install voice dependencies if not available
+                    if !self.voice_manager.is_available() && !self.voice_install_in_progress {
+                        self.voice_install_in_progress = true;
+                        self.voice_install_status = Some(("Installing voice dependencies...".to_string(), false));
+
+                        let model_name = self.voice_manager.config.whisper_model.clone();
+                        let result = crate::gui::voice::install::install_voice_dependencies(
+                            &self.work_dir,
+                            &model_name,
+                        );
+
+                        self.voice_install_status = Some((result.message.clone(), result.is_error));
+                        self.voice_install_in_progress = result.in_progress;
+
+                        // Invalidate availability cache so next check sees the new installation
+                        if !result.is_error {
+                            self.voice_manager.reset();
+                        }
+                    } else if !self.voice_install_in_progress {
+                        if self.voice_manager.state == VoiceState::Idle || self.voice_manager.state == VoiceState::Error {
+                            // Start recording
+                            self.voice_manager.start_recording();
+                        } else if self.voice_manager.state == VoiceState::Recording {
+                            // Stop recording (but don't execute - user can press Enter for that)
+                            self.voice_manager.stop_recording();
+                        }
                     }
                 }
             }
