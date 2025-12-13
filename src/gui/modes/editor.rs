@@ -68,6 +68,126 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
+            // Session mode
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Session Mode:").color(TEXT_MUTED));
+                egui::ComboBox::from_id_salt("mode_session_mode")
+                    .selected_text(&**state.mode_edit_session_mode)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            state.mode_edit_session_mode,
+                            "oneshot".to_string(),
+                            "oneshot",
+                        );
+                        ui.selectable_value(
+                            state.mode_edit_session_mode,
+                            "session".to_string(),
+                            "session",
+                        );
+                    });
+            });
+            ui.add_space(8.0);
+
+            // Max turns
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Max Turns:").color(TEXT_MUTED));
+                ui.add(
+                    egui::TextEdit::singleline(state.mode_edit_max_turns)
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT_PRIMARY)
+                        .hint_text("0 (unlimited)")
+                        .desired_width(120.0),
+                );
+            });
+            ui.add_space(8.0);
+
+            // Model override
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Model:").color(TEXT_MUTED));
+                ui.add(
+                    egui::TextEdit::singleline(state.mode_edit_model)
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT_PRIMARY)
+                        .hint_text("optional")
+                        .desired_width(200.0),
+                );
+            });
+            ui.add_space(16.0);
+
+            ui.separator();
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new("SDK Options")
+                    .monospace()
+                    .color(TEXT_PRIMARY),
+            );
+            ui.add_space(8.0);
+
+            // Claude permission mode
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Claude Permissions:").color(TEXT_MUTED));
+                egui::ComboBox::from_id_salt("mode_claude_permission")
+                    .selected_text(&**state.mode_edit_claude_permission)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            state.mode_edit_claude_permission,
+                            "auto".to_string(),
+                            "auto",
+                        );
+                        ui.selectable_value(
+                            state.mode_edit_claude_permission,
+                            "default".to_string(),
+                            "default",
+                        );
+                        ui.selectable_value(
+                            state.mode_edit_claude_permission,
+                            "acceptEdits".to_string(),
+                            "acceptEdits",
+                        );
+                        ui.selectable_value(
+                            state.mode_edit_claude_permission,
+                            "bypassPermissions".to_string(),
+                            "bypassPermissions",
+                        );
+                        ui.selectable_value(
+                            state.mode_edit_claude_permission,
+                            "plan".to_string(),
+                            "plan",
+                        );
+                    });
+            });
+            ui.add_space(8.0);
+
+            // Codex sandbox
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Codex Sandbox:").color(TEXT_MUTED));
+                egui::ComboBox::from_id_salt("mode_codex_sandbox")
+                    .selected_text(&**state.mode_edit_codex_sandbox)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            state.mode_edit_codex_sandbox,
+                            "auto".to_string(),
+                            "auto",
+                        );
+                        ui.selectable_value(
+                            state.mode_edit_codex_sandbox,
+                            "read-only".to_string(),
+                            "read-only",
+                        );
+                        ui.selectable_value(
+                            state.mode_edit_codex_sandbox,
+                            "workspace-write".to_string(),
+                            "workspace-write",
+                        );
+                        ui.selectable_value(
+                            state.mode_edit_codex_sandbox,
+                            "danger-full-access".to_string(),
+                            "danger-full-access",
+                        );
+                    });
+            });
+            ui.add_space(16.0);
+
             // Allowed tools
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Allowed Tools:").color(TEXT_MUTED));

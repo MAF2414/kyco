@@ -3,7 +3,7 @@ name = "kyco"
 version = "0.7.2"
 edition = "2024"
 description = "Know Your Codebase - AI-powered code tasks with transparency"
-license = "MIT"
+license = "CC-BY-NC-ND-4.0"
 
 [[bin]]
 name = "kyco"
@@ -34,15 +34,7 @@ toml = "0.9"
 anyhow = "1"
 thiserror = "2"
 
-# Regex for comment parsing
-regex = "1"
-
 # File system utilities
-walkdir = "2"
-ignore = "0.4"
-globset = "0.4"
-notify = "8"
-notify-debouncer-mini = "0.7"
 dirs = "6"
 
 # Logging
@@ -64,12 +56,13 @@ portable-pty = "0.9"
 
 # Lazy static initialization
 once_cell = "1.19"
+getrandom = "0.2"
 
 # HTTP server for extension communication
 tiny_http = "0.12"
 
-# HTTP client for update checks
-ureq = "2"
+# HTTP client for update checks and SDK bridge
+ureq = { version = "2", features = ["json"] }
 
 # Semantic versioning for update comparison
 semver = "1"

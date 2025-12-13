@@ -37,7 +37,9 @@ pub fn create_job_from_selection(
     let tag = CommentTag {
         file_path: PathBuf::from(&file_path),
         line_number,
-        raw_line: format!("// @{}:{} {}", agent, mode, prompt),
+        // Selection-based jobs are not created from on-disk marker comments.
+        // Keep this empty so the executor doesn't try to "remove" a tag from the source file.
+        raw_line: String::new(),
         agent: agent.to_string(),
         agents: vec![agent.to_string()],
         mode: mode.to_string(),
@@ -127,10 +129,9 @@ pub fn kill_job(
     }
 }
 
-/// Mark a REPL job as complete
+/// Mark a legacy REPL job as complete
 ///
-/// REPL jobs run in a separate Terminal.app window. The user clicks this
-/// when they've finished their work in the terminal.
+/// Legacy: REPL jobs used to run in a separate Terminal.app window.
 pub fn mark_job_complete(
     job_manager: &Arc<Mutex<JobManager>>,
     job_id: JobId,
@@ -188,7 +189,8 @@ pub fn create_jobs_from_selection_multi(
         let tag = CommentTag {
             file_path: PathBuf::from(&file_path),
             line_number,
-            raw_line: format!("// @{}:{} {}", agent, mode, prompt),
+            // Selection-based jobs are not created from on-disk marker comments.
+            raw_line: String::new(),
             agent: agent.to_string(),
             agents: vec![agent.to_string()],
             mode: mode.to_string(),
@@ -205,13 +207,16 @@ pub fn create_jobs_from_selection_multi(
         if let Ok(mut manager) = job_manager.lock() {
             match manager.create_job_with_range(&tag, agent, line_end) {
                 Ok(job_id) => {
-                    // Set IDE context and force_worktree if available
+                    // Set IDE context, workspace, and force_worktree if available
                     if let Some(job) = manager.get_mut(job_id) {
                         let ide_context = selection.format_ide_context();
                         if !ide_context.trim().is_empty() && ide_context.lines().count() > 1 {
                             job.ide_context = Some(ide_context);
                         }
                         job.force_worktree = force_worktree;
+                        // Set workspace association
+                        job.workspace_id = selection.workspace_id;
+                        job.workspace_path = selection.workspace_path.clone();
                     }
                     logs.push(LogEvent::system(format!("Created job #{}", job_id)));
                     return Some(CreateJobsResult {
@@ -241,7 +246,8 @@ pub fn create_jobs_from_selection_multi(
         let tag = CommentTag {
             file_path: PathBuf::from(&file_path),
             line_number,
-            raw_line: format!("// @{}:{} {}", agent, mode, prompt),
+            // Selection-based jobs are not created from on-disk marker comments.
+            raw_line: String::new(),
             agent: agent.to_string(),
             agents: agents.iter().cloned().collect(),
             mode: mode.to_string(),
@@ -258,7 +264,7 @@ pub fn create_jobs_from_selection_multi(
         if let Ok(mut manager) = job_manager.lock() {
             match manager.create_job_with_range(&tag, agent, line_end) {
                 Ok(job_id) => {
-                    // Set the group_id, IDE context, and force_worktree on the job
+                    // Set the group_id, workspace, IDE context, and force_worktree on the job
                     if let Some(job) = manager.get_mut(job_id) {
                         job.group_id = Some(group_id);
                         let ide_context = selection.format_ide_context();
@@ -266,6 +272,9 @@ pub fn create_jobs_from_selection_multi(
                             job.ide_context = Some(ide_context);
                         }
                         job.force_worktree = force_worktree;
+                        // Set workspace association
+                        job.workspace_id = selection.workspace_id;
+                        job.workspace_path = selection.workspace_path.clone();
                     }
 
                     // Add to group

@@ -1,7 +1,7 @@
 //! Default terminal integration for REPL mode on macOS.
 //!
 //! This module provides the [`TerminalAdapter`] for spawning AI agent processes
-//! (Claude, Codex, Gemini) in a separate Terminal.app window. This is useful
+//! (Claude, Codex) in a separate Terminal.app window. This is useful
 //! for REPL-style interactions where the user can see and interact with the
 //! agent's output in real-time.
 //!
@@ -377,7 +377,6 @@ fn unregister_session(job_id: u64) {
 ///
 /// - **Claude** (`claude`): Anthropic's Claude Code CLI
 /// - **Codex** (`codex`): OpenAI's Codex CLI
-/// - **Gemini** (`gemini`): Google's Gemini CLI
 ///
 /// # Usage
 ///
@@ -437,13 +436,6 @@ impl TerminalAdapter {
     /// Uses the identifier "codex-terminal".
     pub fn codex() -> Self {
         Self::new("codex-terminal", CliType::Codex)
-    }
-
-    /// Create a terminal adapter for Google Gemini CLI.
-    ///
-    /// Uses the identifier "gemini-terminal".
-    pub fn gemini() -> Self {
-        Self::new("gemini-terminal", CliType::Gemini)
     }
 
     /// Build the prompt for a job using the mode template from config.
@@ -511,13 +503,10 @@ impl TerminalAdapter {
                     }
                 }
                 SystemPromptMode::Replace => {
-                    // For Gemini or when explicitly replacing
+                    // For Claude or when explicitly replacing
                     if self.cli_type == CliType::Claude {
                         args.push("--system-prompt".to_string());
                         args.push(system_prompt);
-                    } else if self.cli_type == CliType::Gemini {
-                        // Gemini uses different mechanism (GEMINI.md files)
-                        // System prompt passed differently - for now skip
                     }
                 }
                 SystemPromptMode::ConfigOverride => {
@@ -572,9 +561,10 @@ impl AgentRunner for TerminalAdapter {
         let repl_args = self.build_repl_args(job, config);
 
         // Spawn in terminal
+        let binary = config.get_binary();
         let session = TerminalSession::spawn(
             job_id,
-            &config.binary,
+            &binary,
             &repl_args,
             &prompt,
             worktree,
@@ -632,6 +622,7 @@ impl AgentRunner for TerminalAdapter {
             duration_ms: None,
             sent_prompt: Some(prompt.clone()),
             output_text: None,
+            session_id: None, // Terminal mode doesn't support session continuation
         })
     }
 
@@ -646,8 +637,7 @@ impl AgentRunner for TerminalAdapter {
             let binary = match self.cli_type {
                 CliType::Claude => "claude",
                 CliType::Codex => "codex",
-                CliType::Gemini => "gemini",
-                CliType::Custom => return false,
+                CliType::Gemini | CliType::Custom => return false,
             };
 
             std::process::Command::new("which")

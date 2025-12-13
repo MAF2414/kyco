@@ -3,9 +3,9 @@
 use anyhow::Result;
 use std::path::Path;
 
-use kyco::git::GitManager;
-use kyco::job::JobManager;
-use kyco::JobStatus;
+use crate::git::GitManager;
+use crate::job::JobManager;
+use crate::JobStatus;
 
 /// Show the status of all jobs
 pub async fn status_command(work_dir: &Path, filter: Option<String>) -> Result<()> {
@@ -79,17 +79,17 @@ fn cleanup_rejected_worktrees(manager: &mut JobManager, work_dir: &Path) {
         Err(_) => return,
     };
 
-    // Collect rejected job IDs that have worktrees
+    // Collect rejected jobs that have worktrees
     let rejected_with_worktrees: Vec<_> = manager
         .jobs()
         .iter()
         .filter(|j| j.status == JobStatus::Rejected && j.git_worktree_path.is_some())
-        .map(|j| j.id)
+        .filter_map(|j| j.git_worktree_path.clone().map(|p| (j.id, p)))
         .collect();
 
     // Clean up each worktree
-    for job_id in rejected_with_worktrees {
-        if let Err(e) = git.remove_worktree(job_id) {
+    for (job_id, worktree_path) in rejected_with_worktrees {
+        if let Err(e) = git.remove_worktree_by_path(&worktree_path) {
             eprintln!("Warning: Failed to remove worktree for job #{}: {}", job_id, e);
         } else {
             // Clear the worktree path on the job

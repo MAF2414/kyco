@@ -3,7 +3,7 @@
 //! Renders the agents configuration view where users can:
 //! - List all available agents
 //! - Create new agents
-//! - Edit existing agents (binary, cli_type, mode args, etc.)
+//! - Edit existing agents (SDK selection, session mode, tool restrictions, etc.)
 //! - Delete agents
 
 mod editor;

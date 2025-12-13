@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-mod cli;
+use kyco::cli;
 
 #[derive(Parser)]
 #[command(name = "kyco")]
@@ -27,13 +27,6 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Scan the repository for cr: comments and show found tasks
-    Scan {
-        /// Only show pending tasks (no status marker)
-        #[arg(long)]
-        pending_only: bool,
-    },
-
     /// Run the GUI (receives selections from IDE extensions via HTTP)
     Gui,
 
@@ -67,24 +60,22 @@ async fn main() -> Result<()> {
 
     // Determine the working directory
     let work_dir = cli.path.unwrap_or_else(|| PathBuf::from("."));
+    let config_path = cli.config.clone();
 
     match cli.command {
-        Some(Commands::Scan { pending_only }) => {
-            cli::scan::scan_command(&work_dir, pending_only).await?;
-        }
         Some(Commands::Gui) => {
             // Run the main GUI application
-            kyco::gui::run_gui()?;
+            kyco::gui::run_gui(work_dir.clone(), config_path.clone())?;
         }
         Some(Commands::Status { filter }) => {
             cli::status::status_command(&work_dir, filter).await?;
         }
         Some(Commands::Init { force }) => {
-            cli::init::init_command(&work_dir, force).await?;
+            cli::init::init_command(&work_dir, config_path.clone(), force).await?;
         }
         None => {
             // Default: run the GUI
-            kyco::gui::run_gui()?;
+            kyco::gui::run_gui(work_dir.clone(), config_path.clone())?;
         }
     }
 

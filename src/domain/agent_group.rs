@@ -2,7 +2,7 @@
 //!
 //! An AgentRunGroup represents a collection of jobs that all process the same
 //! prompt in parallel, but with different agents. This enables users to compare
-//! results from multiple agents (e.g., claude+codex+gemini) and select the best one.
+//! results from multiple agents (e.g., claude+codex) and select the best one.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

@@ -5,16 +5,35 @@
 //! - POST /batch - Batch processing of multiple files
 
 use serde::Deserialize;
+use std::io::Read;
 use std::sync::mpsc::Sender;
 use std::thread;
 use tiny_http::{Response, Server};
 use tracing::{error, info};
+
+const AUTH_HEADER: &str = "X-KYCO-Token";
+const MAX_BODY_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
 
 /// Dependency location from IDE
 #[derive(Debug, Clone, Deserialize)]
 pub struct Dependency {
     pub file_path: String,
     pub line: usize,
+}
+
+/// Diagnostic (error, warning, etc.) from IDE
+#[derive(Debug, Clone, Deserialize)]
+pub struct Diagnostic {
+    /// Severity level: Error, Warning, Information, or Hint
+    pub severity: String,
+    /// The diagnostic message
+    pub message: String,
+    /// Line number (1-indexed)
+    pub line: usize,
+    /// Column number (1-indexed)
+    pub column: usize,
+    /// Optional error/warning code from the language server
+    pub code: Option<String>,
 }
 
 /// Selection data received from IDE extensions
@@ -25,10 +44,17 @@ pub struct SelectionRequest {
     pub line_start: Option<usize>,
     pub line_end: Option<usize>,
     pub workspace: Option<String>,
+    /// Git repository root if file is in a git repo, None otherwise
+    pub git_root: Option<String>,
+    /// Project root: git_root > workspace_folder > file's parent dir
+    /// This is the path that should be used as cwd for the agent
+    pub project_root: Option<String>,
     pub dependencies: Option<Vec<Dependency>>,
     pub dependency_count: Option<usize>,
     pub additional_dependency_count: Option<usize>,
     pub related_tests: Option<Vec<String>>,
+    /// Diagnostics (errors, warnings) from the IDE for this file
+    pub diagnostics: Option<Vec<Diagnostic>>,
 }
 
 /// A single file in a batch request
@@ -38,6 +64,10 @@ pub struct BatchFile {
     pub path: String,
     /// Workspace root directory
     pub workspace: String,
+    /// Git repository root if file is in a git repo
+    pub git_root: Option<String>,
+    /// Project root: git_root > workspace > file's parent dir
+    pub project_root: Option<String>,
     /// Optional: start line for selection
     pub line_start: Option<usize>,
     /// Optional: end line for selection
@@ -104,6 +134,40 @@ impl SelectionRequest {
             }
         }
 
+        // Diagnostics (Errors/Warnings)
+        if let Some(ref diagnostics) = self.diagnostics {
+            if !diagnostics.is_empty() {
+                let errors: Vec<_> = diagnostics.iter().filter(|d| d.severity == "Error").collect();
+                let warnings: Vec<_> = diagnostics.iter().filter(|d| d.severity == "Warning").collect();
+
+                ctx.push_str("\n### Diagnostics:\n");
+
+                if !errors.is_empty() {
+                    ctx.push_str(&format!("**Errors ({}):**\n", errors.len()));
+                    for diag in errors {
+                        ctx.push_str(&format!(
+                            "- Line {}: {}{}\n",
+                            diag.line,
+                            diag.message,
+                            diag.code.as_ref().map(|c| format!(" [{}]", c)).unwrap_or_default()
+                        ));
+                    }
+                }
+
+                if !warnings.is_empty() {
+                    ctx.push_str(&format!("**Warnings ({}):**\n", warnings.len()));
+                    for diag in warnings {
+                        ctx.push_str(&format!(
+                            "- Line {}: {}{}\n",
+                            diag.line,
+                            diag.message,
+                            diag.code.as_ref().map(|c| format!(" [{}]", c)).unwrap_or_default()
+                        ));
+                    }
+                }
+            }
+        }
+
         ctx
     }
 }
@@ -113,15 +177,23 @@ impl SelectionRequest {
 pub fn start_http_server(
     selection_tx: Sender<SelectionRequest>,
     batch_tx: Sender<BatchRequest>,
+    port: u16,
+    auth_token: Option<String>,
 ) {
     thread::spawn(move || {
-        let server = match Server::http("127.0.0.1:9876") {
+        let bind_addr = format!("127.0.0.1:{}", port);
+        let server = match Server::http(&bind_addr) {
             Ok(s) => {
-                info!("[kyco:http] Server listening on http://127.0.0.1:9876");
+                let auth_enabled = auth_token.as_deref().map_or(false, |t| !t.trim().is_empty());
+                info!(
+                    "[kyco:http] Server listening on http://{} (auth: {})",
+                    bind_addr,
+                    if auth_enabled { "enabled" } else { "disabled" }
+                );
                 s
             }
             Err(e) => {
-                error!("[kyco:http] Failed to start server: {}", e);
+                error!("[kyco:http] Failed to start server on {}: {}", bind_addr, e);
                 return;
             }
         };
@@ -132,10 +204,29 @@ pub fn start_http_server(
 
             // Read body for POST requests
             if method == "POST" {
+                if !is_authorized(&request, auth_token.as_deref()) {
+                    let response = Response::from_string("{\"error\":\"unauthorized\"}")
+                        .with_status_code(401)
+                        .with_header(json_content_type());
+                    let _ = request.respond(response);
+                    continue;
+                }
+
                 let mut body = String::new();
-                if let Err(e) = request.as_reader().read_to_string(&mut body) {
+                let mut reader = request.as_reader().take((MAX_BODY_BYTES + 1) as u64);
+                if let Err(e) = reader.read_to_string(&mut body) {
                     error!("[kyco:http] Failed to read body: {}", e);
-                    let response = Response::from_string("Bad Request").with_status_code(400);
+                    let response = Response::from_string("{\"error\":\"bad_request\"}")
+                        .with_status_code(400)
+                        .with_header(json_content_type());
+                    let _ = request.respond(response);
+                    continue;
+                }
+
+                if body.len() > MAX_BODY_BYTES {
+                    let response = Response::from_string("{\"error\":\"payload_too_large\"}")
+                        .with_status_code(413)
+                        .with_header(json_content_type());
                     let _ = request.respond(response);
                     continue;
                 }
@@ -160,41 +251,39 @@ pub fn start_http_server(
     });
 }
 
+fn is_authorized(request: &tiny_http::Request, expected: Option<&str>) -> bool {
+    let Some(expected) = expected.filter(|t| !t.trim().is_empty()) else {
+        return true;
+    };
+
+    request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv(AUTH_HEADER))
+        .map(|h| h.value.as_str() == expected)
+        .unwrap_or(false)
+}
+
+fn json_content_type() -> tiny_http::Header {
+    tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap()
+}
+
 /// Handle POST /selection request
 fn handle_selection_request(
     tx: &Sender<SelectionRequest>,
     body: &str,
     request: tiny_http::Request,
 ) {
-    // Log raw body for debugging
-    info!("[kyco:http] Raw body: {}", body);
-    eprintln!("[kyco:http] === RECEIVED FROM EXTENSION ===");
-    eprintln!("{}", body);
-    eprintln!("[kyco:http] ================================");
-
     // Parse JSON
     match serde_json::from_str::<SelectionRequest>(body) {
         Ok(selection) => {
-            eprintln!("[kyco:http] Parsed selection:");
-            eprintln!("  file_path: {:?}", selection.file_path);
-            eprintln!("  line_start: {:?}", selection.line_start);
-            eprintln!("  line_end: {:?}", selection.line_end);
-            eprintln!(
-                "  selected_text length: {:?}",
-                selection.selected_text.as_ref().map(|s| s.len())
-            );
-            if let Some(ref text) = selection.selected_text {
-                let preview: String = text.chars().take(200).collect();
-                eprintln!("  selected_text preview: {:?}", preview);
-            }
-            eprintln!("  workspace: {:?}", selection.workspace);
-
             info!(
-                "[kyco:http] Received selection: file={:?}, lines={:?}-{:?}, text_len={:?}",
+                "[kyco:http] Received selection: file={:?}, lines={:?}-{:?}, text_len={:?}, workspace={:?}",
                 selection.file_path,
                 selection.line_start,
                 selection.line_end,
-                selection.selected_text.as_ref().map(|s| s.len())
+                selection.selected_text.as_ref().map(|s| s.len()),
+                selection.workspace
             );
 
             // Send to GUI
@@ -202,17 +291,13 @@ fn handle_selection_request(
                 error!("[kyco:http] Failed to send to GUI: {}", e);
             }
 
-            let response = Response::from_string("{\"status\":\"ok\"}").with_header(
-                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                    .unwrap(),
-            );
+            let response = Response::from_string("{\"status\":\"ok\"}").with_header(json_content_type());
             let _ = request.respond(response);
         }
         Err(e) => {
             error!("[kyco:http] Invalid JSON: {}", e);
-            eprintln!("[kyco:http] JSON parse error: {}", e);
             let response =
-                Response::from_string(format!("{{\"error\":\"{}\"}}", e)).with_status_code(400);
+                Response::from_string(format!("{{\"error\":\"{}\"}}", e)).with_status_code(400).with_header(json_content_type());
             let _ = request.respond(response);
         }
     }
@@ -220,39 +305,22 @@ fn handle_selection_request(
 
 /// Handle POST /batch request
 fn handle_batch_request(tx: &Sender<BatchRequest>, body: &str, request: tiny_http::Request) {
-    info!("[kyco:http] Batch request received");
-    eprintln!("[kyco:http] === BATCH REQUEST ===");
-    eprintln!("{}", body);
-    eprintln!("[kyco:http] ====================");
-
     match serde_json::from_str::<BatchRequest>(body) {
         Ok(batch) => {
             info!("[kyco:http] Batch: {} files", batch.files.len());
-            eprintln!("[kyco:http] Parsed batch:");
-            eprintln!("  files: {} total", batch.files.len());
-            for (i, f) in batch.files.iter().take(5).enumerate() {
-                eprintln!("    [{}] {}", i, f.path);
-            }
-            if batch.files.len() > 5 {
-                eprintln!("    ... and {} more", batch.files.len() - 5);
-            }
 
             // Send to GUI (will open batch popup for mode/agent/prompt selection)
             if let Err(e) = tx.send(batch) {
                 error!("[kyco:http] Failed to send batch to GUI: {}", e);
             }
 
-            let response = Response::from_string("{\"status\":\"ok\"}").with_header(
-                tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                    .unwrap(),
-            );
+            let response = Response::from_string("{\"status\":\"ok\"}").with_header(json_content_type());
             let _ = request.respond(response);
         }
         Err(e) => {
             error!("[kyco:http] Invalid batch JSON: {}", e);
-            eprintln!("[kyco:http] Batch JSON parse error: {}", e);
             let response =
-                Response::from_string(format!("{{\"error\":\"{}\"}}", e)).with_status_code(400);
+                Response::from_string(format!("{{\"error\":\"{}\"}}", e)).with_status_code(400).with_header(json_content_type());
             let _ = request.respond(response);
         }
     }

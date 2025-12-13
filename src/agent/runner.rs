@@ -1,7 +1,7 @@
 //! Generic agent runner trait for executing coding agents.
 //!
 //! This module defines the [`AgentRunner`] trait that all agent adapters must implement,
-//! enabling a unified interface for executing different AI coding agents (Claude, Codex, Gemini, etc.).
+//! enabling a unified interface for executing different AI coding agents (Claude, Codex, etc.).
 //!
 //! # Architecture
 //!
@@ -71,9 +71,15 @@ pub struct AgentResult {
 
     /// The text output from the agent.
     ///
-    /// Used for parsing structured output blocks like `---kyco` that contain
+    /// Used for parsing structured output blocks like `---` that contain
     /// job result metadata (title, status, summary, state).
     pub output_text: Option<String>,
+
+    /// Session ID from the Bridge for session continuation.
+    ///
+    /// For session-mode jobs, this ID can be used to send follow-up prompts
+    /// to continue the conversation.
+    pub session_id: Option<String>,
 }
 
 /// Trait for agent adapters.
@@ -89,7 +95,6 @@ pub struct AgentResult {
 ///
 /// - `ClaudeAdapter` - Anthropic's Claude Code CLI
 /// - `CodexAdapter` - OpenAI's Codex CLI
-/// - `GeminiAdapter` - Google's Gemini CLI
 /// - `TerminalAdapter` - Interactive terminal/REPL mode
 #[async_trait]
 pub trait AgentRunner: Send + Sync {
@@ -126,7 +131,7 @@ pub trait AgentRunner: Send + Sync {
 
     /// Get the unique identifier for this agent.
     ///
-    /// Returns a string like `"claude"`, `"codex"`, or `"gemini"` that matches
+    /// Returns a string like `"claude"` or `"codex"` that matches
     /// the agent ID used in configuration files.
     fn id(&self) -> &str;
 

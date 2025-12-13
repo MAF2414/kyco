@@ -9,30 +9,22 @@ pub struct Settings {
     #[serde(default = "default_max_concurrent_jobs")]
     pub max_concurrent_jobs: usize,
 
-    /// Debounce interval for file watcher in milliseconds
-    #[serde(default = "default_debounce_ms")]
-    pub debounce_ms: u64,
-
     /// Automatically run new jobs when found (no manual confirmation)
     #[serde(default = "default_auto_run")]
     pub auto_run: bool,
-
-    /// Files/directories to exclude from scanning (glob patterns)
-    /// Default: ["kyco.toml", ".kyco/**"]
-    #[serde(default = "default_scan_exclude")]
-    pub scan_exclude: Vec<String>,
-
-    /// Marker prefix for comment detection
-    /// Default: "@" - e.g., @docs, @fix, @claude:test
-    /// Alternatives: "::", "cr:", "TODO:", etc.
-    #[serde(default = "default_marker_prefix")]
-    pub marker_prefix: String,
 
     /// Use Git worktrees for job isolation
     /// When true, each job runs in a separate Git worktree
     /// When false (default), jobs run in the main working directory
     #[serde(default = "default_use_worktree")]
     pub use_worktree: bool,
+
+    /// Maximum concurrent jobs per file (only applies when use_worktree = false)
+    /// When set to 1 (default), only one job can run on a file at a time.
+    /// This prevents agents from overwriting each other's changes.
+    /// Higher values allow parallel edits but risk lost changes.
+    #[serde(default = "default_max_jobs_per_file")]
+    pub max_jobs_per_file: usize,
 
     /// GUI settings
     #[serde(default)]
@@ -41,6 +33,21 @@ pub struct Settings {
     /// Registry settings for agent adapters
     #[serde(default)]
     pub registry: RegistrySettings,
+
+    /// Claude-specific settings
+    #[serde(default)]
+    pub claude: ClaudeSettings,
+}
+
+/// Claude-specific settings
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClaudeSettings {
+    /// Allowlisted local plugin paths to load into Claude Agent SDK sessions.
+    ///
+    /// Security note: plugins are Node.js code that runs inside the KYCO bridge process.
+    /// Only load plugins you trust, and keep this list as small as possible.
+    #[serde(default)]
+    pub allowed_plugin_paths: Vec<String>,
 }
 
 /// GUI-specific settings
@@ -65,6 +72,24 @@ pub struct GuiSettings {
     /// This YAML block helps structure the output for better GUI display
     #[serde(default = "default_output_schema")]
     pub output_schema: String,
+
+    /// Optional JSON Schema used for SDK structured output.
+    ///
+    /// When set, Claude and Codex will be asked to produce JSON matching this schema.
+    /// Leave empty to keep the YAML summary footer behavior.
+    #[serde(default)]
+    pub structured_output_schema: String,
+
+    /// Local HTTP server port for IDE extensions
+    /// Default: 9876
+    #[serde(default = "default_gui_http_port")]
+    pub http_port: u16,
+
+    /// Shared secret required for IDE extension requests (sent as `X-KYCO-Token`)
+    ///
+    /// If empty, the server will accept unauthenticated requests (not recommended).
+    #[serde(default)]
+    pub http_token: String,
 
     /// Voice input settings
     #[serde(default)]
@@ -180,27 +205,27 @@ fn default_gui_mode() -> String {
 
 fn default_output_schema() -> String {
     r#"
-IMPORTANT: End your response with this YAML block:
----kyco
+IMPORTANT: End your response with a structured YAML summary block:
+---
 title: Short task title (max 60 chars)
+commit_subject: Suggested git commit subject (max 72 chars)
+commit_body: |
+  Suggested git commit body (optional, can be multiline)
 details: What was done (2-3 sentences)
 status: success|partial|failed
 summary: |
   Detailed summary of findings and actions (optional, can be multiline).
   This is passed to the next agent in a chain for context.
-  Include all relevant information the next step might need.
 state: <state_identifier>
 ---
 
-STATE IDENTIFIERS (use exactly these values):
-- For review: "issues_found" or "no_issues"
-- For fix: "fixed" or "unfixable"
-- For tests: "tests_pass" or "tests_fail"
-- For implement: "implemented" or "blocked"
-- For refactor: "refactored"
-- For docs: "documented"
+STATE VALUES: issues_found, no_issues, fixed, unfixable, tests_pass, tests_fail, implemented, blocked, refactored, documented
 "#
     .to_string()
+}
+
+fn default_gui_http_port() -> u16 {
+    9876
 }
 
 impl Default for GuiSettings {
@@ -210,6 +235,9 @@ impl Default for GuiSettings {
             default_agent: default_gui_agent(),
             default_mode: default_gui_mode(),
             output_schema: default_output_schema(),
+            structured_output_schema: String::new(),
+            http_port: default_gui_http_port(),
+            http_token: String::new(),
             voice: VoiceSettings::default(),
         }
     }
@@ -221,37 +249,28 @@ fn default_max_concurrent_jobs() -> usize {
     4
 }
 
-fn default_debounce_ms() -> u64 {
-    500
-}
-
 fn default_auto_run() -> bool {
-    false
-}
-
-fn default_scan_exclude() -> Vec<String> {
-    vec!["kyco.toml".to_string(), ".kyco/**".to_string()]
-}
-
-fn default_marker_prefix() -> String {
-    "@@".to_string()
+    true
 }
 
 fn default_use_worktree() -> bool {
     false
 }
 
+fn default_max_jobs_per_file() -> usize {
+    1 // Only one job per file to prevent agents overwriting each other's changes
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
             max_concurrent_jobs: default_max_concurrent_jobs(),
-            debounce_ms: default_debounce_ms(),
             auto_run: default_auto_run(),
-            scan_exclude: default_scan_exclude(),
-            marker_prefix: default_marker_prefix(),
             use_worktree: default_use_worktree(),
+            max_jobs_per_file: default_max_jobs_per_file(),
             gui: GuiSettings::default(),
             registry: RegistrySettings::default(),
+            claude: ClaudeSettings::default(),
         }
     }
 }
@@ -267,7 +286,7 @@ pub struct RegistrySettings {
 
     /// List of disabled adapter IDs
     /// These adapters will not be registered even if available
-    /// Example: ["gemini"] - gemini adapter will be skipped
+    /// Example: ["claude-terminal"] - terminal adapter will be skipped
     #[serde(default)]
     pub disabled_adapters: Vec<String>,
 

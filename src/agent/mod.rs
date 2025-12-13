@@ -1,9 +1,7 @@
 //! Agent execution and management.
 //!
 //! This module provides the core abstraction layer for executing AI coding agents.
-//! It supports multiple agent backends (Claude, Codex, Gemini) through a unified
-//! [`AgentRunner`] trait, enabling the system to dispatch jobs to different AI models
-//! seamlessly.
+//! Agents run through the local Bridge server for SDK-based control.
 //!
 //! # Architecture
 //!
@@ -11,13 +9,10 @@
 //!
 //! - **[`AgentRunner`]** - The core trait that all agent adapters implement, defining
 //!   how to execute a job and stream results.
-//! - **Adapters** - Backend-specific implementations:
-//!   - [`ClaudeAdapter`] - Anthropic's Claude models via Claude Code CLI
-//!   - [`CodexAdapter`] - OpenAI's Codex/GPT models via OpenAI Codex CLI
-//!   - [`GeminiAdapter`] - Google's Gemini models via Gemini CLI
-//!   - [`TerminalAdapter`] - Direct terminal execution for custom commands
-//! - **[`AgentRegistry`]** - Manages available agents and their configurations,
-//!   providing lookup and instantiation.
+//! - **SDK Adapters** - Backend-specific implementations:
+//!   - [`ClaudeBridgeAdapter`] - Anthropic's Claude via Claude Agent SDK
+//!   - [`CodexBridgeAdapter`] - OpenAI's Codex via Codex SDK
+//! - **[`AgentRegistry`]** - Manages available agents and selects an adapter per job.
 //! - **[`ChainRunner`]** - Executes sequential chains of modes, passing context
 //!   between steps for multi-stage workflows.
 //!
@@ -27,25 +22,32 @@
 //! use kyco::agent::{AgentRegistry, AgentResult};
 //!
 //! // Create a registry and get an agent adapter
-//! let registry = AgentRegistry::new(&config);
-//! let adapter = registry.get_adapter("claude")?;
+//! let registry = AgentRegistry::new();
+//! let adapter = registry.get("claude")?;
 //!
 //! // Execute a job
 //! let result: AgentResult = adapter.run(&job, &worktree, &agent_config, event_tx).await?;
 //! ```
 
 mod runner;
-mod claude;
-mod codex;
-mod gemini;
-mod terminal;
 mod registry;
 mod chain;
+pub mod bridge;
+
+// Legacy modules - kept for backwards compatibility but deprecated
+mod claude;
+mod codex;
+mod terminal;
 
 pub use runner::{AgentRunner, AgentResult};
-pub use claude::{ClaudeAdapter, StreamEvent};
-pub use codex::CodexAdapter;
-pub use gemini::GeminiAdapter;
-pub use terminal::{get_session as get_terminal_session, TerminalAdapter, TerminalSession};
-pub use registry::AgentRegistry;
+pub use registry::{AgentRegistry, DEFAULT_TERMINAL_SUFFIX};
 pub use chain::{ChainRunner, ChainResult, ChainStepResult};
+pub use bridge::{BridgeClient, BridgeProcess, ClaudeBridgeAdapter, CodexBridgeAdapter};
+
+// Legacy exports - deprecated, use bridge adapters instead
+#[deprecated(note = "Use ClaudeBridgeAdapter instead")]
+pub use claude::{ClaudeAdapter, StreamEvent};
+#[deprecated(note = "Use CodexBridgeAdapter instead")]
+pub use codex::CodexAdapter;
+#[deprecated(note = "Sessions are now handled by SDK adapters")]
+pub use terminal::{get_session as get_terminal_session, TerminalAdapter, TerminalSession};

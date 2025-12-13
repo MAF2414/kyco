@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 
-use kyco::git::GitManager;
+use kyco::git::{CommitMessage, GitManager};
 
 /// Creates a temporary git repository for testing
 fn create_test_repo() -> TempDir {
@@ -69,21 +69,21 @@ fn test_worktree_creation_and_removal() {
     let job_id: u64 = 1;
 
     // Create worktree
-    let worktree_path = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
 
     // Verify worktree exists
-    assert!(worktree_path.exists(), "Worktree directory should exist");
-    assert!(worktree_path.join("test.txt").exists(), "test.txt should exist in worktree");
+    assert!(worktree.path.exists(), "Worktree directory should exist");
+    assert!(worktree.path.join("test.txt").exists(), "test.txt should exist in worktree");
 
     // Verify content is the same
-    let content = fs::read_to_string(worktree_path.join("test.txt")).expect("Failed to read file");
+    let content = fs::read_to_string(worktree.path.join("test.txt")).expect("Failed to read file");
     assert_eq!(content, "initial content\n");
 
     // Remove worktree
     manager.remove_worktree(job_id).expect("Failed to remove worktree");
 
     // Verify worktree is gone
-    assert!(!worktree_path.exists(), "Worktree directory should be removed");
+    assert!(!worktree.path.exists(), "Worktree directory should be removed");
 }
 
 #[test]
@@ -94,24 +94,27 @@ fn test_diff_generation() {
     let job_id: u64 = 2;
 
     // Create worktree
-    let worktree_path = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
 
     // Modify file in worktree
-    fs::write(worktree_path.join("test.txt"), "modified content\n")
+    fs::write(worktree.path.join("test.txt"), "modified content\n")
         .expect("Failed to modify file");
 
     // Check changed files
-    let changed = manager.changed_files(&worktree_path).expect("Failed to get changed files");
+    let changed = manager.changed_files(&worktree.path).expect("Failed to get changed files");
     assert_eq!(changed.len(), 1, "Should have 1 changed file");
     assert_eq!(changed[0], Path::new("test.txt"));
 
     // Get full diff
-    let diff = manager.diff(&worktree_path).expect("Failed to get diff");
+    let diff = manager
+        .diff(&worktree.path, Some(&worktree.base_branch))
+        .expect("Failed to get diff");
     assert!(diff.contains("-initial content"), "Diff should contain removed line");
     assert!(diff.contains("+modified content"), "Diff should contain added line");
 
     // Get file-specific diff
-    let file_diff = manager.diff_file(&worktree_path, Path::new("test.txt"))
+    let file_diff = manager
+        .diff_file(&worktree.path, Path::new("test.txt"))
         .expect("Failed to get file diff");
     assert!(file_diff.contains("-initial content"), "File diff should contain removed line");
     assert!(file_diff.contains("+modified content"), "File diff should contain added line");
@@ -128,14 +131,16 @@ fn test_apply_changes() {
     let job_id: u64 = 3;
 
     // Create worktree
-    let worktree_path = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
 
     // Modify file in worktree
-    fs::write(worktree_path.join("test.txt"), "applied content\n")
+    fs::write(worktree.path.join("test.txt"), "applied content\n")
         .expect("Failed to modify file");
 
     // Apply changes to main repo
-    manager.apply_changes(&worktree_path).expect("Failed to apply changes");
+    manager
+        .apply_changes(&worktree.path, &worktree.base_branch, None)
+        .expect("Failed to apply changes");
 
     // Verify changes were applied to main repo
     let main_content = fs::read_to_string(temp_dir.path().join("test.txt"))
@@ -147,6 +152,41 @@ fn test_apply_changes() {
 }
 
 #[test]
+fn test_apply_changes_uses_commit_message_for_auto_commit() {
+    let temp_dir = create_test_repo();
+    let manager = GitManager::new(temp_dir.path()).expect("Failed to create GitManager");
+
+    let job_id: u64 = 30;
+    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+
+    // Modify file in worktree but do NOT commit.
+    fs::write(worktree.path.join("test.txt"), "applied content\n")
+        .expect("Failed to modify file");
+
+    let message = CommitMessage {
+        subject: "Custom commit subject".to_string(),
+        body: Some("Custom commit body".to_string()),
+    };
+
+    manager
+        .apply_changes(&worktree.path, &worktree.base_branch, Some(&message))
+        .expect("Failed to apply changes");
+
+    // Verify commit message was used.
+    let output = Command::new("git")
+        .args(["log", "-1", "--pretty=%B"])
+        .current_dir(temp_dir.path())
+        .output()
+        .expect("Failed to run git log");
+
+    let msg = String::from_utf8_lossy(&output.stdout);
+    assert!(msg.contains("Custom commit subject"));
+    assert!(msg.contains("Custom commit body"));
+
+    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+}
+
+#[test]
 fn test_new_file_in_worktree() {
     let temp_dir = create_test_repo();
     let manager = GitManager::new(temp_dir.path()).expect("Failed to create GitManager");
@@ -154,14 +194,16 @@ fn test_new_file_in_worktree() {
     let job_id: u64 = 4;
 
     // Create worktree
-    let worktree_path = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
 
     // Create new file in worktree
-    fs::write(worktree_path.join("new_file.txt"), "new file content\n")
+    fs::write(worktree.path.join("new_file.txt"), "new file content\n")
         .expect("Failed to create new file");
 
     // Check changed files - new untracked files won't show in git diff --name-only HEAD
-    let diff = manager.diff(&worktree_path).expect("Failed to get diff");
+    let diff = manager
+        .diff(&worktree.path, Some(&worktree.base_branch))
+        .expect("Failed to get diff");
 
     // Note: Untracked files don't show in git diff HEAD - this is empty
     assert!(diff.is_empty(), "Untracked files should not appear in diff");
@@ -178,23 +220,23 @@ fn test_new_file_staged_in_worktree() {
     let job_id: u64 = 5;
 
     // Create worktree
-    let worktree_path = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
 
     // Create new file in worktree
-    fs::write(worktree_path.join("new_file.txt"), "new file content\n")
+    fs::write(worktree.path.join("new_file.txt"), "new file content\n")
         .expect("Failed to create new file");
 
     // Stage the new file in the worktree
     Command::new("git")
         .args(["add", "new_file.txt"])
-        .current_dir(&worktree_path)
+        .current_dir(&worktree.path)
         .output()
         .expect("Failed to stage new file");
 
     // Now the file should show in diff --cached
     let output = Command::new("git")
         .args(["diff", "--cached", "--name-only"])
-        .current_dir(&worktree_path)
+        .current_dir(&worktree.path)
         .output()
         .expect("Failed to get staged diff");
 
@@ -213,21 +255,25 @@ fn test_apply_new_file_from_worktree() {
     let job_id: u64 = 6;
 
     // Create worktree
-    let worktree_path = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
 
     // Create a new file in the worktree
-    fs::write(worktree_path.join("brand_new_file.txt"), "brand new content\n")
+    fs::write(worktree.path.join("brand_new_file.txt"), "brand new content\n")
         .expect("Failed to create new file");
 
     // Verify new file is in changed_files list
-    let changed = manager.changed_files(&worktree_path).expect("Failed to get changed files");
+    let changed = manager
+        .changed_files(&worktree.path)
+        .expect("Failed to get changed files");
     assert!(
         changed.contains(&PathBuf::from("brand_new_file.txt")),
         "New file should be in changed files list"
     );
 
     // Apply changes
-    manager.apply_changes(&worktree_path).expect("Failed to apply changes");
+    manager
+        .apply_changes(&worktree.path, &worktree.base_branch, None)
+        .expect("Failed to apply changes");
 
     // Verify new file exists in main repo
     let main_file = temp_dir.path().join("brand_new_file.txt");
@@ -248,16 +294,18 @@ fn test_apply_new_file_in_subdirectory() {
     let job_id: u64 = 7;
 
     // Create worktree
-    let worktree_path = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
 
     // Create a new file in a subdirectory in the worktree
-    let subdir = worktree_path.join("subdir");
+    let subdir = worktree.path.join("subdir");
     fs::create_dir_all(&subdir).expect("Failed to create subdirectory");
     fs::write(subdir.join("nested_file.txt"), "nested content\n")
         .expect("Failed to create nested file");
 
     // Apply changes
-    manager.apply_changes(&worktree_path).expect("Failed to apply changes");
+    manager
+        .apply_changes(&worktree.path, &worktree.base_branch, None)
+        .expect("Failed to apply changes");
 
     // Verify new file exists in main repo with directory structure
     let main_file = temp_dir.path().join("subdir").join("nested_file.txt");

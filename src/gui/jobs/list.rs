@@ -38,17 +38,18 @@ pub fn render_job_list(
         ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // Sort jobs: Running > Queued > Pending > Done/Failed/Merged
+                // Sort jobs: Running > Blocked > Queued > Pending > Done/Failed/Merged
                 let mut sorted_jobs = cached_jobs.to_vec();
                 sorted_jobs.sort_by(|a, b| {
                     let priority = |s: JobStatus| match s {
                         JobStatus::Running => 0,
-                        JobStatus::Queued => 1,
-                        JobStatus::Pending => 2,
-                        JobStatus::Done => 3,
-                        JobStatus::Failed => 4,
-                        JobStatus::Rejected => 5,
-                        JobStatus::Merged => 6,
+                        JobStatus::Blocked => 1,
+                        JobStatus::Queued => 2,
+                        JobStatus::Pending => 3,
+                        JobStatus::Done => 4,
+                        JobStatus::Failed => 5,
+                        JobStatus::Rejected => 6,
+                        JobStatus::Merged => 7,
                     };
                     priority(a.status)
                         .cmp(&priority(b.status))
@@ -74,6 +75,10 @@ pub fn render_job_list(
                                     JobStatus::Running => {
                                         // Animated spinner for running jobs
                                         ui.add(egui::Spinner::new().size(12.0).color(status_col));
+                                    }
+                                    JobStatus::Blocked => {
+                                        // Lock symbol for blocked jobs waiting for file lock
+                                        ui.label(RichText::new("[L]").monospace().color(status_col));
                                     }
                                     JobStatus::Queued => {
                                         // Clock/hourglass symbol for queued
@@ -124,6 +129,28 @@ pub fn render_job_list(
                                             .color(ACCENT_PURPLE)
                                             .small(),
                                     ).on_hover_text("Part of multi-agent group");
+                                }
+
+                                // Blocked indicator (shows which job is blocking this one)
+                                if job.status == JobStatus::Blocked {
+                                    if let Some(blocked_by) = job.blocked_by {
+                                        let hover_text = if let Some(ref file) = job.blocked_file {
+                                            format!(
+                                                "Waiting for Job #{} to release {}",
+                                                blocked_by,
+                                                file.file_name()
+                                                    .map(|f| f.to_string_lossy().to_string())
+                                                    .unwrap_or_else(|| file.display().to_string())
+                                            )
+                                        } else {
+                                            format!("Waiting for Job #{}", blocked_by)
+                                        };
+                                        ui.label(
+                                            RichText::new(format!("-> #{}", blocked_by))
+                                                .small()
+                                                .color(status_color(JobStatus::Blocked)),
+                                        ).on_hover_text(hover_text);
+                                    }
                                 }
                             });
 

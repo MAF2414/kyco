@@ -18,6 +18,14 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
 
     ui.label(RichText::new(&title).monospace().color(TEXT_PRIMARY));
     ui.add_space(16.0);
+    ui.label(
+        RichText::new(
+            "Agents run through the SDK Bridge (Claude/Codex). CLI binary/args are legacy and typically ignored.",
+        )
+        .small()
+        .color(TEXT_MUTED),
+    );
+    ui.add_space(12.0);
 
     ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -57,20 +65,20 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
 
             // Binary
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Binary:").color(TEXT_MUTED));
+                ui.label(RichText::new("Binary (legacy):").color(TEXT_MUTED));
                 ui.add(
                     egui::TextEdit::singleline(state.agent_edit_binary)
                         .font(egui::TextStyle::Monospace)
                         .text_color(TEXT_PRIMARY)
-                        .hint_text("claude")
+                        .hint_text("claude (optional)")
                         .desired_width(200.0),
                 );
             });
             ui.add_space(8.0);
 
-            // CLI Type
+            // SDK Type
             ui.horizontal(|ui| {
-                ui.label(RichText::new("CLI Type:").color(TEXT_MUTED));
+                ui.label(RichText::new("SDK:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("cli_type")
                     .selected_text(&*state.agent_edit_cli_type)
                     .show_ui(ui, |ui| {
@@ -84,35 +92,25 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
                             "codex".to_string(),
                             "codex",
                         );
-                        ui.selectable_value(
-                            state.agent_edit_cli_type,
-                            "gemini".to_string(),
-                            "gemini",
-                        );
-                        ui.selectable_value(
-                            state.agent_edit_cli_type,
-                            "custom".to_string(),
-                            "custom",
-                        );
                     });
             });
             ui.add_space(8.0);
 
-            // Execution Mode
+            // Session mode
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Mode:").color(TEXT_MUTED));
+                ui.label(RichText::new("Session Mode:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("agent_mode")
                     .selected_text(&*state.agent_edit_mode)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(
                             state.agent_edit_mode,
-                            "print".to_string(),
-                            "print (non-interactive)",
+                            "oneshot".to_string(),
+                            "oneshot",
                         );
                         ui.selectable_value(
                             state.agent_edit_mode,
-                            "repl".to_string(),
-                            "repl (Terminal.app)",
+                            "session".to_string(),
+                            "session",
                         );
                     });
             });
@@ -143,53 +141,45 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(16.0);
 
-            ui.separator();
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new("Command Line Arguments")
-                    .monospace()
-                    .color(TEXT_PRIMARY),
-            );
-            ui.add_space(8.0);
+            egui::CollapsingHeader::new("Legacy CLI Arguments (ignored)")
+                .default_open(false)
+                .show(ui, |ui| {
+                    // Print mode args
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Print Args:").color(TEXT_MUTED));
+                        ui.add(
+                            egui::TextEdit::singleline(state.agent_edit_print_args)
+                                .font(egui::TextStyle::Monospace)
+                                .text_color(TEXT_PRIMARY)
+                                .desired_width(400.0),
+                        );
+                    });
+                    ui.add_space(8.0);
 
-            // Print mode args
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Print Mode Args:").color(TEXT_MUTED));
-                ui.add(
-                    egui::TextEdit::singleline(state.agent_edit_print_args)
-                        .font(egui::TextStyle::Monospace)
-                        .text_color(TEXT_PRIMARY)
-                        .hint_text("-p --permission-mode bypassPermissions")
-                        .desired_width(400.0),
-                );
-            });
-            ui.add_space(8.0);
+                    // Output format args
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Output Args:").color(TEXT_MUTED));
+                        ui.add(
+                            egui::TextEdit::singleline(state.agent_edit_output_args)
+                                .font(egui::TextStyle::Monospace)
+                                .text_color(TEXT_PRIMARY)
+                                .desired_width(400.0),
+                        );
+                    });
+                    ui.add_space(8.0);
 
-            // Output format args
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Output Format Args:").color(TEXT_MUTED));
-                ui.add(
-                    egui::TextEdit::singleline(state.agent_edit_output_args)
-                        .font(egui::TextStyle::Monospace)
-                        .text_color(TEXT_PRIMARY)
-                        .hint_text("--output-format stream-json --verbose")
-                        .desired_width(400.0),
-                );
-            });
-            ui.add_space(8.0);
-
-            // REPL mode args
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("REPL Mode Args:").color(TEXT_MUTED));
-                ui.add(
-                    egui::TextEdit::singleline(state.agent_edit_repl_args)
-                        .font(egui::TextStyle::Monospace)
-                        .text_color(TEXT_PRIMARY)
-                        .hint_text("--permission-mode bypassPermissions")
-                        .desired_width(400.0),
-                );
-            });
-            ui.add_space(16.0);
+                    // REPL mode args
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("REPL Args:").color(TEXT_MUTED));
+                        ui.add(
+                            egui::TextEdit::singleline(state.agent_edit_repl_args)
+                                .font(egui::TextStyle::Monospace)
+                                .text_color(TEXT_PRIMARY)
+                                .desired_width(400.0),
+                        );
+                    });
+                    ui.add_space(16.0);
+                });
 
             ui.separator();
             ui.add_space(8.0);

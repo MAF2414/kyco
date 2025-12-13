@@ -48,9 +48,13 @@ impl AutocompleteState {
         if input_trimmed.is_empty() {
             // Show agents first, then modes when empty
             for (agent_name, agent_config) in &config.agent {
+                let backend = agent_config
+                    .binary
+                    .as_deref()
+                    .unwrap_or(agent_config.sdk.default_name());
                 let desc = format!(
                     "{} ({})",
-                    agent_config.binary,
+                    backend,
                     agent_config.aliases.join(", ")
                 );
                 self.suggestions.push(Suggestion {
@@ -179,9 +183,13 @@ impl AutocompleteState {
                     .any(|a| a.to_lowercase().starts_with(input_trimmed));
 
                 if matches_name || matches_alias {
+                    let backend = agent_config
+                        .binary
+                        .as_deref()
+                        .unwrap_or(agent_config.sdk.default_name());
                     let desc = format!(
                         "{} ({})",
-                        agent_config.binary,
+                        backend,
                         agent_config.aliases.join(", ")
                     );
                     self.suggestions.push(Suggestion {
@@ -318,11 +326,16 @@ pub fn parse_input_multi(input: &str) -> (Vec<String>, String, String) {
         None => ("claude", command),
     };
 
-    // Parse agents (may be "claude" or "claude+codex+gemini")
+    // Parse agents (may be "claude" or "claude+codex")
     let agents: Vec<String> = agents_str
         .split('+')
         .map(|a| a.trim().to_lowercase())
         .filter(|a| !a.is_empty())
+        // Legacy: map Gemini to Claude
+        .map(|a| match a.as_str() {
+            "g" | "gm" | "gemini" => "claude".to_string(),
+            _ => a,
+        })
         .collect();
 
     let agents = if agents.is_empty() {

@@ -2,7 +2,8 @@
 //!
 //! Runs in a background thread and processes queued jobs
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,7 @@ use crate::agent::{AgentRegistry, ChainRunner};
 use crate::config::Config;
 use crate::git::GitManager;
 use crate::job::JobManager;
-use crate::{AgentMode, Job, JobResult, JobStatus, LogEvent};
+use crate::{Job, JobResult, JobStatus, LogEvent, LogEventKind, SessionMode};
 
 /// Message to send back to GUI
 #[derive(Debug, Clone)]
@@ -41,6 +42,14 @@ pub enum ExecutorEvent {
     },
     /// Log message
     Log(LogEvent),
+    /// Permission request from Bridge (tool approval needed)
+    PermissionNeeded {
+        job_id: u64,
+        request_id: String,
+        session_id: String,
+        tool_name: String,
+        tool_input: std::collections::HashMap<String, serde_json::Value>,
+    },
 }
 
 /// Start the job executor in a background thread
@@ -70,31 +79,93 @@ async fn executor_loop(
     event_tx: Sender<ExecutorEvent>,
     max_concurrent_jobs: Arc<AtomicUsize>,
 ) {
-    let agent_registry = AgentRegistry::with_defaults();
+    let agent_registry = AgentRegistry::new();
 
     // Try to get git manager
     let git_manager = GitManager::new(&work_dir).ok();
 
     loop {
-        // Check for queued jobs
-        let (running_count, next_queued) = {
-            let manager = job_manager.lock().unwrap();
+        // Check for queued jobs and handle file locks
+        let (running_count, next_queued, should_use_worktree) = {
+            let mut manager = job_manager.lock().unwrap();
             let running = manager
                 .jobs()
                 .iter()
                 .filter(|j| j.status == JobStatus::Running)
                 .count();
+
+            // First, check if any blocked jobs can be unblocked
+            // (their blocking job has finished)
+            let blocked_jobs: Vec<_> = manager
+                .jobs()
+                .iter()
+                .filter(|j| j.status == JobStatus::Blocked)
+                .map(|j| (j.id, j.blocked_by, j.source_file.clone()))
+                .collect();
+
+            for (job_id, blocked_by, source_file) in blocked_jobs {
+                // Check if the blocking job still holds the lock
+                if let Some(blocking_id) = blocked_by {
+                    if manager.get_blocking_job(&source_file, Some(job_id)).is_none() {
+                        // Lock is free, unblock this job
+                        if let Some(j) = manager.get_mut(job_id) {
+                            j.status = JobStatus::Queued;
+                            j.blocked_by = None;
+                            j.blocked_file = None;
+                        }
+                        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+                            "Job #{} unblocked (Job #{} finished)",
+                            job_id, blocking_id
+                        ))));
+                    }
+                }
+            }
+
+            // Find next queued job (skip blocked jobs)
             let next: Option<Job> = manager
                 .jobs()
                 .iter()
                 .find(|j| j.status == JobStatus::Queued)
                 .map(|j| (*j).clone());
-            (running, next)
+
+            (running, next, config.settings.use_worktree)
         };
 
         // Start next job if we have capacity (read current limit each iteration)
         if running_count < max_concurrent_jobs.load(Ordering::Relaxed) {
             if let Some(job) = next_queued {
+                // Check file lock (only when not using worktrees)
+                let is_multi_agent = job.group_id.is_some();
+                let needs_lock_check = !should_use_worktree && !is_multi_agent && !job.force_worktree;
+
+                if needs_lock_check {
+                    let mut manager = job_manager.lock().unwrap();
+
+                    // Check if the source file is locked by another job
+                    if let Some(blocking_job_id) = manager.get_blocking_job(&job.source_file, Some(job.id)) {
+                        // File is locked - mark job as blocked
+                        if let Some(j) = manager.get_mut(job.id) {
+                            j.status = JobStatus::Blocked;
+                            j.blocked_by = Some(blocking_job_id);
+                            j.blocked_file = Some(job.source_file.clone());
+                        }
+                        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+                            "Job #{} blocked by Job #{} (file: {})",
+                            job.id,
+                            blocking_job_id,
+                            job.source_file.file_name()
+                                .map(|f| f.to_string_lossy().to_string())
+                                .unwrap_or_else(|| job.source_file.display().to_string())
+                        ))));
+                        // Continue to next iteration - this job can't start yet
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
+
+                    // Acquire the lock
+                    manager.try_lock_file(&job.source_file, job.id);
+                }
+
                 // Spawn job in background so we can start multiple jobs concurrently
                 let work_dir = work_dir.clone();
                 let config = config.clone();
@@ -130,7 +201,7 @@ async fn run_job(
     agent_registry: &AgentRegistry,
     git_manager: Option<&GitManager>,
     event_tx: &Sender<ExecutorEvent>,
-    job: Job,
+    mut job: Job,
 ) {
     let job_id = job.id;
 
@@ -168,14 +239,38 @@ async fn run_job(
     let is_multi_agent_job = job.group_id.is_some();
     let should_use_worktree = config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
 
-    let (worktree_path, _is_isolated) = if should_use_worktree {
-        if let Some(git) = git_manager {
+    // Get the effective working directory from job's workspace_path, falling back to work_dir
+    // This is crucial for multi-workspace support where jobs may target different repositories
+    let job_work_dir = job.workspace_path.clone().unwrap_or_else(|| work_dir.clone());
+
+    // Create GitManager for the job's workspace (may be different from global work_dir)
+    let job_git_manager = if job.workspace_path.is_some() && job.workspace_path.as_ref() != Some(work_dir) {
+        // Job has a different workspace, create a new GitManager for it
+        GitManager::new(&job_work_dir).ok()
+    } else {
+        None
+    };
+    let effective_git_manager = job_git_manager.as_ref().or(git_manager);
+
+    // Reuse existing worktree when present (e.g., session continuation)
+    let (worktree_path, _is_isolated) = if let Some(existing_worktree) =
+        job.git_worktree_path.as_ref().filter(|p| p.exists())
+    {
+        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+            "Reusing worktree: {}",
+            existing_worktree.display()
+        ))));
+        (existing_worktree.clone(), true)
+    } else if should_use_worktree {
+        if let Some(git) = effective_git_manager {
             match git.create_worktree(job_id) {
                 Ok(worktree_info) => {
                     let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
                         "Created worktree: {}",
                         worktree_info.path.display()
                     ))));
+                    job.git_worktree_path = Some(worktree_info.path.clone());
+                    job.base_branch = Some(worktree_info.base_branch.clone());
                     // Store worktree path and base branch
                     {
                         let mut manager = job_manager.lock().unwrap();
@@ -215,7 +310,8 @@ async fn run_job(
                         "Failed to create worktree: {}",
                         e
                     ))));
-                    (work_dir.clone(), false)
+                    // Fall back to job's workspace path instead of global work_dir
+                    (job_work_dir.clone(), false)
                 }
             }
         } else {
@@ -243,20 +339,13 @@ async fn run_job(
                 }
                 return;
             }
-            (work_dir.clone(), false)
+            // Fall back to job's workspace path instead of global work_dir
+            (job_work_dir.clone(), false)
         }
     } else {
-        (work_dir.clone(), false)
+        // Worktrees disabled - use job's workspace path
+        (job_work_dir.clone(), false)
     };
-
-    // Remove tag from source file before running agent
-    if let Err(e) = remove_tag_from_source(&job, work_dir, &worktree_path, &config.settings.marker_prefix) {
-        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
-            "Failed to remove tag: {}",
-            e
-        ))));
-        // Continue anyway
-    }
 
     // Get agent config with mode-specific tool overrides
     let agent_config = config
@@ -264,7 +353,7 @@ async fn run_job(
         .unwrap_or_default();
 
     // Mark whether this is a REPL job (for UI to show correct buttons)
-    let is_repl = agent_config.mode == AgentMode::Repl;
+    let is_repl = matches!(agent_config.session_mode, SessionMode::Repl);
     {
         let mut manager = job_manager.lock().unwrap();
         if let Some(j) = manager.get_mut(job_id) {
@@ -297,8 +386,67 @@ async fn run_job(
 
     // Spawn a task to forward logs
     let event_tx_clone = event_tx.clone();
+    let job_manager_clone = Arc::clone(job_manager);
+    let permission_job_id = job_id;
     let log_forwarder = tokio::spawn(async move {
         while let Some(log) = log_rx.recv().await {
+            if let Some(args) = log.tool_args.as_ref() {
+                if let Some(session_id) = args.get("session_id").and_then(|v| v.as_str()) {
+                    if let Ok(mut manager) = job_manager_clone.lock() {
+                        if let Some(job) = manager.get_mut(permission_job_id) {
+                            job.bridge_session_id = Some(session_id.to_string());
+                        }
+                    }
+                }
+            }
+
+            if log.kind == LogEventKind::Permission {
+                let args = match log.tool_args {
+                    Some(a) => a,
+                    None => continue,
+                };
+
+                let Some(request_id) = args
+                    .get("request_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                else {
+                    continue;
+                };
+
+                let session_id = args
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let tool_name = args
+                    .get("tool_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                let tool_input = args
+                    .get("tool_input")
+                    .and_then(|v| v.as_object())
+                    .map(|obj| {
+                        obj.iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect::<std::collections::HashMap<String, serde_json::Value>>()
+                    })
+                    .unwrap_or_default();
+
+                let _ = event_tx_clone.send(ExecutorEvent::PermissionNeeded {
+                    job_id: permission_job_id,
+                    request_id,
+                    session_id,
+                    tool_name,
+                    tool_input,
+                });
+
+                continue;
+            }
+
             let _ = event_tx_clone.send(ExecutorEvent::Log(log));
         }
     });
@@ -310,16 +458,27 @@ async fn run_job(
             if let Some(j) = manager.get_mut(job_id) {
                 j.sent_prompt = result.sent_prompt.clone();
 
-                // Parse the output for ---kyco result block
+                // Parse the output for YAML result block
                 if let Some(output) = &result.output_text {
+                    // Always keep the full response for display (even when a structured YAML block is present).
+                    j.full_response = Some(output.clone());
                     j.parse_result(output);
+                }
+
+                // Store session ID for continuation
+                if result.session_id.is_some() {
+                    j.bridge_session_id = result.session_id.clone();
                 }
 
                 // Calculate file stats from changed_files
                 let files_changed = result.changed_files.len();
                 if files_changed > 0 {
-                    // TODO: Calculate lines_added/removed from git diff
-                    j.set_file_stats(files_changed, 0, 0);
+                    let (lines_added, lines_removed) = if j.git_worktree_path.is_some() {
+                        calculate_git_numstat(&worktree_path, j.base_branch.as_deref())
+                    } else {
+                        (0, 0)
+                    };
+                    j.set_file_stats(files_changed, lines_added, lines_removed);
                 }
 
                 if result.success {
@@ -359,79 +518,68 @@ async fn run_job(
 
     // Wait for log forwarder to finish
     let _ = log_forwarder.await;
+
+    // Release file locks held by this job
+    {
+        let mut manager = job_manager.lock().unwrap();
+        manager.release_job_locks(job_id);
+    }
 }
 
-/// Remove the tag from the source file before running the agent
-fn remove_tag_from_source(
-    job: &Job,
-    work_dir: &PathBuf,
-    worktree_path: &PathBuf,
-    marker_prefix: &str,
-) -> anyhow::Result<()> {
-    let Some(raw_tag_line) = &job.raw_tag_line else {
-        return Ok(());
-    };
+fn calculate_git_numstat(worktree: &Path, base_branch: Option<&str>) -> (usize, usize) {
+    fn parse_numstat(output: &str) -> (usize, usize) {
+        let mut lines_added = 0usize;
+        let mut lines_removed = 0usize;
 
-    let relative_path = job.source_file.strip_prefix(work_dir).unwrap_or(&job.source_file);
-    let target_file = worktree_path.join(relative_path);
+        for line in output.lines() {
+            let mut parts = line.split('\t');
+            let Some(added) = parts.next() else { continue };
+            let Some(removed) = parts.next() else { continue };
 
-    if !target_file.exists() {
-        anyhow::bail!("Source file not found: {}", target_file.display());
-    }
-
-    let content = std::fs::read_to_string(&target_file)?;
-    let trimmed_tag = raw_tag_line.trim();
-
-    // Check if standalone comment or inline
-    let is_standalone = trimmed_tag.starts_with("//")
-        || trimmed_tag.starts_with('#')
-        || trimmed_tag.starts_with("/*")
-        || trimmed_tag.starts_with("--")
-        || trimmed_tag.starts_with(marker_prefix);
-
-    let has_trailing_newline = content.ends_with('\n');
-
-    let mut new_content = String::with_capacity(content.len());
-    let mut first_line = true;
-
-    for line in content.lines() {
-        let should_skip = is_standalone && line.trim() == trimmed_tag;
-
-        if should_skip {
-            continue;
-        }
-
-        if !first_line {
-            new_content.push('\n');
-        }
-        first_line = false;
-
-        if !is_standalone && (line == raw_tag_line || line.trim() == trimmed_tag) {
-            // Inline: remove just the tag comment part, keep the code
-            if let Some(marker_pos) = line.find(marker_prefix) {
-                let before_marker = &line[..marker_pos];
-                let comment_start = before_marker
-                    .rfind("//")
-                    .or_else(|| before_marker.rfind('#'))
-                    .or_else(|| before_marker.rfind("--"))
-                    .or_else(|| before_marker.rfind("/*"));
-
-                if let Some(start) = comment_start {
-                    new_content.push_str(line[..start].trim_end());
-                    continue;
-                }
+            if added != "-" {
+                lines_added = lines_added.saturating_add(added.parse::<usize>().unwrap_or(0));
+            }
+            if removed != "-" {
+                lines_removed = lines_removed.saturating_add(removed.parse::<usize>().unwrap_or(0));
             }
         }
 
-        new_content.push_str(line);
+        (lines_added, lines_removed)
     }
 
-    if has_trailing_newline {
-        new_content.push('\n');
+    fn run_git_numstat(worktree: &Path, args: &[&str]) -> Option<(usize, usize)> {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(worktree)
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        Some(parse_numstat(&String::from_utf8_lossy(&output.stdout)))
     }
 
-    std::fs::write(&target_file, new_content)?;
-    Ok(())
+    let mut total = (0usize, 0usize);
+
+    // Count committed changes on the worktree branch.
+    if let Some(base_branch) = base_branch {
+        let range = format!("{}...HEAD", base_branch);
+        if let Some((added, removed)) = run_git_numstat(worktree, &["diff", "--numstat", "--no-color", &range])
+        {
+            total.0 = total.0.saturating_add(added);
+            total.1 = total.1.saturating_add(removed);
+        }
+    }
+
+    // Count uncommitted changes.
+    if let Some((added, removed)) = run_git_numstat(worktree, &["diff", "--numstat", "--no-color"]) {
+        total.0 = total.0.saturating_add(added);
+        total.1 = total.1.saturating_add(removed);
+    }
+
+    total
 }
 
 /// Run a job that is actually a chain of modes
@@ -442,7 +590,7 @@ async fn run_chain_job(
     agent_registry: &AgentRegistry,
     git_manager: Option<&GitManager>,
     event_tx: &Sender<ExecutorEvent>,
-    job: Job,
+    mut job: Job,
 ) {
     let job_id = job.id;
     let chain_name = job.mode.clone();
@@ -481,16 +629,38 @@ async fn run_chain_job(
     // Determine working directory
     // Multi-agent jobs (jobs with group_id) ALWAYS require worktrees for isolation
     let is_multi_agent_job = job.group_id.is_some();
-    let should_use_worktree = config.settings.use_worktree || is_multi_agent_job;
+    let should_use_worktree = config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
 
-    let (worktree_path, _is_isolated) = if should_use_worktree {
-        if let Some(git) = git_manager {
+    // Get the effective working directory from job's workspace_path, falling back to work_dir
+    let job_work_dir = job.workspace_path.clone().unwrap_or_else(|| work_dir.clone());
+
+    // Create GitManager for the job's workspace (may be different from global work_dir)
+    let job_git_manager = if job.workspace_path.is_some() && job.workspace_path.as_ref() != Some(work_dir) {
+        GitManager::new(&job_work_dir).ok()
+    } else {
+        None
+    };
+    let effective_git_manager = job_git_manager.as_ref().or(git_manager);
+
+    // Reuse existing worktree when present (e.g., session continuation)
+    let (worktree_path, _is_isolated) = if let Some(existing_worktree) =
+        job.git_worktree_path.as_ref().filter(|p| p.exists())
+    {
+        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+            "Reusing worktree: {}",
+            existing_worktree.display()
+        ))));
+        (existing_worktree.clone(), true)
+    } else if should_use_worktree {
+        if let Some(git) = effective_git_manager {
             match git.create_worktree(job_id) {
                 Ok(worktree_info) => {
                     let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
                         "Created worktree: {}",
                         worktree_info.path.display()
                     ))));
+                    job.git_worktree_path = Some(worktree_info.path.clone());
+                    job.base_branch = Some(worktree_info.base_branch.clone());
                     {
                         let mut manager = job_manager.lock().unwrap();
                         if let Some(j) = manager.get_mut(job_id) {
@@ -501,15 +671,20 @@ async fn run_chain_job(
                     (worktree_info.path, true)
                 }
                 Err(e) => {
-                    // For multi-agent jobs, worktree creation failure is fatal
-                    if is_multi_agent_job {
+                    // For multi-agent jobs or force_worktree (Shift+Enter), worktree creation failure is fatal
+                    if is_multi_agent_job || job.force_worktree {
+                        let reason = if is_multi_agent_job {
+                            "parallel execution"
+                        } else {
+                            "Shift+Enter submission"
+                        };
                         let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
-                            "Multi-agent chain job requires worktree but creation failed: {}",
-                            e
+                            "Worktree required for {} but creation failed: {}",
+                            reason, e
                         ))));
                         let _ = event_tx.send(ExecutorEvent::JobFailed(
                             job_id,
-                            format!("Worktree required for parallel execution: {}", e),
+                            format!("Worktree required for {}: {}", reason, e),
                         ));
                         {
                             let mut manager = job_manager.lock().unwrap();
@@ -524,49 +699,108 @@ async fn run_chain_job(
                         "Failed to create worktree: {}",
                         e
                     ))));
-                    (work_dir.clone(), false)
+                    (job_work_dir.clone(), false)
                 }
             }
         } else {
             // No git manager available
-            if is_multi_agent_job {
+            if is_multi_agent_job || job.force_worktree {
+                let reason = if is_multi_agent_job {
+                    "parallel execution"
+                } else {
+                    "Shift+Enter submission"
+                };
                 let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
-                    "Multi-agent chain job requires git repository for worktree isolation".to_string(),
+                    format!(
+                        "Worktree required for {} but no git repository available",
+                        reason
+                    ),
                 )));
                 let _ = event_tx.send(ExecutorEvent::JobFailed(
                     job_id,
-                    "Git repository required for parallel execution".to_string(),
+                    format!("Git repository required for {}", reason),
                 ));
                 {
                     let mut manager = job_manager.lock().unwrap();
                     manager.set_status(job_id, JobStatus::Failed);
                     if let Some(j) = manager.get_mut(job_id) {
-                        j.error_message = Some("Git repository required for parallel execution".to_string());
+                        j.error_message = Some(format!("Git repository required for {}", reason));
                     }
                 }
                 return;
             }
-            (work_dir.clone(), false)
+            (job_work_dir.clone(), false)
         }
     } else {
-        (work_dir.clone(), false)
+        (job_work_dir.clone(), false)
     };
-
-    // Remove tag from source file before running
-    if let Err(e) = remove_tag_from_source(&job, work_dir, &worktree_path, &config.settings.marker_prefix) {
-        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
-            "Failed to remove tag: {}",
-            e
-        ))));
-    }
 
     // Create log channel
     let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<LogEvent>(100);
 
     // Forward logs to event_tx
     let event_tx_clone = event_tx.clone();
+    let job_manager_clone = Arc::clone(job_manager);
+    let permission_job_id = job_id;
     let log_forwarder = tokio::spawn(async move {
         while let Some(log) = log_rx.recv().await {
+            if let Some(args) = log.tool_args.as_ref() {
+                if let Some(session_id) = args.get("session_id").and_then(|v| v.as_str()) {
+                    if let Ok(mut manager) = job_manager_clone.lock() {
+                        if let Some(job) = manager.get_mut(permission_job_id) {
+                            job.bridge_session_id = Some(session_id.to_string());
+                        }
+                    }
+                }
+            }
+
+            if log.kind == LogEventKind::Permission {
+                let args = match log.tool_args {
+                    Some(a) => a,
+                    None => continue,
+                };
+
+                let Some(request_id) = args
+                    .get("request_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                else {
+                    continue;
+                };
+
+                let session_id = args
+                    .get("session_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let tool_name = args
+                    .get("tool_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                let tool_input = args
+                    .get("tool_input")
+                    .and_then(|v| v.as_object())
+                    .map(|obj| {
+                        obj.iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect::<std::collections::HashMap<String, serde_json::Value>>()
+                    })
+                    .unwrap_or_default();
+
+                let _ = event_tx_clone.send(ExecutorEvent::PermissionNeeded {
+                    job_id: permission_job_id,
+                    request_id,
+                    session_id,
+                    tool_name,
+                    tool_input,
+                });
+
+                continue;
+            }
+
             let _ = event_tx_clone.send(ExecutorEvent::Log(log));
         }
     });
@@ -603,11 +837,14 @@ async fn run_chain_job(
             // Set the combined result
             j.result = Some(JobResult {
                 title: Some(format!("Chain '{}' completed", chain_name)),
+                commit_subject: None,
+                commit_body: None,
                 details: Some(combined_details.join("\n")),
                 status: Some(if chain_result.success { "success" } else { "partial" }.to_string()),
                 summary: Some(chain_result.accumulated_summaries.join("\n\n")),
                 state: chain_result.final_state.clone(),
                 next_context: None,
+                raw_text: None,
             });
 
             j.set_file_stats(total_files_changed, 0, 0);
@@ -636,4 +873,10 @@ async fn run_chain_job(
 
     // Wait for log forwarder
     let _ = log_forwarder.await;
+
+    // Release file locks held by this job
+    {
+        let mut manager = job_manager.lock().unwrap();
+        manager.release_job_locks(job_id);
+    }
 }

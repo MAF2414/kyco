@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::JobId;
+use crate::{Job, JobId};
 
 /// Result of creating a worktree
 pub struct WorktreeInfo {
@@ -13,6 +13,76 @@ pub struct WorktreeInfo {
     pub path: PathBuf,
     /// The base branch from which the worktree was created
     pub base_branch: String,
+}
+
+/// Suggested git commit message (subject + optional body).
+#[derive(Debug, Clone)]
+pub struct CommitMessage {
+    pub subject: String,
+    pub body: Option<String>,
+}
+
+impl CommitMessage {
+    pub fn from_job(job: &Job) -> Self {
+        let subject = job
+            .result
+            .as_ref()
+            .and_then(|r| {
+                r.commit_subject
+                    .as_deref()
+                    .or(r.title.as_deref())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+            })
+            .map(sanitize_commit_subject)
+            .unwrap_or_else(|| sanitize_commit_subject(&format!("{}: {}", job.mode, job.target)));
+
+        let body = job
+            .result
+            .as_ref()
+            .and_then(|r| {
+                if let Some(body) = r.commit_body.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    return Some(body.to_string());
+                }
+
+                let mut paragraphs = Vec::new();
+                if let Some(details) = r.details.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    paragraphs.push(details.to_string());
+                }
+                if let Some(summary) = r.summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    paragraphs.push(summary.to_string());
+                }
+
+                if paragraphs.is_empty() {
+                    None
+                } else {
+                    Some(paragraphs.join("\n\n"))
+                }
+            })
+            .map(|mut body| {
+                // Add lightweight traceability without spamming the subject.
+                body.push_str(&format!("\n\nKYCO-Job: #{}", job.id));
+                body
+            });
+
+        Self { subject, body }
+    }
+}
+
+fn sanitize_commit_subject(raw: &str) -> String {
+    // Keep the subject single-line and reasonably short.
+    let first_line = raw.lines().next().unwrap_or("").trim();
+    let mut out: String = first_line.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+    if out.is_empty() {
+        out = "kyco: update".to_string();
+    }
+
+    const MAX_LEN: usize = 72;
+    if out.chars().count() > MAX_LEN {
+        out = out.chars().take(MAX_LEN).collect();
+    }
+
+    out
 }
 
 /// Manages Git operations for KYCo
@@ -334,39 +404,35 @@ impl GitManager {
     ///
     /// This shows both committed and uncommitted changes in the worktree
     /// compared to the base branch (master/main).
-    pub fn diff(&self, worktree: &Path) -> Result<String> {
+    pub fn diff(&self, worktree: &Path, base_branch: Option<&str>) -> Result<String> {
         let mut result = String::new();
 
-        // First, get the merge base (common ancestor with master)
-        let base_output = Command::new("git")
-            .args(["merge-base", "HEAD", "master"])
-            .current_dir(worktree)
-            .output();
+        // Get diff of committed changes vs base branch when available.
+        if let Some(base_branch) = base_branch.map(str::trim).filter(|s| !s.is_empty()) {
+            let range = format!("{}...HEAD", base_branch);
+            let committed_output = Command::new("git")
+                .args(["diff", "--no-color", &range])
+                .current_dir(worktree)
+                .output()
+                .context("Failed to run git diff for committed changes")?;
 
-        let base_ref = match base_output {
-            Ok(output) if output.status.success() => {
-                String::from_utf8_lossy(&output.stdout).trim().to_string()
-            }
-            _ => "master".to_string(), // Fallback to master if merge-base fails
-        };
-
-        // Get diff of committed changes vs base
-        let committed_output = Command::new("git")
-            .args(["diff", &base_ref, "HEAD"])
-            .current_dir(worktree)
-            .output()
-            .context("Failed to run git diff for committed changes")?;
-
-        if committed_output.status.success() {
-            let committed_diff = String::from_utf8_lossy(&committed_output.stdout);
-            if !committed_diff.is_empty() {
-                result.push_str(&committed_diff);
+            if committed_output.status.success() {
+                let committed_diff = String::from_utf8_lossy(&committed_output.stdout);
+                if !committed_diff.is_empty() {
+                    result.push_str(&committed_diff);
+                }
+            } else {
+                tracing::warn!(
+                    "Failed to compute committed diff vs '{}': {}",
+                    base_branch,
+                    String::from_utf8_lossy(&committed_output.stderr)
+                );
             }
         }
 
         // Also get uncommitted changes (in case agent didn't commit everything)
         let uncommitted_output = Command::new("git")
-            .args(["diff", "HEAD"])
+            .args(["diff", "--no-color", "HEAD"])
             .current_dir(worktree)
             .output()
             .context("Failed to run git diff for uncommitted changes")?;
@@ -410,7 +476,22 @@ impl GitManager {
     /// This performs a proper git merge of the worktree's branch into the base branch.
     /// If there are uncommitted changes in the worktree, they are committed first.
     /// The base_branch parameter specifies which branch to merge into.
-    pub fn apply_changes(&self, worktree: &Path, base_branch: &str) -> Result<()> {
+    pub fn apply_changes(
+        &self,
+        worktree: &Path,
+        base_branch: &str,
+        commit_message: Option<&CommitMessage>,
+    ) -> Result<()> {
+        // Avoid merging into a dirty working tree.
+        // We ignore untracked files here (e.g., `.kyco/` artifacts) and only block
+        // on tracked/staged changes that would make the merge surprising or unsafe.
+        if self.has_tracked_uncommitted_changes()? {
+            bail!(
+                "Cannot apply changes: repository has uncommitted changes. \
+                 Please commit or stash them first."
+            );
+        }
+
         // First, check if there are uncommitted changes and commit them
         let status_output = Command::new("git")
             .args(["status", "--porcelain"])
@@ -419,26 +500,13 @@ impl GitManager {
             .context("Failed to check worktree status")?;
 
         if !status_output.stdout.is_empty() {
-            // There are uncommitted changes - commit them
-            Command::new("git")
-                .args(["add", "-A"])
-                .current_dir(worktree)
-                .output()
-                .context("Failed to stage changes")?;
-
-            let commit_output = Command::new("git")
-                .args(["commit", "-m", "Auto-commit remaining changes before merge"])
-                .current_dir(worktree)
-                .output()
-                .context("Failed to commit remaining changes")?;
-
-            if !commit_output.status.success() {
-                // Commit might fail if nothing to commit, that's OK
-                tracing::debug!(
-                    "Auto-commit output: {}",
-                    String::from_utf8_lossy(&commit_output.stderr)
-                );
-            }
+            // There are uncommitted changes - commit them so the merge is clean.
+            let fallback = CommitMessage {
+                subject: "Auto-commit remaining changes before merge".to_string(),
+                body: None,
+            };
+            let message = commit_message.unwrap_or(&fallback);
+            let _ = self.commit_all_in_dir(worktree, message)?;
         }
 
         // Get the branch name of the worktree
@@ -461,6 +529,7 @@ impl GitManager {
 
         // Get the current branch in the main repo so we can restore it
         let current_branch = self.current_branch()?;
+        let should_restore_branch = current_branch != base_branch && current_branch != "HEAD";
 
         // Checkout the base branch if we're not already on it
         if current_branch != base_branch {
@@ -488,7 +557,7 @@ impl GitManager {
 
         if !merge_output.status.success() {
             // If merge failed and we changed branches, try to restore original branch
-            if current_branch != base_branch {
+            if should_restore_branch {
                 let _ = Command::new("git")
                     .args(["checkout", &current_branch])
                     .current_dir(&self.root)
@@ -500,7 +569,79 @@ impl GitManager {
             );
         }
 
+        // Restore the original branch (avoid surprising the user by leaving the repo on base_branch).
+        if should_restore_branch {
+            let checkout_output = Command::new("git")
+                .args(["checkout", &current_branch])
+                .current_dir(&self.root)
+                .output()
+                .context("Failed to restore original branch after merge")?;
+
+            if !checkout_output.status.success() {
+                tracing::warn!(
+                    "Failed to restore branch '{}': {}",
+                    current_branch,
+                    String::from_utf8_lossy(&checkout_output.stderr)
+                );
+            }
+        }
+
         Ok(())
+    }
+
+    /// Commit current changes in the repository root.
+    ///
+    /// Returns `true` if a commit was created.
+    pub fn commit_root_changes(&self, commit_message: &CommitMessage) -> Result<bool> {
+        let output = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&self.root)
+            .output()
+            .context("Failed to check repo status")?;
+
+        if output.stdout.is_empty() {
+            return Ok(false);
+        }
+
+        self.commit_all_in_dir(&self.root, commit_message)
+    }
+
+    fn commit_all_in_dir(&self, dir: &Path, commit_message: &CommitMessage) -> Result<bool> {
+        let add_output = Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir)
+            .output()
+            .context("Failed to stage changes")?;
+
+        if !add_output.status.success() {
+            bail!(
+                "git add failed: {}",
+                String::from_utf8_lossy(&add_output.stderr).trim()
+            );
+        }
+
+        let mut commit_cmd = Command::new("git");
+        commit_cmd.arg("commit").arg("-m").arg(&commit_message.subject);
+        if let Some(body) = commit_message.body.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            commit_cmd.arg("-m").arg(body);
+        }
+
+        let commit_output = commit_cmd
+            .current_dir(dir)
+            .output()
+            .context("Failed to commit changes")?;
+
+        if commit_output.status.success() {
+            return Ok(true);
+        }
+
+        let stderr = String::from_utf8_lossy(&commit_output.stderr);
+        if stderr.contains("nothing to commit") {
+            tracing::debug!("git commit reported nothing to commit: {}", stderr);
+            return Ok(false);
+        }
+
+        bail!("git commit failed: {}", stderr.trim());
     }
 
     /// Check if the repo has uncommitted changes
@@ -514,8 +655,71 @@ impl GitManager {
         Ok(!output.stdout.is_empty())
     }
 
+    /// Check if the repo has tracked/staged changes (ignores untracked files).
+    pub fn has_tracked_uncommitted_changes(&self) -> Result<bool> {
+        let output = Command::new("git")
+            .args(["status", "--porcelain", "--untracked-files=no"])
+            .current_dir(&self.root)
+            .output()
+            .context("Failed to run git status")?;
+
+        Ok(!output.stdout.is_empty())
+    }
+
     /// Get the root path
     pub fn root(&self) -> &Path {
         &self.root
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GitManager;
+    use std::fs;
+    use std::path::Path;
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    fn git(dir: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run git {:?}: {}", args, e));
+        assert!(
+            output.status.success(),
+            "git {:?} failed:\nstdout:\n{}\nstderr:\n{}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn diff_uses_provided_base_branch() {
+        let tmp = TempDir::new().expect("tempdir");
+        let repo = tmp.path();
+
+        git(repo, &["init"]);
+        git(repo, &["config", "user.email", "test@example.com"]);
+        git(repo, &["config", "user.name", "Test User"]);
+
+        fs::write(repo.join("README.md"), "hello\n").expect("write README");
+        git(repo, &["add", "README.md"]);
+        git(repo, &["commit", "-m", "init"]);
+        git(repo, &["branch", "-m", "main"]);
+
+        git(repo, &["checkout", "-b", "kyco/job-1"]);
+        fs::write(repo.join("README.md"), "hello world\n").expect("write README");
+        git(repo, &["add", "README.md"]);
+        git(repo, &["commit", "-m", "change"]);
+
+        let gm = GitManager::new(repo).expect("git manager");
+        let diff = gm.diff(repo, Some("main")).expect("diff");
+        assert!(
+            diff.contains("hello world"),
+            "expected diff to include changed content, got:\n{}",
+            diff
+        );
     }
 }

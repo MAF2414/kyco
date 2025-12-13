@@ -53,7 +53,7 @@ impl std::fmt::Display for StatusMarker {
 /// - @claude#refactor.block.function
 /// - @c#r.f (short form)
 /// - @codex#tests.all.file add integration tests
-/// - @claude+codex+gemini:refactor optimize this function (parallel)
+/// - @claude+codex:refactor optimize this function (parallel)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommentTag {
     /// The file where this comment was found
@@ -65,12 +65,12 @@ pub struct CommentTag {
     /// The raw comment line
     pub raw_line: String,
 
-    /// The agent to use (e.g., "claude", "codex", "gemini")
+    /// The agent to use (e.g., "claude", "codex")
     /// For single-agent tags, this is the agent name.
     /// For multi-agent tags, this is the first agent (for backwards compatibility).
     pub agent: String,
 
-    /// Multiple agents for parallel execution (e.g., ["claude", "codex", "gemini"])
+    /// Multiple agents for parallel execution (e.g., ["claude", "codex"])
     /// If this has more than one agent, the same task will be run in parallel.
     #[serde(default)]
     pub agents: Vec<String>,

@@ -11,14 +11,18 @@ use super::executor::ExecutorEvent;
 use super::groups::{render_comparison_popup, ComparisonAction, ComparisonState};
 use super::http_server::{BatchFile, BatchRequest, SelectionRequest};
 use super::jobs;
+use super::permission::{render_permission_popup, PermissionAction, PermissionPopupState, PermissionRequest};
 use super::selection::autocomplete::parse_input_multi;
 use super::selection::{AutocompleteState, SelectionContext};
 use super::update::{UpdateChecker, UpdateStatus};
 use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager, VoiceState};
+use crate::agent::bridge::{BridgeClient, PermissionMode, ToolApprovalResponse, ToolDecision};
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
-use crate::{AgentGroupId, Job, JobId, LogEvent};
+use crate::workspace::{WorkspaceId, WorkspaceRegistry};
+use crate::{AgentGroupId, Job, JobId, LogEvent, SdkType};
 use eframe::egui::{self, Color32, Key, Stroke};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::Receiver;
@@ -74,6 +78,7 @@ pub(super) const TEXT_MUTED: Color32 = Color32::from_rgb(100, 85, 60);
 /// Status colors
 pub(super) const STATUS_PENDING: Color32 = Color32::from_rgb(150, 150, 150);
 pub(super) const STATUS_QUEUED: Color32 = Color32::from_rgb(100, 180, 255);
+pub(super) const STATUS_BLOCKED: Color32 = Color32::from_rgb(255, 165, 0); // Orange - waiting for file lock
 pub(super) const STATUS_RUNNING: Color32 = Color32::from_rgb(255, 200, 50);
 pub(super) const STATUS_DONE: Color32 = Color32::from_rgb(80, 255, 120);
 pub(super) const STATUS_FAILED: Color32 = Color32::from_rgb(255, 80, 80);
@@ -127,6 +132,10 @@ pub struct KycoApp {
     job_manager: Arc<Mutex<JobManager>>,
     /// Group manager for multi-agent parallel execution
     group_manager: Arc<Mutex<GroupManager>>,
+    /// Workspace registry for multi-repository support
+    workspace_registry: Arc<Mutex<WorkspaceRegistry>>,
+    /// Currently active workspace ID (for filtering jobs in UI)
+    active_workspace_id: Option<WorkspaceId>,
     /// Cached jobs for display (updated periodically)
     cached_jobs: Vec<Job>,
     /// Selected job ID
@@ -157,12 +166,20 @@ pub struct KycoApp {
     diff_state: DiffState,
     /// Comparison popup state for multi-agent results
     comparison_state: ComparisonState,
+    /// Permission popup state for tool approval requests
+    permission_state: PermissionPopupState,
+    /// Bridge client for sending tool approval responses
+    bridge_client: BridgeClient,
+    /// Current Claude permission mode overrides per job (UI state)
+    permission_mode_overrides: HashMap<JobId, PermissionMode>,
     /// Auto-run enabled
     auto_run: bool,
     /// Auto-scan enabled
     auto_scan: bool,
     /// Log scroll to bottom
     log_scroll_to_bottom: bool,
+    /// Session continuation prompt (for follow-up messages in session mode)
+    continuation_prompt: String,
     /// Extension install status message
     extension_status: Option<(String, bool)>,
     /// Selected mode for editing (None = list view)
@@ -211,6 +228,16 @@ pub struct KycoApp {
     mode_edit_allowed_tools: String,
     /// Mode editor: disallowed_tools
     mode_edit_disallowed_tools: String,
+    /// Mode editor: session mode (oneshot/session)
+    mode_edit_session_mode: String,
+    /// Mode editor: max turns (0 = unlimited)
+    mode_edit_max_turns: String,
+    /// Mode editor: model override
+    mode_edit_model: String,
+    /// Mode editor: Claude permission mode
+    mode_edit_claude_permission: String,
+    /// Mode editor: Codex sandbox mode
+    mode_edit_codex_sandbox: String,
     /// Settings editor: max concurrent jobs
     settings_max_concurrent: String,
     /// Settings editor: auto run
@@ -219,6 +246,8 @@ pub struct KycoApp {
     settings_use_worktree: bool,
     /// Settings editor: output schema template
     settings_output_schema: String,
+    /// Settings editor: structured output JSON schema (optional)
+    settings_structured_output_schema: String,
     /// Settings editor: status message
     settings_status: Option<(String, bool)>,
     /// Voice input manager
@@ -273,6 +302,16 @@ pub struct KycoApp {
     chain_edit_stop_on_failure: bool,
     /// Chain editor: status message
     chain_edit_status: Option<(String, bool)>,
+    /// Config import: selected workspace index
+    import_workspace_selected: usize,
+    /// Config import: import modes
+    import_modes: bool,
+    /// Config import: import agents
+    import_agents: bool,
+    /// Config import: import chains
+    import_chains: bool,
+    /// Config import: import settings
+    import_settings: bool,
 }
 
 impl KycoApp {
@@ -327,6 +366,12 @@ impl KycoApp {
 
         // Extract output schema
         let settings_output_schema = config.settings.gui.output_schema.clone();
+        let settings_structured_output_schema = config.settings.gui.structured_output_schema.clone();
+
+        // Load or create workspace registry and register the initial workspace
+        let mut workspace_registry = WorkspaceRegistry::load_or_create();
+        let initial_workspace_id = workspace_registry.get_or_create(work_dir.clone());
+        workspace_registry.set_active(initial_workspace_id);
 
         Self {
             work_dir: work_dir.clone(),
@@ -334,6 +379,8 @@ impl KycoApp {
             config_exists,
             job_manager,
             group_manager: Arc::new(Mutex::new(GroupManager::new())),
+            workspace_registry: Arc::new(Mutex::new(workspace_registry)),
+            active_workspace_id: Some(initial_workspace_id),
             cached_jobs: Vec::new(),
             selected_job_id: None,
             logs: vec![LogEvent::system("kyco GUI started")],
@@ -349,9 +396,13 @@ impl KycoApp {
             popup_status: None,
             diff_state: DiffState::new(),
             comparison_state: ComparisonState::default(),
+            permission_state: PermissionPopupState::default(),
+            bridge_client: BridgeClient::new(),
+            permission_mode_overrides: HashMap::new(),
             auto_run: settings_auto_run,
             auto_scan: true,
             log_scroll_to_bottom: true,
+            continuation_prompt: String::new(),
             extension_status: None,
             selected_mode: None,
             mode_edit_name: String::new(),
@@ -363,6 +414,11 @@ impl KycoApp {
             mode_edit_agent: String::new(),
             mode_edit_allowed_tools: String::new(),
             mode_edit_disallowed_tools: String::new(),
+            mode_edit_session_mode: "oneshot".to_string(),
+            mode_edit_max_turns: "0".to_string(),
+            mode_edit_model: String::new(),
+            mode_edit_claude_permission: "auto".to_string(),
+            mode_edit_codex_sandbox: "auto".to_string(),
             selected_agent: None,
             agent_edit_name: String::new(),
             agent_edit_aliases: String::new(),
@@ -380,6 +436,7 @@ impl KycoApp {
             settings_auto_run,
             settings_use_worktree,
             settings_output_schema,
+            settings_structured_output_schema,
             settings_status: None,
             voice_manager: {
                 let mut vm = VoiceManager::new(voice_config);
@@ -411,6 +468,11 @@ impl KycoApp {
             update_checker: UpdateChecker::new(),
             update_install_status: super::status_bar::InstallStatus::default(),
             update_install_rx: None,
+            import_workspace_selected: 0,
+            import_modes: true,
+            import_agents: true,
+            import_chains: false,
+            import_settings: false,
         }
     }
 
@@ -424,6 +486,7 @@ impl KycoApp {
                 settings_auto_run: &mut self.settings_auto_run,
                 settings_use_worktree: &mut self.settings_use_worktree,
                 settings_output_schema: &mut self.settings_output_schema,
+                settings_structured_output_schema: &mut self.settings_structured_output_schema,
                 settings_status: &mut self.settings_status,
                 // Voice settings
                 voice_settings_mode: &mut self.voice_settings_mode,
@@ -454,6 +517,13 @@ impl KycoApp {
                 voice_config_changed: &mut self.voice_config_changed,
                 // Shared max concurrent jobs (for runtime updates to executor)
                 max_concurrent_jobs_shared: &self.max_concurrent_jobs,
+                // Workspace config import
+                workspace_registry: Some(&self.workspace_registry),
+                import_workspace_selected: &mut self.import_workspace_selected,
+                import_modes: &mut self.import_modes,
+                import_agents: &mut self.import_agents,
+                import_chains: &mut self.import_chains,
+                import_settings: &mut self.import_settings,
             },
         );
     }
@@ -473,6 +543,11 @@ impl KycoApp {
                 mode_edit_agent: &mut self.mode_edit_agent,
                 mode_edit_allowed_tools: &mut self.mode_edit_allowed_tools,
                 mode_edit_disallowed_tools: &mut self.mode_edit_disallowed_tools,
+                mode_edit_session_mode: &mut self.mode_edit_session_mode,
+                mode_edit_max_turns: &mut self.mode_edit_max_turns,
+                mode_edit_model: &mut self.mode_edit_model,
+                mode_edit_claude_permission: &mut self.mode_edit_claude_permission,
+                mode_edit_codex_sandbox: &mut self.mode_edit_codex_sandbox,
                 view_mode: &mut self.view_mode,
                 config: &mut self.config,
                 work_dir: &self.work_dir,
@@ -536,25 +611,397 @@ impl KycoApp {
 
     /// Apply job changes (merge worktree to main)
     fn apply_job(&mut self, job_id: JobId) {
-        jobs::apply_job(&self.job_manager, job_id, &mut self.logs);
+        // Group jobs: treat Apply as "select this result and merge".
+        let group_id = {
+            let manager = match self.job_manager.lock() {
+                Ok(m) => m,
+                Err(_) => {
+                    self.logs.push(LogEvent::error("Failed to lock job manager".to_string()));
+                    return;
+                }
+            };
+            manager.get(job_id).and_then(|j| j.group_id)
+        };
+
+        if let Some(group_id) = group_id {
+            let git = match crate::git::GitManager::new(&self.work_dir) {
+                Ok(g) => g,
+                Err(e) => {
+                    self.logs.push(LogEvent::error(format!("Failed to initialize git manager: {}", e)));
+                    return;
+                }
+            };
+
+            let mut gm = match self.group_manager.lock() {
+                Ok(m) => m,
+                Err(_) => {
+                    self.logs.push(LogEvent::error("Failed to lock group manager".to_string()));
+                    return;
+                }
+            };
+            let mut jm = match self.job_manager.lock() {
+                Ok(m) => m,
+                Err(_) => {
+                    self.logs.push(LogEvent::error("Failed to lock job manager".to_string()));
+                    return;
+                }
+            };
+
+            if !gm.select_result(group_id, job_id) {
+                self.logs.push(LogEvent::error(format!(
+                    "Failed to select job #{} for group #{}",
+                    job_id, group_id
+                )));
+                return;
+            }
+
+            let result = super::groups::merge_and_cleanup(group_id, &mut gm, &mut jm, &git);
+            if result.success {
+                self.logs.push(LogEvent::system(result.message));
+            } else {
+                self.logs.push(LogEvent::error(result.message));
+            }
+
+            drop(jm);
+            drop(gm);
+            self.refresh_jobs();
+            return;
+        }
+
+        // Single job apply: merge worktree back (if used) and cleanup.
+        let mut manager = match self.job_manager.lock() {
+            Ok(m) => m,
+            Err(_) => {
+                self.logs.push(LogEvent::error("Failed to lock job manager".to_string()));
+                return;
+            }
+        };
+        let Some(job) = manager.get(job_id).cloned() else {
+            self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+            return;
+        };
+
+        let Some(worktree) = job.git_worktree_path.clone() else {
+            // No worktree isolation: changes are in the main working tree. Commit them now.
+            let git = match crate::git::GitManager::new(&self.work_dir) {
+                Ok(g) => g,
+                Err(e) => {
+                    self.logs.push(LogEvent::error(format!("Failed to initialize git manager: {}", e)));
+                    return;
+                }
+            };
+
+            let message = crate::git::CommitMessage::from_job(&job);
+            match git.commit_root_changes(&message) {
+                Ok(true) => {
+                    self.logs.push(LogEvent::system(format!("Committed and applied job #{}", job_id)));
+                }
+                Ok(false) => {
+                    self.logs.push(LogEvent::system(format!(
+                        "Applied job #{} (no changes to commit)",
+                        job_id
+                    )));
+                }
+                Err(e) => {
+                    self.logs.push(LogEvent::error(format!("Failed to commit changes: {}", e)));
+                    return;
+                }
+            }
+
+            if let Some(j) = manager.get_mut(job_id) {
+                j.set_status(crate::JobStatus::Merged);
+            }
+            drop(manager);
+            self.refresh_jobs();
+            return;
+        };
+
+        let Some(base_branch) = job.base_branch.clone() else {
+            self.logs.push(LogEvent::error(format!(
+                "Job #{} has no base branch recorded",
+                job_id
+            )));
+            return;
+        };
+
+        let git = match crate::git::GitManager::new(&self.work_dir) {
+            Ok(g) => g,
+            Err(e) => {
+                self.logs.push(LogEvent::error(format!("Failed to initialize git manager: {}", e)));
+                return;
+            }
+        };
+
+        let commit_message = crate::git::CommitMessage::from_job(&job);
+        if let Err(e) = git.apply_changes(&worktree, &base_branch, Some(&commit_message)) {
+            self.logs.push(LogEvent::error(format!("Failed to merge changes: {}", e)));
+            return;
+        }
+
+        if let Err(e) = git.remove_worktree_by_path(&worktree) {
+            self.logs.push(LogEvent::error(format!(
+                "Merged changes, but failed to clean up worktree: {}",
+                e
+            )));
+        }
+
+        if let Some(j) = manager.get_mut(job_id) {
+            j.set_status(crate::JobStatus::Merged);
+            j.git_worktree_path = None;
+            j.branch_name = None;
+        }
+        self.logs.push(LogEvent::system(format!("Applied job #{}", job_id)));
+        drop(manager);
         self.refresh_jobs();
     }
 
     /// Reject job changes
     fn reject_job(&mut self, job_id: JobId) {
-        jobs::reject_job(&self.job_manager, job_id, &mut self.logs);
+        let mut manager = match self.job_manager.lock() {
+            Ok(m) => m,
+            Err(_) => {
+                self.logs.push(LogEvent::error("Failed to lock job manager".to_string()));
+                return;
+            }
+        };
+        let Some(job) = manager.get(job_id).cloned() else {
+            self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+            return;
+        };
+
+        if let Some(worktree) = job.git_worktree_path.clone() {
+            if let Ok(git) = crate::git::GitManager::new(&self.work_dir) {
+                if let Err(e) = git.remove_worktree_by_path(&worktree) {
+                    self.logs.push(LogEvent::error(format!(
+                        "Failed to remove worktree for rejected job: {}",
+                        e
+                    )));
+                }
+            }
+
+            if let Some(j) = manager.get_mut(job_id) {
+                j.git_worktree_path = None;
+                j.branch_name = None;
+            }
+        } else {
+            self.logs.push(LogEvent::system(
+                "Rejected job without worktree (no changes were reverted)".to_string(),
+            ));
+        }
+
+        if let Some(j) = manager.get_mut(job_id) {
+            j.set_status(crate::JobStatus::Rejected);
+        }
+        self.logs.push(LogEvent::system(format!("Rejected job #{}", job_id)));
+        drop(manager);
         self.refresh_jobs();
     }
 
     /// Kill/stop a running job
     fn kill_job(&mut self, job_id: JobId) {
+        let (agent_id, session_id) = {
+            let manager = match self.job_manager.lock() {
+                Ok(m) => m,
+                Err(_) => {
+                    self.logs.push(LogEvent::error("Failed to lock job manager"));
+                    return;
+                }
+            };
+
+            match manager.get(job_id) {
+                Some(job) => (job.agent_id.clone(), job.bridge_session_id.clone()),
+                None => {
+                    self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+                    return;
+                }
+            }
+        };
+
+        if let Some(session_id) = session_id.as_deref() {
+            let interrupted = if agent_id == "codex" {
+                self.bridge_client.interrupt_codex(session_id)
+            } else {
+                self.bridge_client.interrupt_claude(session_id)
+            };
+
+            match interrupted {
+                Ok(true) => {
+                    self.logs.push(LogEvent::system(format!(
+                        "Sent interrupt for job #{}",
+                        job_id
+                    )));
+                }
+                Ok(false) => {
+                    self.logs.push(LogEvent::error(format!(
+                        "Interrupt was rejected (job #{})",
+                        job_id
+                    )));
+                }
+                Err(e) => {
+                    self.logs.push(LogEvent::error(format!(
+                        "Failed to interrupt job #{}: {}",
+                        job_id, e
+                    )));
+                }
+            }
+        }
+
         jobs::kill_job(&self.job_manager, job_id, &mut self.logs);
         self.refresh_jobs();
+    }
+
+    fn set_job_permission_mode(&mut self, job_id: JobId, mode: PermissionMode) {
+        let (agent_id, job_mode, session_id) = {
+            let manager = match self.job_manager.lock() {
+                Ok(m) => m,
+                Err(_) => {
+                    self.logs.push(LogEvent::error("Failed to lock job manager"));
+                    return;
+                }
+            };
+
+            match manager.get(job_id) {
+                Some(job) => (
+                    job.agent_id.clone(),
+                    job.mode.clone(),
+                    job.bridge_session_id.clone(),
+                ),
+                None => {
+                    self.logs
+                        .push(LogEvent::error(format!("Job #{} not found", job_id)));
+                    return;
+                }
+            }
+        };
+
+        let is_codex = self
+            .config
+            .get_agent_for_job(&agent_id, &job_mode)
+            .map(|a| a.sdk_type == SdkType::Codex)
+            .unwrap_or(agent_id == "codex");
+
+        if is_codex {
+            self.logs.push(LogEvent::error(format!(
+                "Permission mode switching is only supported for Claude sessions (job #{})",
+                job_id
+            )));
+            return;
+        }
+
+        let Some(session_id) = session_id else {
+            self.logs.push(LogEvent::error(format!(
+                "Job #{} has no active Claude session yet",
+                job_id
+            )));
+            return;
+        };
+
+        match self.bridge_client.set_claude_permission_mode(&session_id, mode) {
+            Ok(true) => {
+                self.permission_mode_overrides.insert(job_id, mode);
+                self.logs.push(LogEvent::system(format!(
+                    "Set permission mode to {} for job #{}",
+                    match mode {
+                        PermissionMode::Default => "default",
+                        PermissionMode::AcceptEdits => "acceptEdits",
+                        PermissionMode::BypassPermissions => "bypassPermissions",
+                        PermissionMode::Plan => "plan",
+                    },
+                    job_id
+                )));
+            }
+            Ok(false) => {
+                self.logs.push(LogEvent::error(format!(
+                    "Failed to set permission mode for job #{} (bridge rejected request)",
+                    job_id
+                )));
+            }
+            Err(e) => {
+                self.logs.push(LogEvent::error(format!(
+                    "Failed to set permission mode for job #{}: {}",
+                    job_id, e
+                )));
+            }
+        }
     }
 
     /// Mark a REPL job as complete
     fn mark_job_complete(&mut self, job_id: JobId) {
         jobs::mark_job_complete(&self.job_manager, job_id, &mut self.logs);
+        self.refresh_jobs();
+    }
+
+    fn continue_job_session(&mut self, job_id: JobId, prompt: String) {
+        let (continuation_id, continuation_mode) = {
+            let mut manager = match self.job_manager.lock() {
+                Ok(m) => m,
+                Err(_) => {
+                    self.logs.push(LogEvent::error("Failed to lock job manager"));
+                    return;
+                }
+            };
+
+            let Some(original) = manager.get(job_id).cloned() else {
+                self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+                return;
+            };
+
+            let Some(session_id) = original.bridge_session_id.clone() else {
+                self.logs.push(LogEvent::error(format!(
+                    "Job #{} has no session to continue",
+                    job_id
+                )));
+                return;
+            };
+
+            let tag = crate::CommentTag {
+                file_path: original.source_file.clone(),
+                line_number: original.source_line,
+                raw_line: format!("// @{}:{} {}", &original.agent_id, &original.mode, &prompt),
+                agent: original.agent_id.clone(),
+                agents: vec![original.agent_id.clone()],
+                mode: original.mode.clone(),
+                target: crate::Target::Block,
+                status_marker: None,
+                description: Some(prompt),
+                job_id: None,
+            };
+
+            let continuation_id = match manager.create_job_with_range(&tag, &original.agent_id, None) {
+                Ok(id) => id,
+                Err(e) => {
+                    self.logs.push(LogEvent::error(format!(
+                        "Failed to create continuation job: {}",
+                        e
+                    )));
+                    return;
+                }
+            };
+
+            if let Some(job) = manager.get_mut(continuation_id) {
+                job.raw_tag_line = None;
+                job.bridge_session_id = Some(session_id);
+
+                // Reuse the same worktree and job context
+                job.git_worktree_path = original.git_worktree_path.clone();
+                job.branch_name = original.branch_name.clone();
+                job.base_branch = original.base_branch.clone();
+                job.scope = original.scope.clone();
+                job.target = original.target;
+                job.ide_context = original.ide_context;
+                job.force_worktree = original.force_worktree;
+            }
+
+            (continuation_id, original.mode)
+        };
+
+        self.logs.push(LogEvent::system(format!(
+            "Created continuation job #{} (mode: {})",
+            continuation_id, continuation_mode
+        )));
+
+        self.queue_job(continuation_id);
+        self.selected_job_id = Some(continuation_id);
         self.refresh_jobs();
     }
 
@@ -629,9 +1076,38 @@ impl KycoApp {
     /// Handle incoming selection from IDE extension
     fn on_selection_received(&mut self, req: SelectionRequest, ctx: &egui::Context) {
         info!(
-            "[kyco:gui] Received selection: file={:?}, lines={:?}-{:?}, deps={:?}, tests={:?}",
-            req.file_path, req.line_start, req.line_end, req.dependency_count, req.related_tests.as_ref().map(|t| t.len())
+            "[kyco:gui] Received selection: file={:?}, lines={:?}-{:?}, deps={:?}, tests={:?}, project_root={:?}, git_root={:?}, workspace={:?}",
+            req.file_path, req.line_start, req.line_end, req.dependency_count, req.related_tests.as_ref().map(|t| t.len()), req.project_root, req.git_root, req.workspace
         );
+
+        // Auto-register workspace from IDE request
+        // Priority: project_root (includes git detection) > workspace > active workspace
+        let effective_path = req.project_root.as_ref()
+            .or(req.git_root.as_ref())
+            .or(req.workspace.as_ref());
+
+        let (workspace_id, workspace_path) = if let Some(ref ws_path) = effective_path {
+            let ws_path_buf = PathBuf::from(ws_path);
+            if let Ok(mut registry) = self.workspace_registry.lock() {
+                let ws_id = registry.get_or_create(ws_path_buf.clone());
+                // Switch to this workspace and update active
+                registry.set_active(ws_id);
+                self.active_workspace_id = Some(ws_id);
+                // Save registry to persist the new workspace
+                if let Err(e) = registry.save_default() {
+                    self.logs.push(LogEvent::error(format!("Failed to save workspace registry: {}", e)));
+                }
+                (Some(ws_id), Some(ws_path_buf))
+            } else {
+                (None, Some(ws_path_buf))
+            }
+        } else {
+            // Use currently active workspace if no workspace specified
+            (self.active_workspace_id, self.active_workspace_id.and_then(|id| {
+                self.workspace_registry.lock().ok()
+                    .and_then(|r| r.get(id).map(|w| w.path.clone()))
+            }))
+        };
 
         self.selection = SelectionContext {
             app_name: Some("IDE".to_string()),
@@ -644,6 +1120,9 @@ impl KycoApp {
             dependency_count: req.dependency_count,
             additional_dependency_count: req.additional_dependency_count,
             related_tests: req.related_tests,
+            diagnostics: req.diagnostics,
+            workspace_id,
+            workspace_path,
         };
 
         // Show selection popup
@@ -727,6 +1206,20 @@ impl KycoApp {
 
         // Create jobs for each file
         for file in &self.batch_files {
+            // Extract workspace from batch file
+            // Priority: project_root (includes git detection) > git_root > workspace
+            let effective_path = file.project_root.as_ref()
+                .or(file.git_root.as_ref())
+                .map(|s| s.as_str())
+                .unwrap_or(&file.workspace);
+            let ws_path_buf = PathBuf::from(effective_path);
+            let (workspace_id, workspace_path) = if let Ok(mut registry) = self.workspace_registry.lock() {
+                let ws_id = registry.get_or_create(ws_path_buf.clone());
+                (Some(ws_id), Some(ws_path_buf))
+            } else {
+                (None, Some(ws_path_buf))
+            };
+
             // Create SelectionContext for this file
             let selection = SelectionContext {
                 app_name: Some("IDE Batch".to_string()),
@@ -739,6 +1232,9 @@ impl KycoApp {
                 dependency_count: None,
                 additional_dependency_count: None,
                 related_tests: None,
+                diagnostics: None, // Batch files don't have diagnostics
+                workspace_id,
+                workspace_path,
             };
 
             // Create job(s) for this file
@@ -793,7 +1289,7 @@ impl KycoApp {
     /// Execute the task from selection popup
     /// If force_worktree is true, the job will run in a git worktree regardless of global settings
     fn execute_popup_task(&mut self, force_worktree: bool) {
-        // Use the multi-agent parser to support "claude+codex+gemini:mode" syntax
+        // Use the multi-agent parser to support "claude+codex:mode" syntax
         let (agents, mode, prompt) = parse_input_multi(&self.popup_input);
 
         if mode.is_empty() {
@@ -815,6 +1311,23 @@ impl KycoApp {
                     .unwrap_or_else(|| a.clone())
             })
             .collect();
+
+        // Remove duplicates and map legacy agents.
+        let mut seen = std::collections::HashSet::new();
+        let resolved_agents: Vec<String> = resolved_agents
+            .into_iter()
+            .map(|a| match a.as_str() {
+                "g" | "gm" | "gemini" | "custom" => "claude".to_string(),
+                _ => a,
+            })
+            .filter(|a| seen.insert(a.clone()))
+            .collect();
+
+        let resolved_agents = if resolved_agents.is_empty() {
+            vec!["claude".to_string()]
+        } else {
+            resolved_agents
+        };
 
         // Create job(s) - uses multi-agent creation for parallel execution
         if let Some(result) = jobs::create_jobs_from_selection_multi(
@@ -886,25 +1399,30 @@ impl KycoApp {
     fn render_detail_panel(&mut self, ui: &mut egui::Ui) {
         use super::detail_panel::{render_detail_panel, DetailPanelAction, DetailPanelState};
 
-        let state = DetailPanelState {
+        let mut state = DetailPanelState {
             selected_job_id: self.selected_job_id,
             cached_jobs: &self.cached_jobs,
             logs: &self.logs,
             config: &self.config,
             log_scroll_to_bottom: self.log_scroll_to_bottom,
+            continuation_prompt: &mut self.continuation_prompt,
+            permission_mode_overrides: &self.permission_mode_overrides,
         };
 
-        if let Some(action) = render_detail_panel(ui, &state) {
+        if let Some(action) = render_detail_panel(ui, &mut state) {
             match action {
                 DetailPanelAction::Queue(job_id) => self.queue_job(job_id),
                 DetailPanelAction::Apply(job_id) => self.apply_job(job_id),
                 DetailPanelAction::Reject(job_id) => self.reject_job(job_id),
+                DetailPanelAction::Continue(job_id, prompt) => {
+                    self.continue_job_session(job_id, prompt);
+                }
                 DetailPanelAction::ViewDiff(job_id) => {
                     // Load the real git diff for this job's worktree
                     if let Some(job) = self.cached_jobs.iter().find(|j| j.id == job_id) {
                         if let Some(worktree) = &job.git_worktree_path {
                             if let Ok(gm) = crate::git::GitManager::new(&self.work_dir) {
-                                match gm.diff(worktree) {
+                                match gm.diff(worktree, job.base_branch.as_deref()) {
                                     Ok(diff) => {
                                         if diff.is_empty() {
                                             self.diff_state.set_content("No changes in worktree.".to_string());
@@ -929,6 +1447,9 @@ impl KycoApp {
                 }
                 DetailPanelAction::Kill(job_id) => self.kill_job(job_id),
                 DetailPanelAction::MarkComplete(job_id) => self.mark_job_complete(job_id),
+                DetailPanelAction::SetPermissionMode(job_id, mode) => {
+                    self.set_job_permission_mode(job_id, mode);
+                }
             }
         }
     }
@@ -1006,6 +1527,129 @@ impl KycoApp {
         }
     }
 
+    /// Render the permission popup modal (on top of everything)
+    fn render_permission_popup_modal(&mut self, ctx: &egui::Context) {
+        if let Some(action) = render_permission_popup(ctx, &mut self.permission_state) {
+            match action {
+                PermissionAction::Approve(request_id) => {
+                    // Send approval to Bridge via HTTP POST /claude/tool-approval
+                    let response = ToolApprovalResponse {
+                        request_id: request_id.clone(),
+                        decision: ToolDecision::Allow,
+                        reason: None,
+                        modified_input: None,
+                    };
+                    match self.bridge_client.send_tool_approval(&response) {
+                        Ok(true) => {
+                            self.logs.push(LogEvent::system(format!(
+                                "✓ Approved tool request: {}",
+                                &request_id[..12.min(request_id.len())]
+                            )));
+                        }
+                        Ok(false) => {
+                            self.logs.push(LogEvent::error(format!(
+                                "Tool approval rejected by bridge: {}",
+                                &request_id[..12.min(request_id.len())]
+                            )));
+                        }
+                        Err(e) => {
+                            self.logs.push(LogEvent::error(format!(
+                                "Failed to send tool approval: {}",
+                                e
+                            )));
+                        }
+                    }
+                    self.permission_state.next_request();
+                }
+                PermissionAction::ApproveAll(request_ids) => {
+                    let mut approved = 0usize;
+                    for request_id in &request_ids {
+                        let response = ToolApprovalResponse {
+                            request_id: request_id.clone(),
+                            decision: ToolDecision::Allow,
+                            reason: None,
+                            modified_input: None,
+                        };
+                        match self.bridge_client.send_tool_approval(&response) {
+                            Ok(true) => {
+                                approved += 1;
+                            }
+                            Ok(false) => {
+                                self.logs.push(LogEvent::error(format!(
+                                    "Tool approval rejected by bridge: {}",
+                                    &request_id[..12.min(request_id.len())]
+                                )));
+                            }
+                            Err(e) => {
+                                self.logs.push(LogEvent::error(format!(
+                                    "Failed to send tool approval: {}",
+                                    e
+                                )));
+                            }
+                        }
+                    }
+
+                    self.logs.push(LogEvent::system(format!(
+                        "✓ Approved {} tool request(s)",
+                        approved
+                    )));
+
+                    // Clear popup state
+                    self.permission_state.current_request = None;
+                    self.permission_state.pending_requests.clear();
+                    self.permission_state.visible = false;
+                    self.permission_state.should_focus = false;
+                }
+                PermissionAction::Deny(request_id, reason) => {
+                    // Send denial to Bridge via HTTP POST /claude/tool-approval
+                    let response = ToolApprovalResponse {
+                        request_id: request_id.clone(),
+                        decision: ToolDecision::Deny,
+                        reason: Some(reason.clone()),
+                        modified_input: None,
+                    };
+                    match self.bridge_client.send_tool_approval(&response) {
+                        Ok(_) => {
+                            self.logs.push(LogEvent::system(format!(
+                                "✗ Denied tool request: {} ({})",
+                                &request_id[..12.min(request_id.len())],
+                                reason
+                            )));
+                        }
+                        Err(e) => {
+                            self.logs.push(LogEvent::error(format!(
+                                "Failed to send tool denial: {}",
+                                e
+                            )));
+                        }
+                    }
+                    self.permission_state.next_request();
+                }
+                PermissionAction::Dismiss(request_id) => {
+                    // Treat dismiss as deny
+                    let response = ToolApprovalResponse {
+                        request_id: request_id.clone(),
+                        decision: ToolDecision::Deny,
+                        reason: Some("User dismissed".to_string()),
+                        modified_input: None,
+                    };
+                    let _ = self.bridge_client.send_tool_approval(&response);
+                    self.logs.push(LogEvent::system(format!(
+                        "Dismissed tool request: {}",
+                        &request_id[..12.min(request_id.len())]
+                    )));
+                    self.permission_state.next_request();
+                }
+            }
+        }
+
+        // Bring app to foreground if needed
+        if self.permission_state.should_focus {
+            self.permission_state.should_focus = false;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+    }
+
     /// Render the comparison popup for multi-agent results
     fn render_comparison_popup(&mut self, ctx: &egui::Context) {
         if let Some(action) = render_comparison_popup(ctx, &mut self.comparison_state) {
@@ -1025,7 +1669,7 @@ impl KycoApp {
                         if let Some(worktree) = &job.git_worktree_path {
                             let git_manager = crate::git::GitManager::new(&self.work_dir).ok();
                             if let Some(gm) = git_manager {
-                                match gm.diff(worktree) {
+                                match gm.diff(worktree, job.base_branch.as_deref()) {
                                     Ok(diff) => {
                                         self.diff_state.set_content(diff);
                                         // Note: We stay in comparison mode but could show diff as sub-modal
@@ -1178,6 +1822,27 @@ impl eframe::App for KycoApp {
                 }
                 ExecutorEvent::Log(log_event) => {
                     self.logs.push(log_event);
+                }
+                ExecutorEvent::PermissionNeeded { job_id, request_id, session_id, tool_name, tool_input } => {
+                    // Convert to PermissionRequest and add to popup queue
+                    let request = PermissionRequest {
+                        request_id,
+                        session_id,
+                        tool_name: tool_name.clone(),
+                        tool_input,
+                        received_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0),
+                    };
+                    self.permission_state.add_request(request);
+                    self.logs.push(
+                        LogEvent::permission(format!(
+                            "Permission request: {} (waiting)",
+                            tool_name
+                        ))
+                        .for_job(job_id),
+                    );
                 }
             }
         }
@@ -1560,6 +2225,9 @@ impl eframe::App for KycoApp {
             }
         }
 
+        // Render permission popup on top of everything if visible
+        self.render_permission_popup_modal(ctx);
+
         // Poll update checker
         let update_info = match self.update_checker.poll() {
             UpdateStatus::UpdateAvailable(info) => Some(info.clone()),
@@ -1606,6 +2274,8 @@ impl eframe::App for KycoApp {
                 chain_edit_status: &mut self.chain_edit_status,
                 update_info: update_info.as_ref(),
                 install_status: &mut self.update_install_status,
+                workspace_registry: Some(&self.workspace_registry),
+                active_workspace_id: &mut self.active_workspace_id,
             },
         );
 
@@ -1638,23 +2308,6 @@ impl Mode {
             Mode::Optimize => "optimize",
             Mode::Implement => "implement",
             Mode::Custom => "custom",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Agent {
-    Claude,
-    Codex,
-    Gemini,
-}
-
-impl Agent {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Agent::Claude => "claude",
-            Agent::Codex => "codex",
-            Agent::Gemini => "gemini",
         }
     }
 }

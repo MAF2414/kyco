@@ -11,7 +11,7 @@
 Coding agents can spiral into hour-long sessions that touch half your codebase. KYCo takes a different approach:
 
 - **Focused Changes**: Select specific code lines, run a mode, get targeted changes - not a full repo rewrite
-- **Multi-Agent Power**: Run Claude, Codex, or Gemini in parallel with concurrent jobs and git worktree isolation
+- **Multi-Agent Power**: Run Claude or Codex in parallel with concurrent jobs and git worktree isolation
 - **Voice-First Workflow**: Define tasks via Whisper speech-to-text - faster than typing prompts
 - **You Stay in Control**: Review every diff, accept or reject changes, keep your codebase predictable
 
@@ -21,7 +21,7 @@ Coding agents can spiral into hour-long sessions that touch half your codebase. 
 - **IDE Integration**: VS Code and JetBrains extensions send selections directly to KYCo
 - **Batch Processing**: Process multiple files at once with the same mode
 - **Grep Search**: Find files by pattern and process them as a batch
-- **Multi-Agent Support**: Works with Claude, Codex, and Gemini CLI
+- **Agent SDK Support**: Runs Claude Agent SDK and Codex SDK through a local Bridge server
 - **Concurrent Jobs**: Run multiple AI tasks in parallel
 - **Chains**: Automated multi-step workflows (review → fix → test)
 - **Git Worktrees**: Optionally isolate changes in separate worktrees
@@ -76,10 +76,9 @@ Find files matching a pattern and process them as a batch:
 
 ### Prerequisites
 
-You need one of the supported AI CLIs installed:
-- [Claude Code](https://claude.ai/code) (`claude`) - Recommended
-- [Codex](https://github.com/openai/codex) (`codex`)
-- [Gemini CLI](https://github.com/google/gemini-cli) (`gemini`)
+You need Node.js >= 18 (for the local SDK Bridge server).
+
+For Codex, ensure `codex` is available on your `PATH` (or set `CODEX_EXECUTABLE`).
 
 ### macOS
 
@@ -205,8 +204,15 @@ use_worktree = false         # Isolate jobs in git worktrees
 
 [agent.claude]
 aliases = ["c", "cl"]
-binary = "claude"
-allowed_tools = ["Read"]     # Restrict agent tools
+sdk = "claude"
+allowed_tools = ["Read"]     # Claude only: restrict tools
+
+# Optional: programmatic Claude subagents (invoked via Task tool)
+[agent.claude.agents.code-reviewer]
+description = "Reviews code for bugs and style issues"
+prompt = "You are a strict code reviewer."
+tools = ["Read", "Grep", "Glob"]
+model = "sonnet"
 
 [mode.refactor]
 aliases = ["r", "ref"]
@@ -254,7 +260,7 @@ kyco --help             # Show all options
 
 ```
 src/
-├── agent/      # AI agent integrations (Claude, Codex, Gemini)
+├── agent/      # AI agent integrations (Claude, Codex)
 ├── cli/        # Command-line interface
 ├── config/     # Configuration management
 ├── domain/     # Core domain models

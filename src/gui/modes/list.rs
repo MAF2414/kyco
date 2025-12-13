@@ -74,6 +74,11 @@ pub fn render_modes_list(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>) {
                 state.mode_edit_agent.clear();
                 state.mode_edit_allowed_tools.clear();
                 state.mode_edit_disallowed_tools.clear();
+                *state.mode_edit_session_mode = "oneshot".to_string();
+                *state.mode_edit_max_turns = "0".to_string();
+                state.mode_edit_model.clear();
+                *state.mode_edit_claude_permission = "auto".to_string();
+                *state.mode_edit_codex_sandbox = "auto".to_string();
                 *state.mode_edit_readonly = false;
                 *state.mode_edit_status = None;
             }

@@ -4,16 +4,22 @@ use std::collections::HashMap;
 
 use super::state::AgentEditorState;
 use crate::config::AgentConfigToml;
-use crate::{AgentMode, CliType, SystemPromptMode};
+use crate::{SdkType, SessionMode, SystemPromptMode};
 
 /// Load agent data for editing
 pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
     if let Some(agent) = state.config.agent.get(name) {
         *state.agent_edit_name = name.to_string();
         *state.agent_edit_aliases = agent.aliases.join(", ");
-        *state.agent_edit_binary = agent.binary.clone();
-        *state.agent_edit_cli_type = format!("{:?}", agent.cli_type).to_lowercase();
-        *state.agent_edit_mode = format!("{:?}", agent.mode).to_lowercase();
+        *state.agent_edit_binary = agent.binary.clone().unwrap_or_default();
+        *state.agent_edit_cli_type = match agent.sdk {
+            SdkType::Codex => "codex".to_string(),
+            _ => "claude".to_string(),
+        };
+        *state.agent_edit_mode = match agent.session_mode {
+            SessionMode::Session | SessionMode::Repl => "session".to_string(),
+            _ => "oneshot".to_string(),
+        };
         *state.agent_edit_print_args = agent.print_mode_args.join(" ");
         *state.agent_edit_output_args = agent.output_format_args.join(" ");
         *state.agent_edit_repl_args = agent.repl_mode_args.join(" ");
@@ -37,11 +43,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
 
     if name.is_empty() {
         *state.agent_edit_status = Some(("Agent name cannot be empty".to_string(), true));
-        return;
-    }
-
-    if state.agent_edit_binary.is_empty() {
-        *state.agent_edit_status = Some(("Binary path cannot be empty".to_string(), true));
         return;
     }
 
@@ -87,17 +88,15 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         .collect();
 
     // Parse enums from string values
-    let cli_type = match state.agent_edit_cli_type.as_str() {
-        "claude" => CliType::Claude,
-        "codex" => CliType::Codex,
-        "gemini" => CliType::Gemini,
-        "custom" => CliType::Custom,
-        _ => CliType::Claude,
+    let sdk = match state.agent_edit_cli_type.as_str() {
+        "claude" => SdkType::Claude,
+        "codex" => SdkType::Codex,
+        _ => SdkType::Claude,
     };
 
-    let mode = match state.agent_edit_mode.as_str() {
-        "repl" => AgentMode::Repl,
-        _ => AgentMode::Print,
+    let session_mode = match state.agent_edit_mode.as_str() {
+        "session" => SessionMode::Session,
+        _ => SessionMode::Oneshot,
     };
 
     let system_prompt_mode = match state.agent_edit_system_prompt_mode.as_str() {
@@ -106,12 +105,20 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         _ => SystemPromptMode::Append,
     };
 
+    // Preserve fields not editable in the GUI (env, MCP servers, subagents) when updating an existing agent.
+    let (env, mcp_servers, agents) = state
+        .config
+        .agent
+        .get(&name)
+        .map(|a| (a.env.clone(), a.mcp_servers.clone(), a.agents.clone()))
+        .unwrap_or_else(|| (HashMap::new(), HashMap::new(), HashMap::new()));
+
     // Create the AgentConfigToml struct
     let agent_config = AgentConfigToml {
         aliases,
-        cli_type,
-        mode,
-        binary: state.agent_edit_binary.clone(),
+        sdk,
+        session_mode,
+        binary: (!state.agent_edit_binary.trim().is_empty()).then(|| state.agent_edit_binary.clone()),
         print_mode_args,
         output_format_args,
         repl_mode_args,
@@ -119,7 +126,9 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         system_prompt_mode,
         disallowed_tools,
         allowed_tools,
-        env: HashMap::new(),
+        env,
+        mcp_servers,
+        agents,
     };
 
     // Update the in-memory config (insert or replace)

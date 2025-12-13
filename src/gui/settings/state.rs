@@ -4,11 +4,12 @@
 
 use std::path::Path;
 use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::config::Config;
 use crate::gui::app::ViewMode;
 use crate::gui::voice::VoiceActionRegistry;
+use crate::workspace::WorkspaceRegistry;
 
 /// Voice test status for the settings UI
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -28,6 +29,7 @@ pub struct SettingsState<'a> {
     pub settings_auto_run: &'a mut bool,
     pub settings_use_worktree: &'a mut bool,
     pub settings_output_schema: &'a mut String,
+    pub settings_structured_output_schema: &'a mut String,
     pub settings_status: &'a mut Option<(String, bool)>,
 
     // Voice settings
@@ -66,4 +68,16 @@ pub struct SettingsState<'a> {
 
     /// Shared max concurrent jobs (updates executor in real-time)
     pub max_concurrent_jobs_shared: &'a Arc<AtomicUsize>,
+
+    /// Workspace registry for multi-workspace config import
+    pub workspace_registry: Option<&'a Arc<Mutex<WorkspaceRegistry>>>,
+
+    /// Selected workspace for config import (index into workspace list)
+    pub import_workspace_selected: &'a mut usize,
+
+    /// Checkboxes for what to import
+    pub import_modes: &'a mut bool,
+    pub import_agents: &'a mut bool,
+    pub import_chains: &'a mut bool,
+    pub import_settings: &'a mut bool,
 }

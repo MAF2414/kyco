@@ -2,19 +2,15 @@
 
 use anyhow::{bail, Result};
 use std::path::Path;
+use std::path::PathBuf;
+use tracing::info;
 
 /// Default configuration content for kyco init
 pub const DEFAULT_CONFIG: &str = r#"# KYCo Configuration - Know Your Codebase
 # =======================
 #
-# Syntax: @@{agent:}?mode {description}?
-#
-# Examples:
-#   // @@docs                      - Add documentation (default agent: claude)
-#   // @@fix handle edge case      - Fix with description
-#   // @@claude:refactor           - Explicit agent
-#   // @@x:t add unit tests        - Codex tests (short aliases)
-#   # @@review check for bugs      - Python comment
+# Jobs are created via IDE extensions (VSCode, JetBrains) that send
+# code selections to KYCo's GUI for processing by AI agents.
 
 # ============================================================================
 # SETTINGS - Global configuration options
@@ -22,77 +18,74 @@ pub const DEFAULT_CONFIG: &str = r#"# KYCo Configuration - Know Your Codebase
 #
 # Available options:
 #   max_concurrent_jobs - Maximum number of jobs to run simultaneously (default: 4)
-#   debounce_ms         - Delay before scanning after file changes (default: 500)
-#   auto_run            - Automatically start jobs when found (default: false)
-#   marker_prefix       - The marker prefix to look for (default: "@@")
-#   scan_exclude        - Glob patterns to exclude from scanning (default: [])
+#   auto_run            - Automatically start jobs when found (default: true)
 #   use_worktree        - Run jobs in isolated Git worktrees (default: false)
+#   max_jobs_per_file   - Max concurrent jobs per file when not using worktrees (default: 1)
 
 [settings]
 max_concurrent_jobs = 4
-debounce_ms = 500
-auto_run = false
-marker_prefix = "@@"
-scan_exclude = []
+auto_run = true
 use_worktree = false
+# Maximum jobs per file (only when use_worktree = false)
+# Set to 1 to prevent agents from overwriting each other's changes
+# When a job is blocked, it shows as "Blocked" in the GUI with the blocking job ID
+max_jobs_per_file = 1
+
+# GUI / IDE extension communication (local HTTP server)
+[settings.gui]
+http_port = 9876
+# Optional: Shared secret for IDE extension requests (sent as `X-KYCO-Token`)
+# Leave empty to disable auth (recommended for local development)
+http_token = ""
+
+# Claude Agent SDK plugins (local allowlist)
+#
+# Security note: plugins are Node.js code that runs inside the KYCO bridge process.
+# Only add trusted plugin directories here.
+[settings.claude]
+allowed_plugin_paths = []
 
 # ============================================================================
 # AGENTS - The AI backends that execute jobs
 # ============================================================================
 #
-# Each agent defines how to invoke an AI CLI tool.
+# Agents run through the local SDK Bridge (Node.js sidecar) for full programmatic control.
 #
 # Available options:
 #   aliases             - Short names to reference this agent (e.g., "c" for "claude")
-#   cli_type            - The CLI type: "claude", "codex", "gemini", or "custom"
-#   binary              - The executable to run (e.g., "claude", "codex")
-#   mode                - Execution mode: "print" (non-interactive) or "repl" (Terminal.app)
-#   print_mode_args     - Arguments for print mode (e.g., ["-p"])
-#   output_format_args  - Arguments for output format (e.g., ["--output-format", "stream-json"])
-#   repl_mode_args      - Arguments for REPL/interactive mode
-#   system_prompt_mode  - How to pass system prompts: "append", "replace", or "configoverride"
-#   disallowed_tools    - Tools the agent cannot use (e.g., ["Write", "Edit"] for read-only)
-#   allowed_tools       - Limit agent to only these tools
-#   env                 - Environment variables to set when running the agent
+#   sdk                 - The SDK backend: "claude" or "codex" (legacy key: `cli_type`)
+#   session_mode        - "oneshot" or "session" (legacy key: `mode`)
+#   system_prompt_mode  - "append" (default) or "replace" (Claude only)
+#   disallowed_tools    - Tools the agent cannot use (Claude only; for Codex use mode.codex.sandbox)
+#   allowed_tools       - Limit agent to only these tools (Claude only)
+#   env                 - Environment variables to pass to the SDK process
+#   mcp_servers         - MCP servers (Claude only)
+#   agents              - Claude subagents (optional; invoked via Task tool)
+#
+# Note: `binary` and `*_args` fields are legacy and ignored for SDK agents.
+#
+# Claude Subagents (Claude SDK only)
+# ---------------------------------
+#
+# You can define custom Claude subagents (invoked via the `Task` tool) directly in config:
+#
+#   [agent.claude.agents.code-reviewer]
+#   description = "Reviews code for bugs and style issues"
+#   prompt = "You are a strict code reviewer."
+#   tools = ["Read", "Grep", "Glob"]
+#   model = "sonnet"
 
 [agent.claude]
 aliases = ["c", "cl"]
-cli_type = "claude"
-binary = "claude"
-print_mode_args = ["-p"]
-output_format_args = ["--output-format", "stream-json", "--verbose"]
+sdk = "claude"
+session_mode = "oneshot"
 system_prompt_mode = "append"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash", "TodoRead", "TodoWrite"]
 
 [agent.codex]
 aliases = ["x", "cx"]
-cli_type = "codex"
-binary = "codex"
-print_mode_args = ["exec", "--sandbox", "workspace-write"]
-output_format_args = ["--json"]
-system_prompt_mode = "configoverride"
-allowed_tools = ["Read"]
-
-[agent.gemini]
-aliases = ["g", "gm"]
-cli_type = "gemini"
-binary = "gemini"
-system_prompt_mode = "replace"
-allowed_tools = ["Read"]
-
-# REPL mode agents - run in a separate Terminal.app window (macOS)
-# Use "cr" for Claude REPL, "xr" for Codex REPL, etc.
-[agent.cr]
-cli_type = "claude"
-binary = "claude"
-mode = "repl"
-repl_mode_args = []
-allowed_tools = ["Read"]
-
-[agent.xr]
-cli_type = "codex"
-binary = "codex"
-mode = "repl"
+sdk = "codex"
+session_mode = "oneshot"
+system_prompt_mode = "append"
 
 # ============================================================================
 # MODES - Prompt templates that define HOW to instruct the agent
@@ -879,10 +872,48 @@ steps = [
 ]
 "#;
 
+/// Ensures a config file exists for a workspace, creating it if missing.
+/// This is called automatically when a new workspace is registered.
+/// Returns true if config was created, false if it already existed or couldn't be created.
+pub fn ensure_config_exists(workspace_path: &Path) -> bool {
+    // Only initialize if the workspace directory actually exists
+    if !workspace_path.exists() || !workspace_path.is_dir() {
+        return false;
+    }
+
+    let config_path = workspace_path.join(".kyco").join("config.toml");
+    let legacy_path = workspace_path.join("kyco.toml");
+
+    // Config already exists (either new or legacy location)
+    if config_path.exists() || legacy_path.exists() {
+        return false;
+    }
+
+    // Create .kyco directory if needed
+    if let Some(parent) = config_path.parent() {
+        if !parent.exists() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                info!("Failed to create .kyco directory: {}", e);
+                return false;
+            }
+        }
+    }
+
+    // Write default config
+    if let Err(e) = std::fs::write(&config_path, DEFAULT_CONFIG) {
+        info!("Failed to write default config: {}", e);
+        return false;
+    }
+
+    info!("Auto-initialized config: {}", config_path.display());
+    true
+}
+
 /// Initialize a new KYCo configuration
-pub async fn init_command(work_dir: &Path, force: bool) -> Result<()> {
-    let config_dir = work_dir.join(".kyco");
-    let config_path = config_dir.join("config.toml");
+pub async fn init_command(work_dir: &Path, config_path: Option<PathBuf>, force: bool) -> Result<()> {
+    let config_path = config_path
+        .map(|p| if p.is_absolute() { p } else { work_dir.join(p) })
+        .unwrap_or_else(|| work_dir.join(".kyco").join("config.toml"));
 
     // Check for existing config (both new and legacy locations)
     let legacy_path = work_dir.join("kyco.toml");
@@ -894,7 +925,7 @@ pub async fn init_command(work_dir: &Path, force: bool) -> Result<()> {
         );
     }
 
-    if legacy_path.exists() && !force {
+    if legacy_path.exists() && legacy_path != config_path && !force {
         bail!(
             "Legacy configuration exists: {}\nMove it to {} or use --force to create new config.",
             legacy_path.display(),
@@ -902,12 +933,14 @@ pub async fn init_command(work_dir: &Path, force: bool) -> Result<()> {
         );
     }
 
-    // Create .kyco directory
-    if !config_dir.exists() {
-        std::fs::create_dir_all(&config_dir)?;
+    // Create parent directory (if any)
+    if let Some(parent) = config_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+        }
     }
 
-    // Write config
+    // Write config (http_token is empty by default for local development)
     std::fs::write(&config_path, DEFAULT_CONFIG)?;
     println!("Created: {}", config_path.display());
 

@@ -1,7 +1,7 @@
 //! Mode configuration persistence (save/delete/load operations)
 
 use super::state::ModeEditorState;
-use crate::config::ModeConfig;
+use crate::config::{ClaudeModeOptions, CodexModeOptions, ModeConfig, ModeSessionType};
 
 /// Load mode data for editing
 pub fn load_mode_for_editing(state: &mut ModeEditorState<'_>, name: &str) {
@@ -13,6 +13,22 @@ pub fn load_mode_for_editing(state: &mut ModeEditorState<'_>, name: &str) {
         *state.mode_edit_agent = mode.agent.clone().unwrap_or_default();
         *state.mode_edit_allowed_tools = mode.allowed_tools.join(", ");
         *state.mode_edit_disallowed_tools = mode.disallowed_tools.join(", ");
+        *state.mode_edit_session_mode = match mode.session_mode {
+            ModeSessionType::Oneshot => "oneshot".to_string(),
+            ModeSessionType::Session => "session".to_string(),
+        };
+        *state.mode_edit_max_turns = mode.max_turns.to_string();
+        *state.mode_edit_model = mode.model.clone().unwrap_or_default();
+        *state.mode_edit_claude_permission = mode
+            .claude
+            .as_ref()
+            .map(|c| c.permission_mode.clone())
+            .unwrap_or_else(|| "auto".to_string());
+        *state.mode_edit_codex_sandbox = mode
+            .codex
+            .as_ref()
+            .map(|c| c.sandbox.clone())
+            .unwrap_or_else(|| "auto".to_string());
         *state.mode_edit_readonly = mode.disallowed_tools.contains(&"Write".to_string())
             || mode.disallowed_tools.contains(&"Edit".to_string());
         *state.mode_edit_status = None;
@@ -61,6 +77,37 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
             .collect()
     };
 
+    let session_mode = match state.mode_edit_session_mode.as_str() {
+        "session" => ModeSessionType::Session,
+        _ => ModeSessionType::Oneshot,
+    };
+
+    let max_turns = state
+        .mode_edit_max_turns
+        .trim()
+        .parse::<u32>()
+        .unwrap_or(0);
+
+    let model = if state.mode_edit_model.trim().is_empty() {
+        None
+    } else {
+        Some(state.mode_edit_model.trim().to_string())
+    };
+
+    let claude = match state.mode_edit_claude_permission.trim() {
+        "" | "auto" => None,
+        permission_mode => Some(ClaudeModeOptions {
+            permission_mode: permission_mode.to_string(),
+        }),
+    };
+
+    let codex = match state.mode_edit_codex_sandbox.trim() {
+        "" | "auto" => None,
+        sandbox => Some(CodexModeOptions {
+            sandbox: sandbox.to_string(),
+        }),
+    };
+
     // Create the ModeConfig struct
     let mode_config = ModeConfig {
         agent: if state.mode_edit_agent.is_empty() {
@@ -80,10 +127,15 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         } else {
             Some(state.mode_edit_system_prompt.clone())
         },
-        allowed_tools,
+        session_mode,
+        max_turns,
+        model,
         disallowed_tools,
+        claude,
+        codex,
         aliases,
         output_states: Vec::new(),
+        allowed_tools, // Legacy, deprecated
     };
 
     // Update the in-memory config (insert or replace)

@@ -3,571 +3,74 @@ aliases = [
     "x",
     "cx",
 ]
-cli_type = "codex"
-mode = "print"
-binary = "codex"
-print_mode_args = [
-    "exec",
-    "--sandbox",
-    "workspace-write",
-]
-output_format_args = ["--json"]
-repl_mode_args = []
-default_args = []
-system_prompt_mode = "configoverride"
-disallowed_tools = []
-allowed_tools = ["Read"]
-
-[agent.codex.env]
-
-[agent.gemini]
-aliases = [
-    "g",
-    "gm",
-]
-cli_type = "gemini"
-mode = "print"
-binary = "gemini"
-print_mode_args = []
-output_format_args = []
-repl_mode_args = []
-default_args = []
-system_prompt_mode = "replace"
-disallowed_tools = []
-allowed_tools = ["Read"]
-
-[agent.gemini.env]
-
-[agent.xr]
-aliases = []
-cli_type = "codex"
-mode = "repl"
-binary = "codex"
-print_mode_args = []
-output_format_args = []
-repl_mode_args = []
-default_args = []
+sdk = "codex"
+session_mode = "oneshot"
 system_prompt_mode = "append"
-disallowed_tools = []
-allowed_tools = []
-
-[agent.xr.env]
-
-[agent.cr]
-aliases = []
-cli_type = "claude"
-mode = "repl"
-binary = "claude"
-print_mode_args = []
-output_format_args = []
-repl_mode_args = []
-default_args = []
-system_prompt_mode = "append"
-disallowed_tools = []
-allowed_tools = ["Read"]
-
-[agent.cr.env]
 
 [agent.claude]
 aliases = [
     "c",
     "cl",
 ]
-cli_type = "claude"
-mode = "print"
-binary = "claude"
-print_mode_args = ["-p"]
-output_format_args = [
-    "--output-format",
-    "stream-json",
-    "--verbose",
-]
-repl_mode_args = []
-default_args = []
+sdk = "claude"
+session_mode = "oneshot"
 system_prompt_mode = "append"
-disallowed_tools = []
-allowed_tools = ["Read"]
-
-[agent.claude.env]
-
-[mode.cleanup]
-prompt = """
-Clean up `{target}`: {description}
-
-{ide_context}
-
-1. Identify dead code, unused imports, obsolete comments
-2. Remove or fix identified issues
-3. Verify nothing breaks via dependencies and tests
-4. Set state to "cleaned"
-"""
-system_prompt = """
-You clean up code. Remove cruft, keep functionality.
-
-REMOVE:
-- Unused imports and variables
-- Dead code (unreachable, commented out)
-- Obsolete TODOs and FIXMEs
-- Redundant type casts
-
-DO:
-- Verify removal won't break dependents
-- Run tests after cleanup
-- Keep meaningful comments
-
-DON'T:
-- Remove code that looks unused but isn't (reflection, dynamic)
-- Delete TODOs without checking if still relevant
-- Clean up code you don't understand
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
-]
-disallowed_tools = []
-aliases = [
-    "clean",
-    "tidy",
-]
-output_states = ["cleaned"]
-
-[mode.types]
-prompt = """
-Add types to `{target}`: {description}
-
-{ide_context}
-
-1. Analyze the code and infer types
-2. Add type annotations matching project style
-3. Fix any type errors introduced
-4. Set state to "typed"
-"""
-system_prompt = """
-You add type annotations. Improve type safety.
-
-DO:
-- Use specific types (not any/unknown unless necessary)
-- Add return types to functions
-- Type function parameters
-- Create interfaces/types for complex objects
-- Match existing project type patterns
-
-DON'T:
-- Over-type obvious literals
-- Use overly complex generic types
-- Add types that reduce flexibility without benefit
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "ty",
-    "typing",
-]
-output_states = ["typed"]
-
-[mode.security]
-prompt = """
-Secure `{target}`: {description}
-
-{ide_context}
-
-1. Analyze code for security vulnerabilities
-2. Fix identified issues
-3. Add input validation where missing
-4. Set state to "secured" or "vulnerabilities_remain"
-"""
-system_prompt = """
-You fix security issues. OWASP Top 10 focus.
-
-CHECK AND FIX:
-- Injection (SQL, XSS, command, path traversal)
-- Auth issues (broken auth, missing checks)
-- Data exposure (logging secrets, insecure storage)
-- Insecure defaults (weak crypto, permissive CORS)
-
-DO:
-- Validate and sanitize all inputs
-- Use parameterized queries
-- Encode outputs appropriately
-- Apply principle of least privilege
-
-DON'T:
-- Security through obscurity
-- Roll your own crypto
-- Trust client-side validation alone
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
-]
-disallowed_tools = []
-aliases = [
-    "sec",
-    "harden",
-]
-output_states = [
-    "secured",
-    "vulnerabilities_remain",
-]
-
-[mode.commit]
-prompt = """
-Commit staged changes: {description}
-
-1. Run `git diff --cached` to review changes
-2. Determine commit type and write message
-3. Execute commit and set state to "committed"
-"""
-system_prompt = """
-You create git commits. Use conventional commits format.
-
-FORMAT: <type>(<scope>): <subject>
-
-TYPES: feat, fix, docs, style, refactor, perf, test, build, ci, chore
-
-RULES:
-- Max 72 chars subject, imperative mood ("Add" not "Added")
-- Warn if sensitive files staged (.env, credentials)
-- Never amend or force push without explicit request
-"""
-allowed_tools = [
-    "Bash(git status:*)",
-    "Bash(git diff:*)",
-    "Bash(git add:*)",
-    "Bash(git commit:*)",
-    "Bash(git log:*)",
-    "Read",
-]
-disallowed_tools = [
-    "Write",
-    "Edit",
-]
-aliases = [
-    "cm",
-    "git",
-]
-output_states = ["committed"]
-
-[mode.docs]
-prompt = """
-Document `{target}`: {description}
-
-{ide_context}
-
-1. Read the code and identify existing doc style
-2. Write clear documentation with examples
-3. Set state to "documented"
-"""
-system_prompt = """
-You write documentation. Match the project's existing doc format.
-
-INCLUDE:
-- Purpose (what and why)
-- Parameters (types, constraints, defaults)
-- Returns (types, possible values)
-- Examples for non-trivial code
-
-DON'T:
-- Over-document obvious code
-- Include implementation details that may change
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "d",
-    "doc",
-]
-output_states = ["documented"]
-
-[mode.decouple]
-prompt = """
-Decouple dependency at `{target}`: {description}
-
-{ide_context}
-
-1. Identify the direct dependency to abstract
-2. Create an interface/trait for the dependency
-3. Inject the dependency instead of hardcoding
-4. Update all usages in listed dependencies
-5. Set state to "decoupled"
-"""
-system_prompt = """
-You decouple code by introducing abstractions. Enable testability and flexibility.
-
-DO:
-- Create interface/trait matching current usage
-- Use constructor/parameter injection
-- Update all callers from dependency list
-- Keep interface minimal
-
-DON'T:
-- Over-abstract (one interface per concrete type is usually wrong)
-- Change behavior while decoupling
-- Add unused interface methods
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "dec",
-    "inject",
-    "di",
-]
-output_states = ["decoupled"]
-
-[mode.explain]
-prompt = """
-Explain `{target}`: {description}
-
-{ide_context}
-
-1. Read and understand the code
-2. Explain what it does and how it connects to dependencies
-3. Set state to "explained"
-"""
-system_prompt = """
-You explain code. READ-ONLY - no edits.
-
-STRUCTURE:
-- One-sentence summary first
-- Step-by-step breakdown of logic
-- How it connects to listed dependencies
-- Key patterns and concepts used
-- Non-obvious behavior or gotchas
-
-Explain the "why", not just the "what".
-"""
-allowed_tools = []
-disallowed_tools = [
-    "Write",
-    "Edit",
-]
-aliases = [
-    "e",
-    "exp",
-]
-output_states = ["explained"]
-
-[mode.extract]
-prompt = """
-Extract from `{target}`: {description}
-
-{ide_context}
-
-1. Identify the code to extract
-2. Create new function/module/service
-3. Replace original with call to extracted code
-4. Update imports in dependencies
-5. Set state to "extracted"
-"""
-system_prompt = """
-You extract code into reusable units. Improve modularity.
-
-DO:
-- Give clear, descriptive names
-- Define clean interface (minimal parameters)
-- Place in appropriate location (same file, new file, new module)
-- Update all callers from dependency list
-
-DON'T:
-- Extract code only used once (unless for clarity)
-- Create deep call hierarchies
-- Change behavior while extracting
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "ex",
-    "split",
-]
-output_states = ["extracted"]
-
-[mode.fix]
-prompt = """
-Fix `{target}`: {description}
-
-{ide_context}
-
-1. Read the code and understand the issue
-2. Check dependencies for impact of fix
-3. Implement minimal, targeted fix
-4. Run related tests if available
-5. Set state to "fixed" or "unfixable"
-"""
-system_prompt = """
-You fix bugs. Minimal, surgical changes only.
-
-DO:
-- Fix the root cause
-- Keep changes small
-- Match existing code style
-- Verify fix with related tests
-
-DON'T:
-- Refactor surrounding code
-- Add features while fixing
-- Change public APIs unless necessary
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
-]
-disallowed_tools = []
-aliases = ["f"]
-output_states = [
-    "fixed",
-    "unfixable",
-]
 
 [mode.review]
-prompt = """
-Review `{target}`: {description}
-
-{ide_context}
-
-1. Read the code and its dependencies
-2. Identify bugs, security issues, performance problems
-3. Output findings with SEVERITY, LOCATION, ISSUE, SUGGESTION
-4. Set state to "issues_found" or "no_issues"
-"""
-system_prompt = """
-You review code. READ-ONLY - no edits.
-
-CHECK FOR:
-- Bugs: logic errors, null handling, race conditions
-- Security: injection, auth issues, data exposure
-- Performance: N+1 queries, memory leaks, missing caching
-- Maintainability: complexity, unclear naming, missing error handling
-
-OUTPUT FORMAT (per issue):
-- SEVERITY: Critical / High / Medium / Low
-- LOCATION: file:line
-- ISSUE: description
-- SUGGESTION: how to fix
-
-Use dependency list to check for broader impact.
-"""
-allowed_tools = []
+target_default = "code"
+scope_default = "file"
+prompt = "Review the code in `{file}` for issues, bugs, and improvements. {description}"
+system_prompt = "You are a code reviewer. Focus on bugs, security issues, performance problems, and code quality. Be thorough but constructive. Do NOT modify any files."
+session_mode = "oneshot"
+max_turns = 10
 disallowed_tools = [
     "Write",
     "Edit",
+    "Bash",
 ]
 aliases = [
-    "v",
+    "r",
     "rev",
 ]
 output_states = [
     "issues_found",
     "no_issues",
 ]
+allowed_tools = []
 
-[mode.refactor]
-prompt = """
-Refactor `{target}`: {description}
+[mode.review.claude]
+permission_mode = "default"
 
-{ide_context}
+[mode.review.codex]
+sandbox = "read-only"
 
-1. Read and understand the code
-2. Check dependencies to avoid breaking changes
-3. Refactor for clarity while preserving exact behavior
-4. Set state to "refactored"
-"""
-system_prompt = """
-You refactor code. Preserve exact behavior. Match project style.
+[mode.chat]
+prompt = "{description}"
+system_prompt = "You are a helpful assistant for this codebase. You can read and explore the code to answer questions."
+session_mode = "session"
+max_turns = 0
+disallowed_tools = ["Bash(git push)"]
+aliases = ["c"]
+output_states = []
+allowed_tools = []
 
-DO:
-- Improve naming, structure, readability
-- Extract duplicated logic
-- Simplify complex conditionals
-- Check listed dependencies before changing signatures
+[mode.chat.claude]
+permission_mode = "default"
 
-DON'T:
-- Change public APIs
-- Add features or fix bugs
-- Over-engineer
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-]
-disallowed_tools = []
-aliases = [
-    "r",
-    "ref",
-]
-output_states = ["refactored"]
+[mode.chat.codex]
+sandbox = "workspace-write"
 
 [mode.implement]
-prompt = """
-Implement at `{target}`: {description}
-
-{ide_context}
-
-1. Read surrounding code and dependencies to understand patterns
-2. Implement the functionality
-3. Handle errors appropriately
-4. Set state to "implemented" or "blocked"
-"""
-system_prompt = """
-You implement features. Match existing codebase style and patterns.
-
-DO:
-- Reuse existing utilities from dependencies
-- Handle errors consistently
-- Write clear, idiomatic code
-
-DON'T:
-- Over-engineer
-- Add unnecessary dependencies
-- Break existing functionality
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
+target_default = "code"
+scope_default = "file"
+prompt = "Implement the following in `{file}`: {description}"
+system_prompt = "You are a software engineer. Implement the requested feature or functionality."
+session_mode = "oneshot"
+max_turns = 50
+disallowed_tools = [
+    "Bash(git push)",
+    "Bash(git push --force)",
 ]
-disallowed_tools = []
 aliases = [
     "i",
     "impl",
@@ -576,447 +79,74 @@ output_states = [
     "implemented",
     "blocked",
 ]
+allowed_tools = []
 
-[mode.logging]
-prompt = """
-Add logging to `{target}`: {description}
+[mode.implement.claude]
+permission_mode = "acceptEdits"
 
-{ide_context}
+[mode.implement.codex]
+sandbox = "workspace-write"
 
-1. Identify the existing logging framework
-2. Add structured logging at appropriate points
-3. Use correct log levels (error, warn, info, debug, trace)
-4. Set state to "logged"
-"""
-system_prompt = """
-You add logging. Use the project's existing logging framework.
-
-LOG LEVELS:
-- error: failures requiring attention
-- warn: unexpected but handled situations
-- info: significant business events
-- debug: diagnostic information
-- trace: detailed execution flow
-
-DO:
-- Include relevant context (IDs, parameters)
-- Use structured logging (key=value)
-- Log at entry/exit of important operations
-
-DON'T:
-- Log sensitive data (passwords, tokens, PII)
-- Over-log in hot paths (performance impact)
-- Use string concatenation for log messages
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
+[mode.fix]
+target_default = "code"
+scope_default = "file"
+prompt = "Fix the issues in `{file}`. {description}"
+system_prompt = "You are a code fixer. Apply the necessary fixes based on the issues identified. Make minimal changes to fix the problems."
+session_mode = "oneshot"
+max_turns = 30
+disallowed_tools = [
+    "Bash(git push)",
+    "Bash(git push --force)",
 ]
-disallowed_tools = []
-aliases = [
-    "log",
-    "l",
-]
-output_states = ["logged"]
-
-[mode.migrate]
-prompt = """
-Migrate `{target}`: {description}
-
-{ide_context}
-
-1. Understand the migration requirements
-2. Update code to new API/version
-3. Update all usages in dependencies
-4. Run tests to verify migration
-5. Set state to "migrated" or "migration_blocked"
-"""
-system_prompt = """
-You migrate code to new APIs/versions. Ensure compatibility.
-
-DO:
-- Read migration guides for the target version
-- Update all affected files from dependency list
-- Handle deprecated features appropriately
-- Test thoroughly after migration
-
-DON'T:
-- Mix old and new patterns inconsistently
-- Ignore deprecation warnings
-- Migrate without understanding breaking changes
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
-]
-disallowed_tools = []
-aliases = [
-    "mig",
-    "upgrade",
-]
+aliases = ["f"]
 output_states = [
-    "migrated",
-    "migration_blocked",
+    "fixed",
+    "unfixable",
 ]
+allowed_tools = []
 
-[mode.coverage]
-prompt = """
-Improve test coverage for `{target}`: {description}
+[mode.fix.claude]
+permission_mode = "acceptEdits"
 
-{ide_context}
+[mode.fix.codex]
+sandbox = "workspace-write"
 
-1. Identify untested code paths
-2. Write tests for uncovered branches
-3. Run tests and verify coverage improved
-4. Set state to "coverage_improved"
-"""
-system_prompt = """
-You write tests for uncovered code. Target specific gaps.
-
-PRIORITIZE:
-- Error handling paths
-- Edge cases and boundary conditions
-- Complex conditional branches
-- Integration points
-
-DO:
-- Check related tests for patterns
-- Focus on behavior, not implementation
-- Test one thing per test
-
-DON'T:
-- Write tests just for coverage numbers
-- Test trivial getters/setters
-- Duplicate existing test coverage
-"""
-allowed_tools = [
-    "Read",
+[mode.plan]
+target_default = "code"
+scope_default = "file"
+prompt = "Create a detailed implementation plan for `{file}`. {description}"
+system_prompt = "You are in planning mode. Propose a concrete, step-by-step plan with relevant files/functions, risks, and how you would validate the change. Do NOT modify any files or run commands."
+session_mode = "oneshot"
+max_turns = 15
+disallowed_tools = [
     "Write",
     "Edit",
-    "Glob",
-    "Grep",
     "Bash",
 ]
-disallowed_tools = []
-aliases = ["cov"]
-output_states = ["coverage_improved"]
-
-[mode.optimize]
-prompt = """
-Optimize `{target}`: {description}
-
-{ide_context}
-
-1. Read the code and analyze call patterns from dependencies
-2. Identify actual bottlenecks
-3. Apply targeted optimizations
-4. Run related tests to verify correctness
-5. Set state to "optimized"
-"""
-system_prompt = """
-You optimize code for performance. Never sacrifice correctness.
-
-FOCUS ON:
-- Algorithm complexity (O(n²) → O(n log n))
-- Data structure choice
-- Reducing allocations
-- Caching and batching
-
-DO:
-- Use dependency info to understand hot paths
-- Document tradeoffs
-- Preserve exact behavior
-
-DON'T:
-- Premature micro-optimizations
-- Sacrifice readability for minor gains
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
-]
-disallowed_tools = []
-aliases = [
-    "o",
-    "opt",
-]
-output_states = ["optimized"]
-
-[mode.tests]
-prompt = """
-Write tests for `{target}`: {description}
-
-{ide_context}
-
-1. Check related tests for existing patterns
-2. Write tests covering happy path, edge cases, and errors
-3. Run tests and set state to "tests_pass" or "tests_fail"
-"""
-system_prompt = """
-You write tests. Use the project's existing test framework and patterns.
-
-COVER:
-- Happy path (normal inputs)
-- Edge cases (empty, boundary, null)
-- Error cases (invalid inputs, exceptions)
-
-DO:
-- Check related tests first for style/framework
-- One assertion focus per test
-- Descriptive test names
-
-DON'T:
-- Test implementation details
-- Depend on external services without mocking
-"""
-allowed_tools = [
-    "Read",
-    "Write",
-    "Edit",
-    "Glob",
-    "Grep",
-    "Bash",
-]
-disallowed_tools = []
-aliases = [
-    "t",
-    "test",
-]
+aliases = ["p"]
 output_states = [
-    "tests_pass",
-    "tests_fail",
+    "plan_ready",
+    "needs_clarification",
 ]
+allowed_tools = []
 
-[chain.implement-and-test]
-description = "Implement a feature, then write and run tests"
+[mode.plan.claude]
+permission_mode = "plan"
+
+[mode.plan.codex]
+sandbox = "read-only"
+
+[chain."review+fix"]
+description = "Review code and fix any issues found"
 stop_on_failure = true
 
-[[chain.implement-and-test.steps]]
-mode = "implement"
-
-[[chain.implement-and-test.steps]]
-mode = "tests"
-trigger_on = ["implemented"]
-
-[chain.full-review]
-description = "Review, fix, test, then document"
-stop_on_failure = false
-
-[[chain.full-review.steps]]
+[[chain."review+fix".steps]]
 mode = "review"
 
-[[chain.full-review.steps]]
+[[chain."review+fix".steps]]
 mode = "fix"
 trigger_on = ["issues_found"]
-
-[[chain.full-review.steps]]
-mode = "tests"
-trigger_on = ["fixed"]
-
-[[chain.full-review.steps]]
-mode = "docs"
-skip_on = ["tests_fail"]
-
-[chain.migrate-safe]
-description = "Review, migrate, test, then cleanup"
-stop_on_failure = true
-
-[[chain.migrate-safe.steps]]
-mode = "review"
-
-[[chain.migrate-safe.steps]]
-mode = "migrate"
-trigger_on = ["no_issues"]
-
-[[chain.migrate-safe.steps]]
-mode = "tests"
-trigger_on = ["migrated"]
-
-[[chain.migrate-safe.steps]]
-mode = "cleanup"
-trigger_on = ["tests_pass"]
-
-[chain.implement-full]
-description = "Implement, add types, logging, docs, then test"
-stop_on_failure = true
-
-[[chain.implement-full.steps]]
-mode = "implement"
-
-[[chain.implement-full.steps]]
-mode = "types"
-trigger_on = ["implemented"]
-
-[[chain.implement-full.steps]]
-mode = "logging"
-trigger_on = ["typed"]
-
-[[chain.implement-full.steps]]
-mode = "docs"
-trigger_on = ["logged"]
-
-[[chain.implement-full.steps]]
-mode = "tests"
-trigger_on = ["documented"]
-
-[chain.decouple-and-test]
-description = "Decouple dependencies, then verify with tests"
-stop_on_failure = true
-
-[[chain.decouple-and-test.steps]]
-mode = "decouple"
-
-[[chain.decouple-and-test.steps]]
-mode = "tests"
-trigger_on = ["decoupled"]
-
-[chain.cleanup-full]
-description = "Cleanup, review for issues, fix if needed"
-stop_on_failure = false
-
-[[chain.cleanup-full.steps]]
-mode = "cleanup"
-
-[[chain.cleanup-full.steps]]
-mode = "review"
-trigger_on = ["cleaned"]
-
-[[chain.cleanup-full.steps]]
-mode = "fix"
-trigger_on = ["issues_found"]
-
-[[chain.cleanup-full.steps]]
-mode = "tests"
-trigger_on = ["fixed"]
-
-[chain.harden]
-description = "Security fix, add logging, then test"
-stop_on_failure = true
-
-[[chain.harden.steps]]
-mode = "security"
-
-[[chain.harden.steps]]
-mode = "logging"
-trigger_on = ["secured"]
-
-[[chain.harden.steps]]
-mode = "tests"
-trigger_on = ["logged"]
-
-[chain.modernize]
-description = "Add types, cleanup dead code, then test"
-stop_on_failure = false
-
-[[chain.modernize.steps]]
-mode = "types"
-
-[[chain.modernize.steps]]
-mode = "cleanup"
-trigger_on = ["typed"]
-
-[[chain.modernize.steps]]
-mode = "tests"
-trigger_on = ["cleaned"]
-
-[chain.quality-gate]
-description = "Full quality check: review, security, types, coverage"
-stop_on_failure = false
-
-[[chain.quality-gate.steps]]
-mode = "review"
-
-[[chain.quality-gate.steps]]
-mode = "security"
-trigger_on = ["issues_found"]
-
-[[chain.quality-gate.steps]]
-mode = "types"
-
-[[chain.quality-gate.steps]]
-mode = "coverage"
-
-[chain.extract-and-test]
-description = "Extract code into module/service, then test"
-stop_on_failure = true
-
-[[chain.extract-and-test.steps]]
-mode = "extract"
-
-[[chain.extract-and-test.steps]]
-mode = "tests"
-trigger_on = ["extracted"]
-
-[chain.refactor-safe]
-description = "Review first, then refactor, then test"
-stop_on_failure = true
-
-[[chain.refactor-safe.steps]]
-mode = "review"
-
-[[chain.refactor-safe.steps]]
-mode = "refactor"
-trigger_on = ["no_issues"]
-
-[[chain.refactor-safe.steps]]
-mode = "tests"
-trigger_on = ["refactored"]
-
-[chain.refactor-full]
-description = "Extract, decouple, refactor, then test"
-stop_on_failure = true
-
-[[chain.refactor-full.steps]]
-mode = "extract"
-
-[[chain.refactor-full.steps]]
-mode = "decouple"
-trigger_on = ["extracted"]
-
-[[chain.refactor-full.steps]]
-mode = "refactor"
-trigger_on = ["decoupled"]
-
-[[chain.refactor-full.steps]]
-mode = "tests"
-trigger_on = ["refactored"]
-
-[chain.review-and-fix]
-description = "Review code, fix any issues found, then run tests"
-stop_on_failure = true
-
-[[chain.review-and-fix.steps]]
-mode = "review"
-
-[[chain.review-and-fix.steps]]
-mode = "fix"
-trigger_on = ["issues_found"]
-
-[[chain.review-and-fix.steps]]
-mode = "tests"
-trigger_on = ["fixed"]
-
-[chain.secure-and-test]
-description = "Security audit, fix vulnerabilities, then verify with tests"
-stop_on_failure = true
-
-[[chain.secure-and-test.steps]]
-mode = "security"
-
-[[chain.secure-and-test.steps]]
-mode = "tests"
-trigger_on = ["secured"]
+skip_on = ["no_issues"]
 
 [scope]
 
@@ -1031,12 +161,10 @@ trigger_on = ["secured"]
 [alias.target]
 
 [settings]
-max_concurrent_jobs = 10
-debounce_ms = 500
+max_concurrent_jobs = 4
 auto_run = true
-scan_exclude = []
-marker_prefix = "@@"
 use_worktree = false
+max_jobs_per_file = 1
 
 [settings.gui]
 hotkey = "cmd+option+k"
@@ -1044,29 +172,28 @@ default_agent = "claude"
 default_mode = "implement"
 output_schema = """
 
-IMPORTANT: End your response with this YAML block:
----kyco
+IMPORTANT: End your response with a structured YAML summary block:
+---
 title: Short task title (max 60 chars)
+commit_subject: Suggested git commit subject (max 72 chars)
+commit_body: |
+  Suggested git commit body (optional, can be multiline)
 details: What was done (2-3 sentences)
 status: success|partial|failed
 summary: |
   Detailed summary of findings and actions (optional, can be multiline).
   This is passed to the next agent in a chain for context.
-  Include all relevant information the next step might need.
 state: <state_identifier>
 ---
 
-STATE IDENTIFIERS (use exactly these values):
-- For review: "issues_found" or "no_issues"
-- For fix: "fixed" or "unfixable"
-- For tests: "tests_pass" or "tests_fail"
-- For implement: "implemented" or "blocked"
-- For refactor: "refactored"
-- For docs: "documented"
+STATE VALUES: issues_found, no_issues, fixed, unfixable, tests_pass, tests_fail, implemented, blocked, refactored, documented
 """
+structured_output_schema = ""
+http_port = 9876
+http_token = ""
 
 [settings.gui.voice]
-mode = "manual"
+mode = "disabled"
 keywords = [
     "refactor",
     "fix",
@@ -1077,13 +204,16 @@ keywords = [
     "implement",
     "explain",
 ]
-whisper_model = "medium"
-language = "de"
-silence_threshold = 0.01
-silence_duration = 3.0
-max_duration = 240.0
+whisper_model = "base"
+language = "auto"
+silence_threshold = 0.1
+silence_duration = 2.5
+max_duration = 300.0
 
 [settings.registry]
 enabled_adapters = []
 disabled_adapters = []
 terminal_suffix = "-terminal"
+
+[settings.claude]
+allowed_plugin_paths = []

@@ -61,6 +61,8 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
     state.config.settings.auto_run = *state.settings_auto_run;
     state.config.settings.use_worktree = *state.settings_use_worktree;
     state.config.settings.gui.output_schema = state.settings_output_schema.clone();
+    state.config.settings.gui.structured_output_schema =
+        state.settings_structured_output_schema.clone();
 
     // Update the shared atomic value so executor picks up the change immediately
     state.max_concurrent_jobs_shared.store(max_concurrent, Ordering::Relaxed);

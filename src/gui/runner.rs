@@ -8,11 +8,12 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use tracing::info;
+use tracing::{info, warn};
 
 use super::app::KycoApp;
 use super::executor::{start_executor, ExecutorEvent};
 use super::http_server::{start_http_server, BatchRequest, SelectionRequest};
+use crate::agent::BridgeProcess;
 use crate::config::Config;
 use crate::job::JobManager;
 
@@ -37,23 +38,100 @@ fn load_kyco_icon() -> IconData {
 }
 
 /// Run the main GUI application
-pub fn run_gui() -> Result<()> {
-    // Get working directory
-    let work_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()> {
+    let work_dir = if work_dir.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        work_dir
+    };
+
+    let config_override_path = config_override.map(|p| if p.is_absolute() { p } else { work_dir.join(p) });
+    let config_override_provided = config_override_path.is_some();
+    let config_path = config_override_path.unwrap_or_else(|| work_dir.join(".kyco").join("config.toml"));
 
     // Load config
-    let config_path = work_dir.join(".kyco").join("config.toml");
-    let config_exists = config_path.exists();
-    let config = if config_exists {
-        Config::from_file(&config_path).unwrap_or_default()
+    let config_was_present = config_path.exists();
+    let config = if config_was_present {
+        match Config::from_file(&config_path) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                warn!(
+                    "[kyco] Failed to parse config ({}): {}. Falling back to defaults.",
+                    config_path.display(),
+                    e
+                );
+                Config::with_defaults()
+            }
+        }
+    } else if config_override_provided {
+        // User explicitly requested a config path: create it if missing.
+        let cfg = Config::with_defaults();
+        // Note: http_token is intentionally left empty by default for local development.
+        // Users can set it manually in config if they need auth.
+
+        if let Some(parent) = config_path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                warn!(
+                    "[kyco] Failed to create config directory ({}): {}",
+                    parent.display(),
+                    e
+                );
+            }
+        }
+
+        match toml::to_string_pretty(&cfg) {
+            Ok(content) => {
+                if let Err(e) = std::fs::write(&config_path, content) {
+                    warn!(
+                        "[kyco] Failed to write config ({}): {}",
+                        config_path.display(),
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "[kyco] Failed to serialize default config for {}: {}",
+                    config_path.display(),
+                    e
+                );
+            }
+        }
+
+        cfg
     } else {
-        Config::default()
+        // Create a config on first GUI launch so IDE extension auth works out-of-the-box.
+        Config::from_dir(&work_dir).unwrap_or_else(|e| {
+            warn!(
+                "[kyco] Failed to initialize config in {}: {}. Falling back to defaults.",
+                work_dir.display(),
+                e
+            );
+            Config::with_defaults()
+        })
     };
+
+    // Note: http_token is intentionally left empty by default.
+    // Auth is only enforced when http_token is explicitly set in config.
+    // This avoids the "chicken-and-egg" problem with new workspaces.
+
+    let config_exists = config_path.exists();
+    if !config_was_present && config_exists {
+        info!("[kyco] Created {}", config_path.display());
+    }
 
     // Load job manager
     let job_manager = Arc::new(Mutex::new(JobManager::load(&work_dir).unwrap_or_else(|_| JobManager::new(&work_dir))));
 
-    info!("[kyco] Starting GUI with HTTP server on port 9876...");
+    // Start SDK Bridge server (Node.js sidecar)
+    // This provides Claude Agent SDK and Codex SDK functionality
+    let _bridge_process = BridgeProcess::spawn()?;
+    info!("[kyco] SDK Bridge server ready");
+
+    info!(
+        "[kyco] Starting GUI with HTTP server on port {}...",
+        config.settings.gui.http_port
+    );
 
     // Create channel for HTTP server -> GUI communication (single selection)
     let (http_tx, http_rx): (mpsc::Sender<SelectionRequest>, mpsc::Receiver<SelectionRequest>) = mpsc::channel();
@@ -65,7 +143,12 @@ pub fn run_gui() -> Result<()> {
     let (executor_tx, executor_rx): (mpsc::Sender<ExecutorEvent>, mpsc::Receiver<ExecutorEvent>) = mpsc::channel();
 
     // Start HTTP server in background (handles both /selection and /batch)
-    start_http_server(http_tx, batch_tx);
+    start_http_server(
+        http_tx,
+        batch_tx,
+        config.settings.gui.http_port,
+        Some(config.settings.gui.http_token.clone()).filter(|t| !t.trim().is_empty()),
+    );
 
     // Create shared max_concurrent_jobs so GUI can update it at runtime
     let max_concurrent_jobs = Arc::new(AtomicUsize::new(config.settings.max_concurrent_jobs));

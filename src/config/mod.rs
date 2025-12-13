@@ -11,7 +11,7 @@ mod target;
 pub use agent::AgentConfigToml;
 pub use alias::AliasConfig;
 pub use chain::{ChainStep, ModeChain, ModeOrChain};
-pub use mode::ModeConfig;
+pub use mode::{ClaudeModeOptions, CodexModeOptions, ModeConfig, ModeSessionType};
 pub use scope::ScopeConfig;
 pub use settings::{GuiSettings, RegistrySettings, Settings, VoiceSettings};
 pub use target::TargetConfig;
@@ -22,7 +22,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{AgentConfig, AgentMode, CliType, SystemPromptMode};
+use crate::{AgentConfig, SessionMode, SdkType, SystemPromptMode};
 
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,7 +95,20 @@ impl Config {
         // Fallback to legacy: kyco.toml
         let legacy_path = dir.join("kyco.toml");
         if legacy_path.exists() {
-            return Self::from_file(&legacy_path);
+            let config = Self::from_file(&legacy_path)?;
+
+            // Migrate to new location.
+            // This is best-effort: if migration fails, we still return the legacy-loaded config.
+            // Note: http_token is left as-is (empty by default for local development).
+            if let Some(parent) = new_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+
+            if let Ok(content) = toml::to_string_pretty(&config) {
+                let _ = std::fs::write(&new_path, content);
+            }
+
+            return Ok(config);
         }
 
         // Auto-init: create config with defaults
@@ -115,6 +128,8 @@ impl Config {
         }
 
         // Generate default config as TOML
+        // Note: http_token is intentionally left empty for local development.
+        // Auth is only enforced when http_token is explicitly set.
         let default_config = Self::with_defaults();
         let config_content = toml::to_string_pretty(&default_config)
             .with_context(|| "Failed to serialize default config")?;
@@ -136,28 +151,19 @@ impl Config {
             "claude".to_string(),
             AgentConfigToml {
                 aliases: vec!["c".to_string(), "cl".to_string()],
-                cli_type: CliType::Claude,
-                mode: AgentMode::Print,
-                binary: "claude".to_string(),
-                print_mode_args: vec![
-                    "-p".to_string(),
-                    "--allowedTools".to_string(),
-                    "Read".to_string(),
-                ],
-                output_format_args: vec![
-                    "--output-format".to_string(),
-                    "stream-json".to_string(),
-                    "--verbose".to_string(),
-                ],
-                repl_mode_args: vec![
-                    "--allowedTools".to_string(),
-                    "Read".to_string(),
-                ],
+                sdk: SdkType::Claude,
+                session_mode: SessionMode::Oneshot,
+                binary: None,
+                print_mode_args: vec![],
+                output_format_args: vec![],
+                repl_mode_args: vec![],
                 default_args: vec![],
                 system_prompt_mode: SystemPromptMode::Append,
                 disallowed_tools: vec![],
-                allowed_tools: vec!["Read".to_string()],
+                allowed_tools: vec![],
                 env: HashMap::new(),
+                mcp_servers: HashMap::new(),
+                agents: HashMap::new(),
             },
         );
 
@@ -166,36 +172,19 @@ impl Config {
             "codex".to_string(),
             AgentConfigToml {
                 aliases: vec!["x".to_string(), "cx".to_string()],
-                cli_type: CliType::Codex,
-                mode: AgentMode::Print,
-                binary: "codex".to_string(),
-                print_mode_args: vec!["exec".to_string(), "--sandbox".to_string(), "workspace-write".to_string()],
-                output_format_args: vec!["--json".to_string()],
-                repl_mode_args: vec!["--full-auto".to_string()], // --full-auto includes workspace-write sandbox
-                default_args: vec![],
-                system_prompt_mode: SystemPromptMode::ConfigOverride,
-                disallowed_tools: vec![],
-                allowed_tools: vec!["Read".to_string()],
-                env: HashMap::new(),
-            },
-        );
-
-        // Add default Gemini agent
-        config.agent.insert(
-            "gemini".to_string(),
-            AgentConfigToml {
-                aliases: vec!["g".to_string(), "gm".to_string()],
-                cli_type: CliType::Gemini,
-                mode: AgentMode::Print,
-                binary: "gemini".to_string(),
+                sdk: SdkType::Codex,
+                session_mode: SessionMode::Oneshot,
+                binary: None,
                 print_mode_args: vec![],
                 output_format_args: vec![],
                 repl_mode_args: vec![],
                 default_args: vec![],
-                system_prompt_mode: SystemPromptMode::Replace,
+                system_prompt_mode: SystemPromptMode::Append,
                 disallowed_tools: vec![],
-                allowed_tools: vec!["Read".to_string()],
+                allowed_tools: vec![],
                 env: HashMap::new(),
+                mcp_servers: HashMap::new(),
+                agents: HashMap::new(),
             },
         );
 
@@ -207,11 +196,20 @@ impl Config {
                 target_default: Some("code".to_string()),
                 scope_default: Some("file".to_string()),
                 prompt: Some("Review the code in `{file}` for issues, bugs, and improvements. {description}".to_string()),
-                system_prompt: Some("You are a code reviewer. Focus on bugs, security issues, performance problems, and code quality. Be thorough but constructive.".to_string()),
-                allowed_tools: vec!["Read".to_string(), "Glob".to_string(), "Grep".to_string()],
-                disallowed_tools: vec!["Write".to_string(), "Edit".to_string()],
+                system_prompt: Some("You are a code reviewer. Focus on bugs, security issues, performance problems, and code quality. Be thorough but constructive. Do NOT modify any files.".to_string()),
+                session_mode: ModeSessionType::Oneshot,
+                max_turns: 10,
+                model: None,
+                disallowed_tools: vec!["Write".to_string(), "Edit".to_string(), "Bash".to_string()],
+                claude: Some(ClaudeModeOptions {
+                    permission_mode: "default".to_string(),
+                }),
+                codex: Some(CodexModeOptions {
+                    sandbox: "read-only".to_string(),
+                }),
                 aliases: vec!["r".to_string(), "rev".to_string()],
                 output_states: vec!["issues_found".to_string(), "no_issues".to_string()],
+                allowed_tools: vec![], // Legacy, deprecated
             },
         );
 
@@ -223,10 +221,19 @@ impl Config {
                 scope_default: Some("file".to_string()),
                 prompt: Some("Fix the issues in `{file}`. {description}".to_string()),
                 system_prompt: Some("You are a code fixer. Apply the necessary fixes based on the issues identified. Make minimal changes to fix the problems.".to_string()),
-                allowed_tools: vec!["Read".to_string(), "Write".to_string(), "Edit".to_string(), "Glob".to_string(), "Grep".to_string(), "Bash".to_string()],
-                disallowed_tools: vec![],
+                session_mode: ModeSessionType::Oneshot,
+                max_turns: 30,
+                model: None,
+                disallowed_tools: vec!["Bash(git push)".to_string(), "Bash(git push --force)".to_string()],
+                claude: Some(ClaudeModeOptions {
+                    permission_mode: "acceptEdits".to_string(),
+                }),
+                codex: Some(CodexModeOptions {
+                    sandbox: "workspace-write".to_string(),
+                }),
                 aliases: vec!["f".to_string()],
                 output_states: vec!["fixed".to_string(), "unfixable".to_string()],
+                allowed_tools: vec![], // Legacy, deprecated
             },
         );
 
@@ -238,10 +245,73 @@ impl Config {
                 scope_default: Some("file".to_string()),
                 prompt: Some("Implement the following in `{file}`: {description}".to_string()),
                 system_prompt: Some("You are a software engineer. Implement the requested feature or functionality.".to_string()),
-                allowed_tools: vec!["Read".to_string(), "Write".to_string(), "Edit".to_string(), "Glob".to_string(), "Grep".to_string(), "Bash".to_string()],
-                disallowed_tools: vec![],
+                session_mode: ModeSessionType::Oneshot,
+                max_turns: 50,
+                model: None,
+                disallowed_tools: vec!["Bash(git push)".to_string(), "Bash(git push --force)".to_string()],
+                claude: Some(ClaudeModeOptions {
+                    permission_mode: "acceptEdits".to_string(),
+                }),
+                codex: Some(CodexModeOptions {
+                    sandbox: "workspace-write".to_string(),
+                }),
                 aliases: vec!["i".to_string(), "impl".to_string()],
                 output_states: vec!["implemented".to_string(), "blocked".to_string()],
+                allowed_tools: vec![], // Legacy, deprecated
+            },
+        );
+
+        config.mode.insert(
+            "plan".to_string(),
+            ModeConfig {
+                agent: None,
+                target_default: Some("code".to_string()),
+                scope_default: Some("file".to_string()),
+                prompt: Some(
+                    "Create a detailed implementation plan for `{file}`. {description}".to_string(),
+                ),
+                system_prompt: Some(
+                    "You are in planning mode. Propose a concrete, step-by-step plan with relevant files/functions, risks, and how you would validate the change. Do NOT modify any files or run commands."
+                        .to_string(),
+                ),
+                session_mode: ModeSessionType::Oneshot,
+                max_turns: 15,
+                model: None,
+                disallowed_tools: vec!["Write".to_string(), "Edit".to_string(), "Bash".to_string()],
+                claude: Some(ClaudeModeOptions {
+                    permission_mode: "plan".to_string(),
+                }),
+                codex: Some(CodexModeOptions {
+                    sandbox: "read-only".to_string(),
+                }),
+                aliases: vec!["p".to_string()],
+                output_states: vec!["plan_ready".to_string(), "needs_clarification".to_string()],
+                allowed_tools: vec![], // Legacy, deprecated
+            },
+        );
+
+        // Chat mode - interactive session
+        config.mode.insert(
+            "chat".to_string(),
+            ModeConfig {
+                agent: None,
+                target_default: None,
+                scope_default: None,
+                prompt: Some("{description}".to_string()),
+                system_prompt: Some("You are a helpful assistant for this codebase. You can read and explore the code to answer questions.".to_string()),
+                session_mode: ModeSessionType::Session, // Persistent conversation!
+                max_turns: 0, // Unlimited
+                model: None,
+                disallowed_tools: vec!["Bash(git push)".to_string()],
+                claude: Some(ClaudeModeOptions {
+                    permission_mode: "default".to_string(), // Ask for edits
+                }),
+                codex: Some(CodexModeOptions {
+                    sandbox: "workspace-write".to_string(),
+                }),
+                aliases: vec!["c".to_string()],
+                output_states: vec![],
+                allowed_tools: vec![], // Legacy, deprecated
             },
         );
 
@@ -284,8 +354,14 @@ impl Config {
                         mode_name.clone(),
                         crate::ModeTemplate {
                             prompt_template: prompt.clone(),
-                            extra_args: vec![],
                             system_prompt: mode_config.system_prompt.clone(),
+                            default_agent: mode_config.agent.clone(),
+                            session_mode: match mode_config.session_mode {
+                                ModeSessionType::Oneshot => SessionMode::Oneshot,
+                                ModeSessionType::Session => SessionMode::Session,
+                            },
+                            disallowed_tools: mode_config.disallowed_tools.clone(),
+                            allowed_tools: mode_config.allowed_tools.clone(),
                         },
                     );
                 }
@@ -298,21 +374,56 @@ impl Config {
                 None
             };
 
+            let structured_output_schema = if !self.settings.gui.structured_output_schema.trim().is_empty() {
+                Some(self.settings.gui.structured_output_schema.clone())
+            } else {
+                None
+            };
+
+            // SDK type
+            let sdk_type = toml.sdk;
+
+            // Normalize session mode (legacy "print" == oneshot)
+            let session_mode = match toml.session_mode {
+                SessionMode::Print | SessionMode::Oneshot => SessionMode::Oneshot,
+                SessionMode::Session => SessionMode::Session,
+                // Legacy: "repl" used to spawn a separate terminal window. SDK sessions cover this use case.
+                SessionMode::Repl => SessionMode::Session,
+            };
+
+            // Default permission mode based on SDK type
+            let permission_mode = sdk_type.default_permission_mode().to_string();
+
             AgentConfig {
                 id: id.to_string(),
-                cli_type: toml.cli_type,
-                mode: toml.mode,
-                binary: toml.binary.clone(),
-                print_mode_args: toml.print_mode_args.clone(),
-                output_format_args: toml.output_format_args.clone(),
-                repl_mode_args: toml.repl_mode_args.clone(),
-                default_args: toml.default_args.clone(),
+                sdk_type,
+                session_mode,
+                permission_mode,
+                model: None,
+                sandbox: None,
+                max_turns: 0,
                 system_prompt_mode: toml.system_prompt_mode,
                 mode_templates,
                 env: toml.env.clone(),
                 disallowed_tools: toml.disallowed_tools.clone(),
                 allowed_tools: toml.allowed_tools.clone(),
+                mcp_servers: toml.mcp_servers.clone(),
+                agents: toml.agents.clone(),
+                plugins: if matches!(sdk_type, SdkType::Codex) {
+                    Vec::new()
+                } else {
+                    self.settings.claude.allowed_plugin_paths.clone()
+                },
                 output_schema,
+                structured_output_schema,
+                // Legacy fields
+                cli_type: Some(toml.sdk),
+                mode: Some(toml.session_mode),
+                binary: toml.binary.clone(),
+                print_mode_args: toml.print_mode_args.clone(),
+                output_format_args: toml.output_format_args.clone(),
+                repl_mode_args: toml.repl_mode_args.clone(),
+                default_args: toml.default_args.clone(),
             }
         })
     }
@@ -332,6 +443,26 @@ impl Config {
     pub fn get_agent_for_job(&self, agent_id: &str, mode: &str) -> Option<AgentConfig> {
         let mut agent_config = self.get_agent(agent_id)?;
 
+        let derive_claude_permission = |disallowed: &[String]| -> String {
+            let blocks_writes = disallowed.iter().any(|t| t == "Write" || t == "Edit");
+            if blocks_writes {
+                "default".to_string()
+            } else {
+                "acceptEdits".to_string()
+            }
+        };
+
+        let derive_codex_sandbox = |disallowed: &[String]| -> String {
+            let blocks_writes = disallowed.iter().any(|t| t == "Write" || t == "Edit");
+            let blocks_bash = disallowed.iter().any(|t| t == "Bash");
+
+            if blocks_writes || blocks_bash {
+                "read-only".to_string()
+            } else {
+                "workspace-write".to_string()
+            }
+        };
+
         // Get mode config and apply tool overrides
         if let Some(mode_config) = self.mode.get(mode) {
             // Mode allowed_tools override agent allowed_tools when specified
@@ -346,6 +477,36 @@ impl Config {
                     if !agent_config.disallowed_tools.contains(tool) {
                         agent_config.disallowed_tools.push(tool.clone());
                     }
+                }
+            }
+
+            // Apply per-mode execution settings (but don't override Terminal REPL agents)
+            if !matches!(agent_config.session_mode, SessionMode::Repl) {
+                agent_config.session_mode = match mode_config.session_mode {
+                    ModeSessionType::Oneshot => SessionMode::Oneshot,
+                    ModeSessionType::Session => SessionMode::Session,
+                };
+            }
+            agent_config.max_turns = mode_config.max_turns;
+            agent_config.model = mode_config.model.clone();
+
+            match agent_config.sdk_type {
+                SdkType::Codex => {
+                    agent_config.sandbox = Some(
+                        mode_config
+                            .codex
+                            .as_ref()
+                            .map(|c| c.sandbox.clone())
+                            .unwrap_or_else(|| derive_codex_sandbox(&agent_config.disallowed_tools)),
+                    );
+                }
+                _ => {
+                    // Default to Claude-style permission modes for non-Codex SDKs
+                    agent_config.permission_mode = mode_config
+                        .claude
+                        .as_ref()
+                        .map(|c| c.permission_mode.clone())
+                        .unwrap_or_else(|| derive_claude_permission(&agent_config.disallowed_tools));
                 }
             }
         }
@@ -429,4 +590,33 @@ impl Config {
             .replace("{file}", file)
             .replace("{description}", description)
     }
+}
+
+/// Generate a random token for authenticating IDE extension requests.
+///
+/// The token is hex-encoded and safe to embed in `config.toml`.
+pub fn generate_http_token() -> String {
+    let mut bytes = [0u8; 32];
+    if getrandom::getrandom(&mut bytes).is_ok() {
+        return hex_encode(&bytes);
+    }
+
+    // Fallback: best-effort token if OS RNG is unavailable.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let pid = std::process::id() as u128;
+    let mixed = nanos ^ (pid.rotate_left(17));
+    hex_encode(&mixed.to_le_bytes())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
 }

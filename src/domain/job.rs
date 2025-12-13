@@ -1,15 +1,21 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use super::{AgentGroupId, LogEvent, ScopeDefinition};
+use crate::workspace::WorkspaceId;
 
-/// Parsed output from the agent's ---kyco block
+/// Parsed output from the agent's YAML summary block
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JobResult {
     /// Short title describing what was done
     pub title: Option<String>,
+    /// Suggested git commit subject line
+    pub commit_subject: Option<String>,
+    /// Suggested git commit body
+    pub commit_body: Option<String>,
     /// Detailed description (2-3 sentences)
     pub details: Option<String>,
     /// Status: success, partial, or failed
@@ -20,6 +26,8 @@ pub struct JobResult {
     pub state: Option<String>,
     /// Structured context data for next agent in chain
     pub next_context: Option<serde_json::Value>,
+    /// Raw text output when no structured YAML is found
+    pub raw_text: Option<String>,
 }
 
 /// Computed statistics for a completed job
@@ -36,11 +44,15 @@ pub struct JobStats {
 }
 
 impl JobResult {
-    /// Parse a ---kyco YAML block from agent output
+    /// Parse a YAML summary block from agent output
     ///
-    /// Supports both simple key: value pairs and multiline values using YAML block syntax:
+    /// Supports multiple formats:
+    /// 1. Standard YAML front matter with `---` markers
+    /// 2. Legacy `---kyco` markers (backwards compatibility)
+    /// 3. Falls back to raw text if no YAML structure found
+    ///
     /// ```yaml
-    /// ---kyco
+    /// ---
     /// title: Short title
     /// summary: |
     ///   This is a multiline summary
@@ -49,18 +61,131 @@ impl JobResult {
     /// ---
     /// ```
     pub fn parse(output: &str) -> Option<Self> {
-        // Find the ---kyco block
-        let start_marker = "---kyco";
+        let trimmed = output.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        // Some runners return a JSON string literal as the "result" payload.
+        // If we don't unwrap it here, the UI ends up showing quotes and escaped newlines (\"...\\n...\")
+        // and YAML parsing fails because keys become "\\ntitle", "\\nstatus", etc.
+        let output: Cow<'_, str> = unwrap_json_string_literal(trimmed)
+            .map(Cow::Owned)
+            .unwrap_or(Cow::Borrowed(trimmed));
+        let output = output.as_ref().trim();
+
+        // Try standard YAML markers first, then legacy ---kyco
+        if let Some(result) = Self::parse_yaml_block(output, "---") {
+            return Some(result);
+        }
+        if let Some(result) = Self::parse_yaml_block(output, "---kyco") {
+            return Some(result);
+        }
+
+        // Try JSON structured output (SDK outputFormat / outputSchema)
+        if let Some(result) = Self::parse_json_block(output) {
+            return Some(result);
+        }
+
+        // No structured YAML found - extract raw text from the output
+        // For SDK output, we get the assistant's text directly
+        // Trim and take meaningful content
+        if !output.is_empty() {
+            return Some(JobResult {
+                raw_text: Some(output.to_string()),
+                ..Default::default()
+            });
+        }
+
+        None
+    }
+
+    fn parse_json_block(output: &str) -> Option<Self> {
+        let raw = output.trim();
+        if !raw.starts_with('{') {
+            return None;
+        }
+
+        let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+        let obj = value.as_object()?;
+
+        let mut result = JobResult::default();
+        result.title = obj.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+        result.commit_subject = obj
+            .get("commit_subject")
+            .or_else(|| obj.get("commitSubject"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        result.commit_body = obj
+            .get("commit_body")
+            .or_else(|| obj.get("commitBody"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        result.details = obj.get("details").and_then(|v| v.as_str()).map(|s| s.to_string());
+        result.status = obj.get("status").and_then(|v| v.as_str()).map(|s| s.to_string());
+        result.state = obj.get("state").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        result.next_context = obj
+            .get("next_context")
+            .cloned()
+            .or_else(|| obj.get("nextContext").cloned());
+
+        result.summary = obj.get("summary").and_then(|v| match v {
+            serde_json::Value::String(s) => Some(s.clone()),
+            other => serde_json::to_string_pretty(other).ok(),
+        });
+
+        let has_structured = result.title.is_some()
+            || result.commit_subject.is_some()
+            || result.commit_body.is_some()
+            || result.details.is_some()
+            || result.status.is_some()
+            || result.summary.is_some()
+            || result.state.is_some()
+            || result.next_context.is_some();
+
+        if has_structured {
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    /// Parse a YAML block with a specific start marker
+    fn parse_yaml_block(output: &str, start_marker: &str) -> Option<Self> {
         let end_marker = "---";
 
+        // Find the start marker
         let start_idx = output.find(start_marker)?;
         let content_start = start_idx + start_marker.len();
 
-        // Find the closing --- after the opening ---kyco
+        // Find the closing --- after the start marker
         let remaining = &output[content_start..];
-        let end_idx = remaining.find(end_marker)?;
 
-        let yaml_content = remaining[..end_idx].trim();
+        // For standard `---`, we need to find the NEXT `---` (not the same one)
+        // For `---kyco`, the next `---` is always the closing one
+        let end_idx = if start_marker == "---" {
+            // Skip whitespace and find next ---
+            remaining.trim_start().find(end_marker).map(|i| {
+                // Adjust for trimmed whitespace
+                remaining.len() - remaining.trim_start().len() + i
+            })?
+        } else {
+            remaining.find(end_marker)?
+        };
+
+        // For standard ---, we need to handle the case where content is between the two markers
+        let yaml_content = if start_marker == "---" {
+            // The content is what's after the first --- until the next ---
+            remaining[..end_idx].trim()
+        } else {
+            remaining[..end_idx].trim()
+        };
+
+        // Skip if content is empty or too short
+        if yaml_content.is_empty() || yaml_content.len() < 5 {
+            return None;
+        }
 
         // Try to parse as proper YAML first (handles multiline values)
         if let Ok(yaml_value) = serde_yaml::from_str::<serde_yaml::Value>(yaml_content) {
@@ -71,6 +196,8 @@ impl JobResult {
                     if let serde_yaml::Value::String(key_str) = key {
                         match key_str.as_str() {
                             "title" => result.title = value_to_string(&value),
+                            "commit_subject" => result.commit_subject = value_to_string(&value),
+                            "commit_body" => result.commit_body = value_to_string(&value),
                             "details" => result.details = value_to_string(&value),
                             "status" => result.status = value_to_string(&value),
                             "summary" => result.summary = value_to_string(&value),
@@ -83,7 +210,11 @@ impl JobResult {
                     }
                 }
 
-                if result.title.is_some() || result.status.is_some() {
+                if result.title.is_some()
+                    || result.status.is_some()
+                    || result.commit_subject.is_some()
+                    || result.commit_body.is_some()
+                {
                     return Some(result);
                 }
             }
@@ -100,6 +231,8 @@ impl JobResult {
 
                 match key {
                     "title" => result.title = Some(value.to_string()),
+                    "commit_subject" => result.commit_subject = Some(value.to_string()),
+                    "commit_body" => result.commit_body = Some(value.to_string()),
                     "details" => result.details = Some(value.to_string()),
                     "status" => result.status = Some(value.to_string()),
                     "summary" => result.summary = Some(value.to_string()),
@@ -110,12 +243,25 @@ impl JobResult {
         }
 
         // Only return if we got at least a title or status
-        if result.title.is_some() || result.status.is_some() {
+        if result.title.is_some()
+            || result.status.is_some()
+            || result.commit_subject.is_some()
+            || result.commit_body.is_some()
+        {
             Some(result)
         } else {
             None
         }
     }
+}
+
+fn unwrap_json_string_literal(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if !(trimmed.starts_with('"') && trimmed.ends_with('"')) {
+        return None;
+    }
+
+    serde_json::from_str::<String>(trimmed).ok()
 }
 
 /// Convert a YAML value to an optional String
@@ -173,6 +319,8 @@ pub enum JobStatus {
     Pending,
     /// Job is in the queue waiting to run
     Queued,
+    /// Job is blocked waiting for file lock (another job is editing the same file)
+    Blocked,
     /// Job is currently running
     Running,
     /// Job completed successfully
@@ -191,6 +339,7 @@ impl JobStatus {
         match self {
             JobStatus::Pending => "pending",
             JobStatus::Queued => "queued",
+            JobStatus::Blocked => "blocked",
             JobStatus::Running => "running",
             JobStatus::Done => "done",
             JobStatus::Failed => "failed",
@@ -211,6 +360,14 @@ impl std::fmt::Display for JobStatus {
 pub struct Job {
     /// Unique identifier
     pub id: JobId,
+
+    /// Workspace this job belongs to (for multi-workspace support)
+    #[serde(default)]
+    pub workspace_id: Option<WorkspaceId>,
+
+    /// Workspace root path (for display and cwd resolution)
+    #[serde(default)]
+    pub workspace_path: Option<PathBuf>,
 
     /// The mode of the job (e.g., "refactor", "tests", "docs", "review")
     pub mode: String,
@@ -271,6 +428,10 @@ pub struct Job {
     #[serde(default)]
     pub sent_prompt: Option<String>,
 
+    /// The full raw text response from the agent (for display)
+    #[serde(default)]
+    pub full_response: Option<String>,
+
     /// Parsed result from the agent's ---kyco output block
     #[serde(default)]
     pub result: Option<JobResult>,
@@ -299,9 +460,23 @@ pub struct Job {
     #[serde(default)]
     pub force_worktree: bool,
 
-    /// Whether this job runs in REPL mode (Terminal.app) vs print mode
+    /// Legacy: Whether this job ran in Terminal REPL mode
     #[serde(default)]
     pub is_repl: bool,
+
+    /// Bridge session ID for session continuation
+    /// Allows sending follow-up prompts to continue the conversation
+    #[serde(default)]
+    pub bridge_session_id: Option<String>,
+
+    /// Job ID that is blocking this job (when status is Blocked)
+    /// This happens when another job holds a file lock on the same file
+    #[serde(default)]
+    pub blocked_by: Option<JobId>,
+
+    /// The file path that is causing the block
+    #[serde(default)]
+    pub blocked_file: Option<PathBuf>,
 }
 
 impl Job {
@@ -320,6 +495,8 @@ impl Job {
         let now = Utc::now();
         Self {
             id,
+            workspace_id: None,
+            workspace_path: None,
             mode,
             scope,
             target,
@@ -339,6 +516,7 @@ impl Job {
             source_line,
             raw_tag_line,
             sent_prompt: None,
+            full_response: None,
             result: None,
             stats: None,
             started_at: None,
@@ -347,7 +525,40 @@ impl Job {
             ide_context: None,
             force_worktree: false,
             is_repl: false,
+            bridge_session_id: None,
+            blocked_by: None,
+            blocked_file: None,
         }
+    }
+
+    /// Create a new pending job with workspace association
+    pub fn new_with_workspace(
+        id: JobId,
+        workspace_id: WorkspaceId,
+        workspace_path: PathBuf,
+        mode: String,
+        scope: ScopeDefinition,
+        target: String,
+        description: Option<String>,
+        agent_id: String,
+        source_file: PathBuf,
+        source_line: usize,
+        raw_tag_line: Option<String>,
+    ) -> Self {
+        let mut job = Self::new(
+            id,
+            mode,
+            scope,
+            target,
+            description,
+            agent_id,
+            source_file,
+            source_line,
+            raw_tag_line,
+        );
+        job.workspace_id = Some(workspace_id);
+        job.workspace_path = Some(workspace_path);
+        job
     }
 
     /// Update the job status
@@ -434,5 +645,45 @@ impl Job {
         } else {
             Some(format!("{}s", secs))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JobResult;
+
+    #[test]
+    fn parse_unwraps_json_string_literal_then_parses_yaml_block() {
+        let inner = r#"I need permission to read the file.
+
+---
+title: Code review blocked - permission needed
+commit_subject: N/A
+details: Unable to read the requested file due to permission restrictions.
+status: blocked
+summary: |
+  Cannot proceed with code review - file read permission was denied.
+state: blocked
+---
+"#;
+
+        let wrapped = serde_json::to_string(inner).expect("json wrap");
+        let result = JobResult::parse(&wrapped).expect("parse");
+
+        assert_eq!(
+            result.title.as_deref(),
+            Some("Code review blocked - permission needed")
+        );
+        assert_eq!(result.status.as_deref(), Some("blocked"));
+        assert!(result.raw_text.is_none());
+    }
+
+    #[test]
+    fn parse_unwraps_json_string_literal_for_raw_text() {
+        let inner = "hello\nworld";
+        let wrapped = serde_json::to_string(inner).expect("json wrap");
+        let result = JobResult::parse(&wrapped).expect("parse");
+
+        assert_eq!(result.raw_text.as_deref(), Some("hello\nworld"));
     }
 }

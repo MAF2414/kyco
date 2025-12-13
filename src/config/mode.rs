@@ -2,13 +2,55 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Claude-specific mode options
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClaudeModeOptions {
+    /// Permission mode for Claude SDK
+    /// - "default": Normal permission checks (asks for everything)
+    /// - "acceptEdits": Auto-accepts file edits, asks for Bash
+    /// - "bypassPermissions": Full auto, no questions (dangerous!)
+    /// - "plan": Planning mode (no execution)
+    #[serde(default = "default_claude_permission")]
+    pub permission_mode: String,
+}
+
+fn default_claude_permission() -> String {
+    "acceptEdits".to_string()
+}
+
+/// Codex-specific mode options
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CodexModeOptions {
+    /// Sandbox mode for Codex SDK
+    /// - "read-only": No file modifications
+    /// - "workspace-write": Can modify files in workspace (safe default)
+    /// - "danger-full-access": Full access including network
+    #[serde(default = "default_codex_sandbox")]
+    pub sandbox: String,
+}
+
+fn default_codex_sandbox() -> String {
+    "workspace-write".to_string()
+}
+
+/// Session mode for the agent
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModeSessionType {
+    /// One-shot execution - no session persistence
+    #[default]
+    Oneshot,
+    /// Session mode - conversation can be resumed/continued
+    Session,
+}
+
 /// Mode configuration - the prompt builder
 ///
 /// Modes define HOW to instruct the agent. They combine:
 /// - A prompt template with placeholders
 /// - A system prompt for context
-/// - Default target and scope
-/// - Allowed tools restrictions
+/// - Session and permission settings
+/// - Tool restrictions (blacklist)
 ///
 /// Template placeholders:
 /// - {target} - what to process (from target config)
@@ -37,15 +79,48 @@ pub struct ModeConfig {
     /// System prompt addition for agent context
     pub system_prompt: Option<String>,
 
-    /// Tools to allow for this mode (empty = all allowed)
-    #[serde(default)]
-    pub allowed_tools: Vec<String>,
+    // ═══════════════════════════════════════════════════════════════
+    // EXECUTION SETTINGS
+    // ═══════════════════════════════════════════════════════════════
 
-    /// Tools to disallow for this mode
+    /// Session mode: oneshot (default) or session (persistent conversation)
+    #[serde(default)]
+    pub session_mode: ModeSessionType,
+
+    /// Maximum turns/iterations for the agent (0 = unlimited)
+    #[serde(default)]
+    pub max_turns: u32,
+
+    /// Optional model override for this mode (e.g., "sonnet", "opus", "haiku")
+    #[serde(default)]
+    pub model: Option<String>,
+
+    // ═══════════════════════════════════════════════════════════════
+    // TOOL CONTROL (Blacklist only - simpler!)
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Tools to disallow for this mode (blacklist)
+    /// Examples: ["Write", "Edit", "Bash", "Bash(git push)"]
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
 
-    /// Short aliases for this mode (e.g., ["r", "ref"] for refactor)
+    // ═══════════════════════════════════════════════════════════════
+    // SDK-SPECIFIC OPTIONS
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Claude SDK specific options
+    #[serde(default)]
+    pub claude: Option<ClaudeModeOptions>,
+
+    /// Codex SDK specific options
+    #[serde(default)]
+    pub codex: Option<CodexModeOptions>,
+
+    // ═══════════════════════════════════════════════════════════════
+    // LEGACY / METADATA
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Short aliases for this mode (e.g., ["r", "rev"] for review)
     #[serde(default)]
     pub aliases: Vec<String>,
 
@@ -53,4 +128,48 @@ pub struct ModeConfig {
     /// Example: ["issues_found", "no_issues"] for review mode
     #[serde(default)]
     pub output_states: Vec<String>,
+
+    /// Legacy: allowed_tools (deprecated, use disallowed_tools instead)
+    #[serde(default)]
+    pub allowed_tools: Vec<String>,
+}
+
+impl ModeConfig {
+    /// Get the effective Claude permission mode
+    /// Returns the configured value or derives from disallowed_tools
+    pub fn get_claude_permission(&self) -> String {
+        if let Some(ref claude) = self.claude {
+            return claude.permission_mode.clone();
+        }
+
+        // Auto-derive from disallowed_tools
+        let blocks_writes = self.disallowed_tools.iter()
+            .any(|t| t == "Write" || t == "Edit");
+
+        if blocks_writes {
+            "default".to_string()  // Read-only mode
+        } else {
+            "acceptEdits".to_string()  // Safe write mode
+        }
+    }
+
+    /// Get the effective Codex sandbox mode
+    /// Returns the configured value or derives from disallowed_tools
+    pub fn get_codex_sandbox(&self) -> String {
+        if let Some(ref codex) = self.codex {
+            return codex.sandbox.clone();
+        }
+
+        // Auto-derive from disallowed_tools
+        let blocks_writes = self.disallowed_tools.iter()
+            .any(|t| t == "Write" || t == "Edit");
+        let blocks_bash = self.disallowed_tools.iter()
+            .any(|t| t == "Bash");
+
+        if blocks_writes || blocks_bash {
+            "read-only".to_string()
+        } else {
+            "workspace-write".to_string()
+        }
+    }
 }

@@ -1,15 +1,17 @@
 //! Status bar module for the GUI
 //!
 //! Renders the bottom status bar with auto-run/auto-scan toggles,
-//! settings button, modes button, agents button, and update notifications.
+//! settings button, modes button, agents button, workspace selector, and update notifications.
 
 use eframe::egui::{self, RichText};
+use std::sync::{Arc, Mutex};
 
 use crate::gui::animations::animated_button;
 use crate::gui::app::{
-    ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, ACCENT_RED, BG_SECONDARY, TEXT_MUTED, TEXT_PRIMARY,
+    ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
 use crate::gui::update::UpdateInfo;
+use crate::workspace::{WorkspaceId, WorkspaceRegistry};
 
 /// Install status for update button
 #[derive(Debug, Clone, Default)]
@@ -38,6 +40,10 @@ pub struct StatusBarState<'a> {
     pub update_info: Option<&'a UpdateInfo>,
     /// Install status
     pub install_status: &'a mut InstallStatus,
+    /// Workspace registry for multi-workspace support
+    pub workspace_registry: Option<&'a Arc<Mutex<WorkspaceRegistry>>>,
+    /// Currently active workspace ID
+    pub active_workspace_id: &'a mut Option<WorkspaceId>,
 }
 
 /// Render the bottom status bar
@@ -92,6 +98,41 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     .clicked()
                 {
                     *state.auto_scan = !*state.auto_scan;
+                }
+
+                ui.add_space(16.0);
+
+                // Workspace selector (if multiple workspaces exist)
+                if let Some(registry_arc) = state.workspace_registry {
+                    if let Ok(registry) = registry_arc.lock() {
+                        let workspaces = registry.list();
+                        if workspaces.len() > 1 {
+                            // Show workspace dropdown
+                            let current_name = state.active_workspace_id
+                                .and_then(|id| registry.get(id))
+                                .map(|ws| ws.name.clone())
+                                .unwrap_or_else(|| "No workspace".to_string());
+
+                            ui.label(RichText::new("Workspace:").small().color(TEXT_DIM));
+
+                            egui::ComboBox::from_id_salt("workspace_selector")
+                                .selected_text(RichText::new(&current_name).small().color(TEXT_PRIMARY))
+                                .width(120.0)
+                                .show_ui(ui, |ui| {
+                                    for ws in &workspaces {
+                                        let is_selected = state.active_workspace_id.map_or(false, |id| id == ws.id);
+                                        let text = RichText::new(&ws.name).small();
+                                        if ui.selectable_label(is_selected, text).clicked() {
+                                            *state.active_workspace_id = Some(ws.id);
+                                        }
+                                    }
+                                });
+                        } else if !workspaces.is_empty() {
+                            // Single workspace - just show the name
+                            let name = &workspaces[0].name;
+                            ui.label(RichText::new(format!("📁 {}", name)).small().color(TEXT_DIM));
+                        }
+                    }
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

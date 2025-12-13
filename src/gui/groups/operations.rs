@@ -4,6 +4,7 @@
 //! cleaning up all worktrees from the group.
 
 use crate::git::GitManager;
+use crate::git::CommitMessage;
 use crate::job::{GroupManager, JobManager};
 use crate::{AgentGroupId, JobStatus};
 
@@ -75,7 +76,8 @@ pub fn merge_and_cleanup(
     };
 
     // Merge the selected job's changes into the base branch
-    if let Err(e) = git_manager.apply_changes(&worktree_path, &base_branch) {
+    let commit_message = CommitMessage::from_job(&selected_job);
+    if let Err(e) = git_manager.apply_changes(&worktree_path, &base_branch, Some(&commit_message)) {
         return GroupOperationResult::error(format!("Failed to merge changes: {}", e));
     }
 

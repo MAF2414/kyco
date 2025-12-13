@@ -2,3 +2,9 @@
 .kyco/worktrees/
 .kyco/whisper-models/
 .kyco/gui_jobs/
+
+# SDK Bridge (Node.js)
+/bridge/node_modules/
+/bridge/dist/
+/bridge/*.db
+/bridge/kyco-sessions.json

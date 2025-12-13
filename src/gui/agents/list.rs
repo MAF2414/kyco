@@ -11,7 +11,8 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
     ui.label(RichText::new("Available Agents").monospace().color(TEXT_PRIMARY));
     ui.add_space(8.0);
     ui.label(
-        RichText::new("Agents define how to invoke AI CLI tools. Click to edit.").color(TEXT_DIM),
+        RichText::new("Agents select which SDK backend to use. Click to edit.")
+            .color(TEXT_DIM),
     );
     ui.add_space(12.0);
 
@@ -22,8 +23,11 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
         .iter()
         .map(|(name, agent)| {
             let aliases = agent.aliases.join(", ");
-            let binary = agent.binary.clone();
-            (name.clone(), aliases, binary)
+            let backend = agent
+                .binary
+                .clone()
+                .unwrap_or_else(|| agent.sdk.default_name().to_string());
+            (name.clone(), aliases, backend)
         })
         .collect();
 
@@ -76,7 +80,7 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
                 state.agent_edit_aliases.clear();
                 state.agent_edit_binary.clear();
                 *state.agent_edit_cli_type = "claude".to_string();
-                *state.agent_edit_mode = "print".to_string();
+                *state.agent_edit_mode = "oneshot".to_string();
                 state.agent_edit_print_args.clear();
                 state.agent_edit_output_args.clear();
                 state.agent_edit_repl_args.clear();

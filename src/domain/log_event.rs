@@ -17,6 +17,8 @@ pub enum LogEventKind {
     Error,
     /// System message (e.g., start/stop)
     System,
+    /// Permission request (tool approval needed)
+    Permission,
 }
 
 impl std::fmt::Display for LogEventKind {
@@ -28,6 +30,7 @@ impl std::fmt::Display for LogEventKind {
             LogEventKind::Text => write!(f, "text"),
             LogEventKind::Error => write!(f, "error"),
             LogEventKind::System => write!(f, "system"),
+            LogEventKind::Permission => write!(f, "permission"),
         }
     }
 }
@@ -111,6 +114,11 @@ impl LogEvent {
     /// Create a system event
     pub fn system(summary: impl Into<String>) -> Self {
         Self::new(LogEventKind::System, summary)
+    }
+
+    /// Create a permission request event
+    pub fn permission(summary: impl Into<String>) -> Self {
+        Self::new(LogEventKind::Permission, summary)
     }
 
     /// Add content to the event

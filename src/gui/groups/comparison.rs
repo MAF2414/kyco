@@ -257,6 +257,7 @@ fn render_agent_card(
                     JobStatus::Failed => ("✗ Failed", STATUS_FAILED),
                     JobStatus::Pending => ("○ Pending", TEXT_MUTED),
                     JobStatus::Queued => ("~ Queued", TEXT_DIM),
+                    JobStatus::Blocked => ("⏸ Blocked", TEXT_DIM),
                     JobStatus::Rejected => ("- Rejected", ACCENT_RED),
                     JobStatus::Merged => ("> Merged", ACCENT_GREEN),
                 };

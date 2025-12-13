@@ -78,14 +78,18 @@ pub fn render_settings_output_schema(ui: &mut egui::Ui, state: &mut SettingsStat
     );
     ui.add_space(8.0);
     ui.label(
-        RichText::new("Template appended to agent system prompts for structured output.")
+        RichText::new(
+            "YAML summary template is appended to system prompts. Optional JSON Schema enables true SDK structured output.",
+        )
             .color(TEXT_DIM),
     );
     ui.add_space(12.0);
 
     render_section_frame(ui, |ui| {
+        ui.label(RichText::new("YAML Summary Template").color(TEXT_MUTED));
+        ui.add_space(4.0);
         ui.label(
-            RichText::new("Placeholders: ---kyco marker for YAML output")
+            RichText::new("Placeholders: --- markers for YAML output")
                 .small()
                 .color(TEXT_MUTED),
         );
@@ -94,6 +98,29 @@ pub fn render_settings_output_schema(ui: &mut egui::Ui, state: &mut SettingsStat
             egui::TextEdit::multiline(state.settings_output_schema)
                 .font(egui::TextStyle::Monospace)
                 .text_color(TEXT_PRIMARY)
+                .desired_width(f32::INFINITY)
+                .desired_rows(8),
+        );
+
+        ui.add_space(16.0);
+        ui.separator();
+        ui.add_space(12.0);
+
+        ui.label(RichText::new("Structured Output (JSON Schema, optional)").color(TEXT_MUTED));
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(
+                "When set, Claude/Codex SDK will be asked to return JSON matching this schema.",
+            )
+            .small()
+            .color(TEXT_MUTED),
+        );
+        ui.add_space(8.0);
+        ui.add(
+            egui::TextEdit::multiline(state.settings_structured_output_schema)
+                .font(egui::TextStyle::Monospace)
+                .text_color(TEXT_PRIMARY)
+                .hint_text("{\n  \"type\": \"object\",\n  \"properties\": { ... }\n}")
                 .desired_width(f32::INFINITY)
                 .desired_rows(8),
         );
@@ -945,4 +972,380 @@ fn run_voice_test(
     language: &str,
 ) -> Result<String, String> {
     run_voice_test_sync(work_dir, model_name, language)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Workspace Config Section
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Render Workspace Config section with Reset/Export/Import buttons
+pub fn render_settings_workspace_config(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
+    ui.label(
+        RichText::new("Workspace Configuration")
+            .monospace()
+            .color(TEXT_PRIMARY),
+    );
+    ui.add_space(8.0);
+
+    let config_path = state.work_dir.join(".kyco").join("config.toml");
+    let config_exists = config_path.exists();
+
+    render_section_frame(ui, |ui| {
+        // Current config path
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Config Path:").color(TEXT_MUTED));
+            let path_str = config_path.display().to_string();
+            let path_text = if path_str.len() > 50 {
+                format!("...{}", &path_str[path_str.len() - 47..])
+            } else {
+                path_str.clone()
+            };
+            ui.label(RichText::new(&path_text).monospace().small().color(TEXT_DIM));
+
+            // Copy path to clipboard
+            if ui.small_button("📋").on_hover_text("Copy path to clipboard").clicked() {
+                ui.ctx().copy_text(path_str);
+            }
+        });
+
+        ui.add_space(8.0);
+
+        // Config status
+        if config_exists {
+            if let Ok(metadata) = std::fs::metadata(&config_path) {
+                if let Ok(modified) = metadata.modified() {
+                    let duration = std::time::SystemTime::now()
+                        .duration_since(modified)
+                        .unwrap_or_default();
+                    let ago = if duration.as_secs() < 60 {
+                        format!("{} seconds ago", duration.as_secs())
+                    } else if duration.as_secs() < 3600 {
+                        format!("{} minutes ago", duration.as_secs() / 60)
+                    } else if duration.as_secs() < 86400 {
+                        format!("{} hours ago", duration.as_secs() / 3600)
+                    } else {
+                        format!("{} days ago", duration.as_secs() / 86400)
+                    };
+                    ui.label(RichText::new(format!("✓ Last modified: {}", ago)).small().color(ACCENT_GREEN));
+                }
+            }
+        } else {
+            ui.label(RichText::new("⚠ No config file found").small().color(ACCENT_RED));
+        }
+
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        // Action buttons
+        ui.horizontal(|ui| {
+            // Reset to Defaults button
+            let reset_btn = ui.button(RichText::new("Reset to Defaults").color(ACCENT_CYAN));
+            if reset_btn.clicked() {
+                match reset_config_to_defaults(state.work_dir) {
+                    Ok(_) => {
+                        *state.settings_status = Some(("Config reset to defaults. Restart recommended.".to_string(), false));
+                    }
+                    Err(e) => {
+                        *state.settings_status = Some((format!("Reset failed: {}", e), true));
+                    }
+                }
+            }
+            reset_btn.on_hover_text("Overwrite config with default values");
+
+            ui.add_space(8.0);
+
+            // Export to Clipboard button
+            let export_btn = ui.button(RichText::new("Export to Clipboard").color(ACCENT_GREEN));
+            if export_btn.clicked() {
+                match export_config_to_string(state.work_dir) {
+                    Ok(content) => {
+                        ui.ctx().copy_text(content);
+                        *state.settings_status = Some(("Config copied to clipboard".to_string(), false));
+                    }
+                    Err(e) => {
+                        *state.settings_status = Some((format!("Export failed: {}", e), true));
+                    }
+                }
+            }
+            export_btn.on_hover_text("Copy current config.toml content to clipboard");
+
+            ui.add_space(8.0);
+
+            // Open in Editor button
+            let open_btn = ui.button(RichText::new("Open in Editor").color(TEXT_PRIMARY));
+            if open_btn.clicked() && config_exists {
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = std::process::Command::new("open")
+                        .arg(&config_path)
+                        .spawn();
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = std::process::Command::new("xdg-open")
+                        .arg(&config_path)
+                        .spawn();
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = std::process::Command::new("cmd")
+                        .args(["/C", "start", "", &config_path.display().to_string()])
+                        .spawn();
+                }
+            }
+            open_btn.on_hover_text("Open config.toml in system editor");
+        });
+    });
+
+    ui.add_space(24.0);
+    ui.separator();
+    ui.add_space(16.0);
+}
+
+/// Reset config to defaults by calling Config::auto_init
+fn reset_config_to_defaults(work_dir: &std::path::Path) -> Result<(), String> {
+    use crate::config::Config;
+
+    let config_dir = work_dir.join(".kyco");
+    let config_path = config_dir.join("config.toml");
+
+    // Create default config
+    let mut default_config = Config::with_defaults();
+
+    // Preserve the HTTP token if it exists
+    if config_path.exists() {
+        if let Ok(existing) = Config::from_file(&config_path) {
+            if !existing.settings.gui.http_token.is_empty() {
+                default_config.settings.gui.http_token = existing.settings.gui.http_token;
+            }
+        }
+    }
+
+    // Ensure directory exists
+    std::fs::create_dir_all(&config_dir)
+        .map_err(|e| format!("Failed to create .kyco directory: {}", e))?;
+
+    // Write config
+    let content = toml::to_string_pretty(&default_config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    std::fs::write(&config_path, content)
+        .map_err(|e| format!("Failed to write config: {}", e))?;
+
+    Ok(())
+}
+
+/// Export current config to string
+fn export_config_to_string(work_dir: &std::path::Path) -> Result<String, String> {
+    let config_path = work_dir.join(".kyco").join("config.toml");
+
+    if !config_path.exists() {
+        return Err("No config file found".to_string());
+    }
+
+    std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("Failed to read config: {}", e))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Config Import from Other Workspace
+// ═══════════════════════════════════════════════════════════════════════════
+
+use crate::workspace::Workspace;
+
+/// Render the "Import from Workspace" section
+pub fn render_settings_import_config(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
+    // Only show if we have a workspace registry with multiple workspaces
+    let workspaces: Vec<Workspace> = if let Some(registry_arc) = state.workspace_registry {
+        if let Ok(registry) = registry_arc.lock() {
+            registry.list().iter().map(|w| (*w).clone()).collect()
+        } else {
+            return;
+        }
+    } else {
+        return;
+    };
+
+    // Filter out current workspace
+    let other_workspaces: Vec<&Workspace> = workspaces
+        .iter()
+        .filter(|w| w.path != state.work_dir)
+        .collect();
+
+    if other_workspaces.is_empty() {
+        return; // No other workspaces to import from
+    }
+
+    ui.label(
+        RichText::new("Import from Workspace")
+            .monospace()
+            .color(TEXT_PRIMARY),
+    );
+    ui.add_space(8.0);
+    ui.label(
+        RichText::new("Copy modes, agents, or chains from another workspace")
+            .small()
+            .color(TEXT_DIM),
+    );
+    ui.add_space(12.0);
+
+    render_section_frame(ui, |ui| {
+        // Workspace selector
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Source workspace:").color(TEXT_MUTED));
+
+            // Clamp selection to valid range
+            if *state.import_workspace_selected >= other_workspaces.len() {
+                *state.import_workspace_selected = 0;
+            }
+
+            let selected_name = other_workspaces
+                .get(*state.import_workspace_selected)
+                .map(|w| w.name.as_str())
+                .unwrap_or("Select...");
+
+            egui::ComboBox::from_id_salt("import_workspace_selector")
+                .selected_text(selected_name)
+                .width(200.0)
+                .show_ui(ui, |ui| {
+                    for (idx, ws) in other_workspaces.iter().enumerate() {
+                        ui.selectable_value(
+                            state.import_workspace_selected,
+                            idx,
+                            &ws.name,
+                        );
+                    }
+                });
+        });
+
+        ui.add_space(12.0);
+
+        // What to import checkboxes
+        ui.label(RichText::new("What to import:").color(TEXT_MUTED));
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.checkbox(state.import_modes, "Modes");
+            ui.checkbox(state.import_agents, "Agents");
+            ui.checkbox(state.import_chains, "Chains");
+            ui.checkbox(state.import_settings, "Settings");
+        });
+
+        ui.add_space(12.0);
+
+        // Import button
+        let can_import = *state.import_modes || *state.import_agents || *state.import_chains || *state.import_settings;
+
+        ui.horizontal(|ui| {
+            let import_btn = ui.add_enabled(
+                can_import,
+                egui::Button::new(RichText::new("Import Selected").color(if can_import { ACCENT_GREEN } else { TEXT_MUTED })),
+            );
+
+            if import_btn.clicked() {
+                if let Some(source_ws) = other_workspaces.get(*state.import_workspace_selected) {
+                    match import_config_from_workspace(
+                        &source_ws.path,
+                        state.work_dir,
+                        *state.import_modes,
+                        *state.import_agents,
+                        *state.import_chains,
+                        *state.import_settings,
+                    ) {
+                        Ok(msg) => {
+                            *state.settings_status = Some((msg, false));
+                        }
+                        Err(e) => {
+                            *state.settings_status = Some((format!("Import failed: {}", e), true));
+                        }
+                    }
+                }
+            }
+            import_btn.on_hover_text("Import selected configuration from source workspace");
+        });
+    });
+
+    ui.add_space(24.0);
+    ui.separator();
+    ui.add_space(16.0);
+}
+
+/// Import configuration sections from one workspace to another
+fn import_config_from_workspace(
+    source_dir: &std::path::Path,
+    target_dir: &std::path::Path,
+    import_modes: bool,
+    import_agents: bool,
+    import_chains: bool,
+    import_settings: bool,
+) -> Result<String, String> {
+    use crate::config::Config;
+
+    let source_config_path = source_dir.join(".kyco").join("config.toml");
+    let target_config_path = target_dir.join(".kyco").join("config.toml");
+
+    if !source_config_path.exists() {
+        return Err("Source workspace has no config".to_string());
+    }
+
+    let source_config = Config::from_file(&source_config_path)
+        .map_err(|e| format!("Failed to load source config: {}", e))?;
+
+    let mut target_config = if target_config_path.exists() {
+        Config::from_file(&target_config_path)
+            .map_err(|e| format!("Failed to load target config: {}", e))?
+    } else {
+        Config::with_defaults()
+    };
+
+    let mut imported = Vec::new();
+
+    // Import modes
+    if import_modes && !source_config.mode.is_empty() {
+        let count = source_config.mode.len();
+        target_config.mode = source_config.mode;
+        imported.push(format!("{} modes", count));
+    }
+
+    // Import agents
+    if import_agents && !source_config.agent.is_empty() {
+        let count = source_config.agent.len();
+        target_config.agent = source_config.agent;
+        imported.push(format!("{} agents", count));
+    }
+
+    // Import chains
+    if import_chains && !source_config.chain.is_empty() {
+        let count = source_config.chain.len();
+        target_config.chain = source_config.chain;
+        imported.push(format!("{} chains", count));
+    }
+
+    // Import settings (but preserve HTTP token)
+    if import_settings {
+        let http_token = target_config.settings.gui.http_token.clone();
+        target_config.settings = source_config.settings;
+        target_config.settings.gui.http_token = http_token; // Preserve token
+        imported.push("settings".to_string());
+    }
+
+    if imported.is_empty() {
+        return Err("Nothing to import".to_string());
+    }
+
+    // Write updated config
+    let content = toml::to_string_pretty(&target_config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    // Ensure target directory exists
+    if let Some(parent) = target_config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create target directory: {}", e))?;
+    }
+
+    std::fs::write(&target_config_path, content)
+        .map_err(|e| format!("Failed to write config: {}", e))?;
+
+    Ok(format!("Imported: {}. Restart to apply.", imported.join(", ")))
 }

@@ -119,14 +119,15 @@ impl AgentRunner for CodexAdapter {
             .await;
 
         // Spawn the process
-        let mut child = Command::new(&config.binary)
+        let binary = config.get_binary();
+        let mut child = Command::new(&binary)
             .args(&args)
             .current_dir(worktree)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .envs(&config.env)
             .spawn()
-            .with_context(|| format!("Failed to spawn {}", config.binary))?;
+            .with_context(|| format!("Failed to spawn {}", binary))?;
 
         let stdout = child.stdout.take().expect("stdout not captured");
         let stderr = child.stderr.take().expect("stderr not captured");
@@ -151,6 +152,7 @@ impl AgentRunner for CodexAdapter {
             duration_ms: None,
             sent_prompt: Some(prompt.clone()),
             output_text: None,
+            session_id: None, // CLI adapter doesn't support session continuation
         };
 
         // Track if we received turn.completed (means success regardless of exit code)
