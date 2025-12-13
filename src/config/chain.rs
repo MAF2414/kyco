@@ -4,17 +4,41 @@ use serde::{Deserialize, Serialize};
 
 use super::ModeConfig;
 
+/// A state definition for chain control flow
+/// States are detected by searching for patterns in the previous step's output
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateDefinition {
+    /// Unique identifier for this state (e.g., "issues_found", "tests_pass")
+    pub id: String,
+    /// Human-readable description of what this state means
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Patterns to search for in the output (any match triggers this state)
+    /// Can be simple text or regex patterns
+    pub patterns: Vec<String>,
+    /// Whether patterns should be treated as regex (default: false = plain text search)
+    #[serde(default)]
+    pub is_regex: bool,
+    /// Case-insensitive matching (default: true)
+    #[serde(default = "default_case_insensitive")]
+    pub case_insensitive: bool,
+}
+
+fn default_case_insensitive() -> bool {
+    true
+}
+
 /// A step in a mode chain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainStep {
     /// The mode to execute in this step
     pub mode: String,
     /// States that trigger this step (if None, always runs)
-    /// If the previous step's state is in this list, this step executes
+    /// References state IDs defined in the chain's `states` array
     #[serde(default)]
     pub trigger_on: Option<Vec<String>>,
     /// States that skip this step
-    /// If the previous step's state is in this list, this step is skipped
+    /// References state IDs defined in the chain's `states` array
     #[serde(default)]
     pub skip_on: Option<Vec<String>>,
     /// Override agent for this step (uses mode's default if None)
@@ -30,14 +54,25 @@ pub struct ChainStep {
 pub struct ModeChain {
     /// Human-readable description of what this chain does
     pub description: Option<String>,
+    /// State definitions for this chain - detected via pattern matching in output
+    #[serde(default)]
+    pub states: Vec<StateDefinition>,
     /// The steps to execute in order
     pub steps: Vec<ChainStep>,
     /// Whether to stop the chain on first failure
     #[serde(default = "default_stop_on_failure")]
     pub stop_on_failure: bool,
+    /// Pass the full response text to the next step (default: true)
+    /// When true, the complete output is passed; when false, only the summary
+    #[serde(default = "default_pass_full_response")]
+    pub pass_full_response: bool,
 }
 
 fn default_stop_on_failure() -> bool {
+    true
+}
+
+fn default_pass_full_response() -> bool {
     true
 }
 

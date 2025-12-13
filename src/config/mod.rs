@@ -10,14 +10,14 @@ mod target;
 
 pub use agent::AgentConfigToml;
 pub use alias::AliasConfig;
-pub use chain::{ChainStep, ModeChain, ModeOrChain};
+pub use chain::{ChainStep, ModeChain, ModeOrChain, StateDefinition};
 pub use mode::{ClaudeModeOptions, CodexModeOptions, ModeConfig, ModeSessionType};
 pub use scope::ScopeConfig;
 pub use settings::{GuiSettings, RegistrySettings, Settings, VoiceSettings};
 pub use target::TargetConfig;
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -71,6 +71,18 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Get the global config directory path (~/.kyco/)
+    pub fn global_config_dir() -> PathBuf {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".kyco")
+    }
+
+    /// Get the global config file path (~/.kyco/config.toml)
+    pub fn global_config_path() -> PathBuf {
+        Self::global_config_dir().join("config.toml")
+    }
+
     /// Load configuration from a file
     pub fn from_file(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
@@ -82,46 +94,32 @@ impl Config {
         Ok(config)
     }
 
-    /// Load configuration from a directory
-    /// Looks for: .kyco/config.toml (preferred) or kyco.toml (legacy)
+    /// Load global configuration from ~/.kyco/config.toml
     /// If no config exists, auto-creates one with defaults
-    pub fn from_dir(dir: &Path) -> Result<Self> {
-        // Prefer new location: .kyco/config.toml
-        let new_path = dir.join(".kyco/config.toml");
-        if new_path.exists() {
-            return Self::from_file(&new_path);
+    pub fn load() -> Result<Self> {
+        let global_path = Self::global_config_path();
+
+        if global_path.exists() {
+            return Self::from_file(&global_path);
         }
 
-        // Fallback to legacy: kyco.toml
-        let legacy_path = dir.join("kyco.toml");
-        if legacy_path.exists() {
-            let config = Self::from_file(&legacy_path)?;
-
-            // Migrate to new location.
-            // This is best-effort: if migration fails, we still return the legacy-loaded config.
-            // Note: http_token is left as-is (empty by default for local development).
-            if let Some(parent) = new_path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-
-            if let Ok(content) = toml::to_string_pretty(&config) {
-                let _ = std::fs::write(&new_path, content);
-            }
-
-            return Ok(config);
-        }
-
-        // Auto-init: create config with defaults
-        Self::auto_init(dir)?;
-        Self::from_file(&new_path)
+        // Auto-init: create global config with defaults
+        Self::auto_init()?;
+        Self::from_file(&global_path)
     }
 
-    /// Auto-initialize configuration when no config exists
-    fn auto_init(dir: &Path) -> Result<()> {
-        let config_dir = dir.join(".kyco");
-        let config_path = config_dir.join("config.toml");
+    /// Load configuration from a directory (legacy compatibility)
+    /// Now just loads the global config, ignoring the directory parameter
+    pub fn from_dir(_dir: &Path) -> Result<Self> {
+        Self::load()
+    }
 
-        // Create .kyco directory
+    /// Auto-initialize global configuration when no config exists
+    fn auto_init() -> Result<()> {
+        let config_dir = Self::global_config_dir();
+        let config_path = Self::global_config_path();
+
+        // Create ~/.kyco directory
         if !config_dir.exists() {
             std::fs::create_dir_all(&config_dir)
                 .with_context(|| format!("Failed to create config directory: {}", config_dir.display()))?;
@@ -135,7 +133,7 @@ impl Config {
             .with_context(|| "Failed to serialize default config")?;
 
         // Write config file
-        std::fs::write(&config_path, config_content)
+        std::fs::write(&config_path, &config_content)
             .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;
 
         eprintln!("Created {}", config_path.display());
@@ -320,6 +318,33 @@ impl Config {
             "review+fix".to_string(),
             ModeChain {
                 description: Some("Review code and fix any issues found".to_string()),
+                states: vec![
+                    StateDefinition {
+                        id: "issues_found".to_string(),
+                        description: Some("Issues were found in the code review".to_string()),
+                        patterns: vec![
+                            "issues found".to_string(),
+                            "problems found".to_string(),
+                            "bugs found".to_string(),
+                            "needs fixing".to_string(),
+                            "should be fixed".to_string(),
+                        ],
+                        is_regex: false,
+                        case_insensitive: true,
+                    },
+                    StateDefinition {
+                        id: "no_issues".to_string(),
+                        description: Some("No issues were found".to_string()),
+                        patterns: vec![
+                            "no issues".to_string(),
+                            "looks good".to_string(),
+                            "code is clean".to_string(),
+                            "no problems".to_string(),
+                        ],
+                        is_regex: false,
+                        case_insensitive: true,
+                    },
+                ],
                 steps: vec![
                     ChainStep {
                         mode: "review".to_string(),
@@ -337,6 +362,7 @@ impl Config {
                     },
                 ],
                 stop_on_failure: true,
+                pass_full_response: true,
             },
         );
 

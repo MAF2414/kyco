@@ -47,9 +47,10 @@
 //! ```
 
 use std::path::Path;
+use regex::Regex;
 use tokio::sync::mpsc;
 
-use crate::config::{ChainStep, Config, ModeChain};
+use crate::config::{ChainStep, Config, ModeChain, StateDefinition};
 use crate::{Job, JobResult, LogEvent};
 
 use super::AgentRegistry;
@@ -186,6 +187,7 @@ impl<'a> ChainRunner<'a> {
     ) -> ChainResult {
         let mut step_results = Vec::new();
         let mut last_state: Option<String> = None;
+        let mut last_output: Option<String> = None;  // Full response from previous step
         let mut last_summary: Option<String> = None;
         let mut accumulated_summaries = Vec::new();
         let mut chain_success = true;
@@ -199,8 +201,11 @@ impl<'a> ChainRunner<'a> {
             .await;
 
         for (step_index, step) in chain.steps.iter().enumerate() {
+            // Detect states from previous output using chain's state definitions
+            let detected_states = self.detect_states(&chain.states, &last_output);
+
             // Check if this step should run based on trigger conditions
-            let should_run = self.should_step_run(step, &last_state);
+            let should_run = self.should_step_run(step, &detected_states);
 
             if !should_run {
                 let _ = event_tx
@@ -221,6 +226,16 @@ impl<'a> ChainRunner<'a> {
                 continue;
             }
 
+            // Log detected states for debugging
+            if !detected_states.is_empty() {
+                let _ = event_tx
+                    .send(LogEvent::system(format!(
+                        "Detected states from previous step: {:?}",
+                        detected_states
+                    )))
+                    .await;
+            }
+
             let _ = event_tx
                 .send(LogEvent::system(format!(
                     "Executing chain step {} of {}: mode '{}'",
@@ -230,11 +245,18 @@ impl<'a> ChainRunner<'a> {
                 )))
                 .await;
 
+            // Determine what context to pass: full response or just summary
+            let previous_context = if chain.pass_full_response {
+                last_output.clone()
+            } else {
+                last_summary.clone()
+            };
+
             // Build the prompt with previous context
             let chained_prompt = self.build_chained_prompt(
                 initial_job,
                 step,
-                &last_summary,
+                &previous_context,
                 &accumulated_summaries,
             );
 
@@ -287,6 +309,9 @@ impl<'a> ChainRunner<'a> {
 
             match result {
                 Ok(agent_result) => {
+                    // Store full output for state detection and context passing
+                    last_output = agent_result.output_text.clone();
+
                     // Parse the job result
                     let job_result = agent_result
                         .output_text
@@ -295,6 +320,7 @@ impl<'a> ChainRunner<'a> {
 
                     // Update state and summary for next step
                     if let Some(ref jr) = job_result {
+                        // Legacy: still use YAML state if defined (for backwards compatibility)
                         last_state = jr.state.clone();
                         if let Some(ref summary) = jr.summary {
                             last_summary = Some(summary.clone());
@@ -386,37 +412,96 @@ impl<'a> ChainRunner<'a> {
         }
     }
 
+    /// Detects states from output text using the chain's state definitions.
+    ///
+    /// Iterates through each state definition and checks if any of its patterns
+    /// match the output text. Returns all matching state IDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `states` - State definitions from the chain configuration
+    /// * `output` - Output text from the previous step
+    ///
+    /// # Returns
+    ///
+    /// Vector of state IDs that were detected in the output.
+    fn detect_states(&self, states: &[StateDefinition], output: &Option<String>) -> Vec<String> {
+        let Some(output_text) = output else {
+            return Vec::new();
+        };
+
+        let mut detected = Vec::new();
+
+        for state in states {
+            let matched = state.patterns.iter().any(|pattern| {
+                if state.is_regex {
+                    // Regex matching
+                    let regex_pattern = if state.case_insensitive {
+                        format!("(?i){}", pattern)
+                    } else {
+                        pattern.clone()
+                    };
+                    match Regex::new(&regex_pattern) {
+                        Ok(re) => re.is_match(output_text),
+                        Err(_) => {
+                            // Invalid regex - fall back to text search
+                            if state.case_insensitive {
+                                output_text.to_lowercase().contains(&pattern.to_lowercase())
+                            } else {
+                                output_text.contains(pattern)
+                            }
+                        }
+                    }
+                } else {
+                    // Plain text search
+                    if state.case_insensitive {
+                        output_text.to_lowercase().contains(&pattern.to_lowercase())
+                    } else {
+                        output_text.contains(pattern)
+                    }
+                }
+            });
+
+            if matched {
+                detected.push(state.id.clone());
+            }
+        }
+
+        detected
+    }
+
     /// Evaluates whether a step should execute based on trigger conditions.
     ///
     /// The evaluation order is:
-    /// 1. If `skip_on` contains the previous state → skip (return `false`)
-    /// 2. If `trigger_on` is specified and doesn't contain the previous state → skip
+    /// 1. If `skip_on` contains any detected state → skip (return `false`)
+    /// 2. If `trigger_on` is specified and no detected state matches → skip
     /// 3. Otherwise → run (return `true`)
     ///
     /// # Arguments
     ///
     /// * `step` - The step configuration with optional `trigger_on`/`skip_on`
-    /// * `last_state` - State from the previous step (e.g., "issues_found")
+    /// * `detected_states` - States detected from the previous step's output
     ///
     /// # Returns
     ///
     /// `true` if the step should execute, `false` if it should be skipped.
-    fn should_step_run(&self, step: &ChainStep, last_state: &Option<String>) -> bool {
-        // Check skip_on first - if matched, don't run
+    fn should_step_run(&self, step: &ChainStep, detected_states: &[String]) -> bool {
+        // Check skip_on first - if any detected state matches, don't run
         if let Some(skip_states) = &step.skip_on {
-            if let Some(state) = last_state {
-                if skip_states.contains(state) {
+            for detected in detected_states {
+                if skip_states.contains(detected) {
                     return false;
                 }
             }
         }
 
-        // Check trigger_on - if specified, must match
+        // Check trigger_on - if specified, at least one detected state must match
         if let Some(trigger_states) = &step.trigger_on {
-            match last_state {
-                Some(state) => trigger_states.contains(state),
-                None => false, // No previous state, can't trigger
+            if detected_states.is_empty() {
+                return false; // No states detected, can't trigger
             }
+            // Check if any detected state is in trigger_on
+            detected_states.iter().any(|d| trigger_states.contains(d))
         } else {
             // No trigger condition = always run
             true

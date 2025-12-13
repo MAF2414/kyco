@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use super::state::{ChainEditorState, ChainStepEdit};
+use super::state::{ChainEditorState, ChainStepEdit, StateDefinitionEdit};
 use crate::config::ModeChain;
 
 /// Load a chain's data into the editor state
@@ -10,8 +10,10 @@ pub fn load_chain_for_editing(state: &mut ChainEditorState<'_>, chain_name: &str
     if let Some(chain) = state.config.chain.get(chain_name) {
         *state.chain_edit_name = chain_name.to_string();
         *state.chain_edit_description = chain.description.clone().unwrap_or_default();
+        *state.chain_edit_states = chain.states.iter().map(StateDefinitionEdit::from).collect();
         *state.chain_edit_steps = chain.steps.iter().map(ChainStepEdit::from).collect();
         *state.chain_edit_stop_on_failure = chain.stop_on_failure;
+        *state.chain_edit_pass_full_response = chain.pass_full_response;
     }
 }
 
@@ -54,8 +56,10 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         } else {
             Some(state.chain_edit_description.clone())
         },
+        states: state.chain_edit_states.iter().map(|s| s.to_state_definition()).collect(),
         steps: state.chain_edit_steps.iter().map(|s| s.to_chain_step()).collect(),
         stop_on_failure: *state.chain_edit_stop_on_failure,
+        pass_full_response: *state.chain_edit_pass_full_response,
     };
 
     // Update config
@@ -94,8 +98,10 @@ pub fn delete_chain_from_config(state: &mut ChainEditorState<'_>) {
     // Clear edit fields to avoid stale data
     state.chain_edit_name.clear();
     state.chain_edit_description.clear();
+    state.chain_edit_states.clear();
     state.chain_edit_steps.clear();
     *state.chain_edit_stop_on_failure = true;
+    *state.chain_edit_pass_full_response = true;
 }
 
 /// Save the config to the config file

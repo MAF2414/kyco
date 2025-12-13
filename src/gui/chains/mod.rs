@@ -11,7 +11,7 @@ mod list;
 mod persistence;
 pub mod state;
 
-pub use state::{ChainEditorState, ChainStepEdit};
+pub use state::{ChainEditorState, ChainStepEdit, StateDefinitionEdit};
 
 use eframe::egui::{self, RichText};
 

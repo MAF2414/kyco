@@ -164,6 +164,8 @@ pub struct KycoApp {
     popup_status: Option<(String, bool)>,
     /// Diff view state
     diff_state: DiffState,
+    /// Markdown rendering cache (for agent responses)
+    commonmark_cache: egui_commonmark::CommonMarkCache,
     /// Comparison popup state for multi-agent results
     comparison_state: ComparisonState,
     /// Permission popup state for tool approval requests
@@ -174,8 +176,6 @@ pub struct KycoApp {
     permission_mode_overrides: HashMap<JobId, PermissionMode>,
     /// Auto-run enabled
     auto_run: bool,
-    /// Auto-scan enabled
-    auto_scan: bool,
     /// Log scroll to bottom
     log_scroll_to_bottom: bool,
     /// Session continuation prompt (for follow-up messages in session mode)
@@ -296,10 +296,14 @@ pub struct KycoApp {
     chain_edit_name: String,
     /// Chain editor: description field
     chain_edit_description: String,
+    /// Chain editor: state definitions
+    chain_edit_states: Vec<super::chains::state::StateDefinitionEdit>,
     /// Chain editor: steps
     chain_edit_steps: Vec<super::chains::state::ChainStepEdit>,
     /// Chain editor: stop on failure
     chain_edit_stop_on_failure: bool,
+    /// Chain editor: pass full response to next step
+    chain_edit_pass_full_response: bool,
     /// Chain editor: status message
     chain_edit_status: Option<(String, bool)>,
     /// Config import: selected workspace index
@@ -395,12 +399,12 @@ impl KycoApp {
             autocomplete: AutocompleteState::default(),
             popup_status: None,
             diff_state: DiffState::new(),
+            commonmark_cache: egui_commonmark::CommonMarkCache::default(),
             comparison_state: ComparisonState::default(),
             permission_state: PermissionPopupState::default(),
             bridge_client: BridgeClient::new(),
             permission_mode_overrides: HashMap::new(),
             auto_run: settings_auto_run,
-            auto_scan: true,
             log_scroll_to_bottom: true,
             continuation_prompt: String::new(),
             extension_status: None,
@@ -460,8 +464,10 @@ impl KycoApp {
             selected_chain: None,
             chain_edit_name: String::new(),
             chain_edit_description: String::new(),
+            chain_edit_states: Vec::new(),
             chain_edit_steps: Vec::new(),
             chain_edit_stop_on_failure: true,
+            chain_edit_pass_full_response: true,
             chain_edit_status: None,
             voice_config_changed: false,
             voice_pending_execute: false,
@@ -588,8 +594,10 @@ impl KycoApp {
                 selected_chain: &mut self.selected_chain,
                 chain_edit_name: &mut self.chain_edit_name,
                 chain_edit_description: &mut self.chain_edit_description,
+                chain_edit_states: &mut self.chain_edit_states,
                 chain_edit_steps: &mut self.chain_edit_steps,
                 chain_edit_stop_on_failure: &mut self.chain_edit_stop_on_failure,
+                chain_edit_pass_full_response: &mut self.chain_edit_pass_full_response,
                 chain_edit_status: &mut self.chain_edit_status,
                 view_mode: &mut self.view_mode,
                 config: &mut self.config,
@@ -1406,6 +1414,7 @@ impl KycoApp {
             config: &self.config,
             log_scroll_to_bottom: self.log_scroll_to_bottom,
             continuation_prompt: &mut self.continuation_prompt,
+            commonmark_cache: &mut self.commonmark_cache,
             permission_mode_overrides: &self.permission_mode_overrides,
         };
 
@@ -2103,12 +2112,9 @@ impl eframe::App for KycoApp {
                 }
             }
 
-            // Global shortcuts for auto_run and auto_scan toggles (Shift+A and Shift+S)
+            // Global shortcut for auto_run toggle (Shift+A)
             if i.modifiers.shift && i.key_pressed(Key::A) {
                 self.auto_run = !self.auto_run;
-            }
-            if i.modifiers.shift && i.key_pressed(Key::S) {
-                self.auto_scan = !self.auto_scan;
             }
 
             // Voice hotkey handling (Cmd+D / Ctrl+D to start recording in selection popup)
@@ -2196,6 +2202,57 @@ impl eframe::App for KycoApp {
                 });
         }
 
+        // Poll update checker (needed for status bar)
+        let update_info = match self.update_checker.poll() {
+            UpdateStatus::UpdateAvailable(info) => Some(info.clone()),
+            _ => None,
+        };
+
+        // Handle install request
+        if matches!(self.update_install_status, super::status_bar::InstallStatus::InstallRequested) {
+            if let Some(info) = &update_info {
+                self.update_install_status = super::status_bar::InstallStatus::Installing;
+                let (tx, rx) = std::sync::mpsc::channel();
+                self.update_install_rx = Some(rx);
+                let info_clone = info.clone();
+                std::thread::spawn(move || {
+                    let result = super::update::install_update(&info_clone);
+                    let _ = tx.send(result);
+                });
+            }
+        }
+
+        // Poll install result if we're installing
+        if let Some(rx) = &self.update_install_rx {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(msg) => self.update_install_status = super::status_bar::InstallStatus::Success(msg),
+                    Err(err) => self.update_install_status = super::status_bar::InstallStatus::Error(err),
+                }
+                self.update_install_rx = None;
+            }
+        }
+
+        // Bottom status bar - MUST be rendered before SidePanel/CentralPanel
+        // so that those panels can properly account for the status bar's height
+        super::status_bar::render_status_bar(
+            ctx,
+            &mut super::status_bar::StatusBarState {
+                auto_run: &mut self.auto_run,
+                view_mode: &mut self.view_mode,
+                selected_mode: &mut self.selected_mode,
+                mode_edit_status: &mut self.mode_edit_status,
+                selected_agent: &mut self.selected_agent,
+                agent_edit_status: &mut self.agent_edit_status,
+                selected_chain: &mut self.selected_chain,
+                chain_edit_status: &mut self.chain_edit_status,
+                update_info: update_info.as_ref(),
+                install_status: &mut self.update_install_status,
+                workspace_registry: Some(&self.workspace_registry),
+                active_workspace_id: &mut self.active_workspace_id,
+            },
+        );
+
         // Render based on view mode
         match self.view_mode {
             ViewMode::JobList => {
@@ -2267,57 +2324,6 @@ impl eframe::App for KycoApp {
 
         // Render permission popup on top of everything if visible
         self.render_permission_popup_modal(ctx);
-
-        // Poll update checker
-        let update_info = match self.update_checker.poll() {
-            UpdateStatus::UpdateAvailable(info) => Some(info.clone()),
-            _ => None,
-        };
-
-        // Handle install request
-        if matches!(self.update_install_status, super::status_bar::InstallStatus::InstallRequested) {
-            if let Some(info) = &update_info {
-                self.update_install_status = super::status_bar::InstallStatus::Installing;
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.update_install_rx = Some(rx);
-                let info_clone = info.clone();
-                std::thread::spawn(move || {
-                    let result = super::update::install_update(&info_clone);
-                    let _ = tx.send(result);
-                });
-            }
-        }
-
-        // Poll install result if we're installing
-        if let Some(rx) = &self.update_install_rx {
-            if let Ok(result) = rx.try_recv() {
-                match result {
-                    Ok(msg) => self.update_install_status = super::status_bar::InstallStatus::Success(msg),
-                    Err(err) => self.update_install_status = super::status_bar::InstallStatus::Error(err),
-                }
-                self.update_install_rx = None;
-            }
-        }
-
-        // Bottom status bar
-        super::status_bar::render_status_bar(
-            ctx,
-            &mut super::status_bar::StatusBarState {
-                auto_run: &mut self.auto_run,
-                auto_scan: &mut self.auto_scan,
-                view_mode: &mut self.view_mode,
-                selected_mode: &mut self.selected_mode,
-                mode_edit_status: &mut self.mode_edit_status,
-                selected_agent: &mut self.selected_agent,
-                agent_edit_status: &mut self.agent_edit_status,
-                selected_chain: &mut self.selected_chain,
-                chain_edit_status: &mut self.chain_edit_status,
-                update_info: update_info.as_ref(),
-                install_status: &mut self.update_install_status,
-                workspace_registry: Some(&self.workspace_registry),
-                active_workspace_id: &mut self.active_workspace_id,
-            },
-        );
 
         // Request continuous updates
         ctx.request_repaint_after(std::time::Duration::from_millis(100));

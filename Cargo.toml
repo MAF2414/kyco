@@ -17,9 +17,9 @@ tokio = { version = "1", features = ["full"] }
 clap = { version = "4", features = ["derive"] }
 
 # GUI
-eframe = "0.31"
-egui = "0.31"
-egui_extras = "0.31"
+eframe = "0.32"
+egui = "0.32"
+egui_extras = "0.32"
 global-hotkey = "0.6"
 arboard = "3"
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -66,6 +66,8 @@ ureq = { version = "2", features = ["json"] }
 
 # Semantic versioning for update comparison
 semver = "1"
+egui_commonmark = "0.21.1"
+regex = "1.12.2"
 
 # macOS Accessibility API
 [target.'cfg(target_os = "macos")'.dependencies]

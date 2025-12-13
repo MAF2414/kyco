@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use crate::config::{ChainStep, Config};
+use crate::config::{ChainStep, Config, StateDefinition};
 use crate::gui::app::ViewMode;
 
 /// Parse comma-separated states, trim whitespace, remove empty strings, and deduplicate
@@ -24,17 +24,66 @@ fn parse_state_list(input: &str) -> Option<Vec<String>> {
     }
 }
 
+/// Parse newline-separated patterns into a vector
+fn parse_patterns(input: &str) -> Vec<String> {
+    input
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// State for chain editing UI
 pub struct ChainEditorState<'a> {
     pub selected_chain: &'a mut Option<String>,
     pub chain_edit_name: &'a mut String,
     pub chain_edit_description: &'a mut String,
+    pub chain_edit_states: &'a mut Vec<StateDefinitionEdit>,
     pub chain_edit_steps: &'a mut Vec<ChainStepEdit>,
     pub chain_edit_stop_on_failure: &'a mut bool,
+    pub chain_edit_pass_full_response: &'a mut bool,
     pub chain_edit_status: &'a mut Option<(String, bool)>,
     pub view_mode: &'a mut ViewMode,
     pub config: &'a mut Config,
     pub work_dir: &'a Path,
+}
+
+/// Editable state definition
+#[derive(Clone, Default)]
+pub struct StateDefinitionEdit {
+    pub id: String,
+    pub description: String,
+    pub patterns: String,  // Newline-separated patterns
+    pub is_regex: bool,
+    pub case_insensitive: bool,
+}
+
+impl From<&StateDefinition> for StateDefinitionEdit {
+    fn from(state: &StateDefinition) -> Self {
+        Self {
+            id: state.id.clone(),
+            description: state.description.clone().unwrap_or_default(),
+            patterns: state.patterns.join("\n"),
+            is_regex: state.is_regex,
+            case_insensitive: state.case_insensitive,
+        }
+    }
+}
+
+impl StateDefinitionEdit {
+    pub fn to_state_definition(&self) -> StateDefinition {
+        StateDefinition {
+            id: self.id.trim().to_string(),
+            description: if self.description.trim().is_empty() {
+                None
+            } else {
+                Some(self.description.trim().to_string())
+            },
+            patterns: parse_patterns(&self.patterns),
+            is_regex: self.is_regex,
+            case_insensitive: self.case_insensitive,
+        }
+    }
 }
 
 /// Editable chain step

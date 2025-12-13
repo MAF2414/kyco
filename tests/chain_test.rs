@@ -6,7 +6,7 @@
 //! 3. Mode validation
 //! 4. Edit fields not cleared after chain deletion
 
-use kyco::config::{ChainStep, Config, ModeChain};
+use kyco::config::{ChainStep, Config, ModeChain, StateDefinition};
 
 // ============================================================================
 // ChainStep Tests
@@ -132,6 +132,8 @@ fn test_mode_chain_creation() {
             inject_context: None,
         }],
         stop_on_failure: true,
+        states: vec![],
+        pass_full_response: true,
     };
 
     assert_eq!(chain.description.unwrap(), "Test chain");
@@ -157,6 +159,8 @@ fn test_mode_chain_stop_on_failure_false() {
         description: None,
         steps: vec![],
         stop_on_failure: false,
+        states: vec![],
+        pass_full_response: true,
     };
 
     assert!(!chain.stop_on_failure);
@@ -168,6 +172,8 @@ fn test_mode_chain_with_empty_steps() {
         description: Some("Empty chain".to_string()),
         steps: vec![],
         stop_on_failure: true,
+        states: vec![],
+        pass_full_response: true,
     };
 
     assert!(chain.steps.is_empty());
@@ -194,6 +200,8 @@ fn test_mode_chain_with_multiple_steps() {
             },
         ],
         stop_on_failure: true,
+        states: vec![],
+        pass_full_response: true,
     };
 
     assert_eq!(chain.steps.len(), 2);
@@ -223,6 +231,8 @@ fn test_mode_chain_serialization_roundtrip() {
             },
         ],
         stop_on_failure: false,
+        states: vec![],
+        pass_full_response: true,
     };
 
     let serialized = serde_json::to_string(&chain).expect("Failed to serialize");
@@ -390,6 +400,8 @@ fn test_mode_chain_toml_serialization() {
             inject_context: None,
         }],
         stop_on_failure: true,
+        states: vec![],
+        pass_full_response: true,
     };
 
     let toml_str = toml::to_string(&chain).expect("Failed to serialize to TOML");
@@ -417,6 +429,8 @@ fn test_chain_with_nonexistent_mode_reference() {
                 inject_context: None,
             }],
             stop_on_failure: true,
+            states: vec![],
+            pass_full_response: true,
         },
     );
 
@@ -441,6 +455,8 @@ fn test_config_chain_insertion_and_retrieval() {
             inject_context: None,
         }],
         stop_on_failure: true,
+        states: vec![],
+        pass_full_response: true,
     };
 
     config.chain.insert("custom".to_string(), chain);
@@ -491,6 +507,8 @@ fn test_mode_chain_clone() {
             inject_context: None,
         }],
         stop_on_failure: false,
+        states: vec![],
+        pass_full_response: true,
     };
 
     let cloned = original.clone();
@@ -679,6 +697,8 @@ fn test_chain_yaml_serialization() {
             inject_context: None,
         }],
         stop_on_failure: true,
+        states: vec![],
+        pass_full_response: true,
     };
 
     let yaml_str = serde_yaml::to_string(&chain).expect("Failed to serialize to YAML");
@@ -705,6 +725,8 @@ fn test_full_config_with_chain_toml_roundtrip() {
                 inject_context: None,
             }],
             stop_on_failure: false,
+            states: vec![],
+            pass_full_response: true,
         },
     );
 
@@ -1049,6 +1071,8 @@ fn test_chain_validation_empty_steps() {
         description: Some("Empty chain".to_string()),
         steps: vec![],
         stop_on_failure: true,
+        states: vec![],
+        pass_full_response: true,
     };
 
     assert!(chain.steps.is_empty());

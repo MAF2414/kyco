@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use super::context::SelectionContext;
 use super::autocomplete::Suggestion;
 use crate::gui::app::{
-    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, BG_HIGHLIGHT, BG_SECONDARY,
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_HIGHLIGHT, BG_SECONDARY,
     STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
 use crate::gui::voice::{VoiceInputMode, VoiceState};
@@ -326,6 +326,7 @@ fn render_suggestions(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) -> Opt
                                 let (badge_color, badge_text) = match suggestion.category {
                                     "agent" => (ACCENT_CYAN, "AGT"),
                                     "mode" => (ACCENT_GREEN, "MOD"),
+                                    "chain" => (ACCENT_YELLOW, "CHN"),
                                     _ => (TEXT_MUTED, "???"),
                                 };
                                 ui.label(
@@ -612,6 +613,7 @@ fn render_batch_suggestions(ui: &mut egui::Ui, state: &BatchPopupState<'_>) -> O
                                 let (badge_color, badge_text) = match suggestion.category {
                                     "agent" => (ACCENT_CYAN, "AGT"),
                                     "mode" => (ACCENT_GREEN, "MOD"),
+                                    "chain" => (ACCENT_YELLOW, "CHN"),
                                     _ => (TEXT_MUTED, "???"),
                                 };
                                 ui.label(
