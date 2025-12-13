@@ -129,6 +129,12 @@ pub struct ModeConfig {
     #[serde(default)]
     pub output_states: Vec<String>,
 
+    /// Custom prompt for state output instructions (appended to system prompt)
+    /// If not set but output_states is defined, auto-generates instructions
+    /// Example: "Set state to 'issues_found' if you find problems, 'no_issues' otherwise."
+    #[serde(default)]
+    pub state_prompt: Option<String>,
+
     /// Legacy: allowed_tools (deprecated, use disallowed_tools instead)
     #[serde(default)]
     pub allowed_tools: Vec<String>,

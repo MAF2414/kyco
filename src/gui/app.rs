@@ -107,6 +107,8 @@ pub enum ViewMode {
     BatchPopup,
     /// Diff view popup
     DiffView,
+    /// Apply/merge confirmation popup
+    ApplyConfirmPopup,
     /// Comparison popup for multi-agent results
     ComparisonPopup,
     /// Settings/Extensions view
@@ -117,6 +119,51 @@ pub enum ViewMode {
     Agents,
     /// Chains configuration view
     Chains,
+}
+
+#[derive(Debug, Clone)]
+enum ApplyTarget {
+    Single { job_id: JobId },
+    Group {
+        group_id: AgentGroupId,
+        selected_job_id: JobId,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ApplyThreadOutcome {
+    target: ApplyTarget,
+    /// For group merges: all job IDs in the group (empty for single jobs).
+    group_job_ids: Vec<JobId>,
+    message: String,
+}
+
+#[derive(Debug, Clone)]
+enum ApplyThreadInput {
+    Single(SingleApplyInput),
+    Group(GroupApplyInput),
+}
+
+#[derive(Debug, Clone)]
+struct SingleApplyInput {
+    job_id: JobId,
+    workspace_root: PathBuf,
+    worktree_path: Option<PathBuf>,
+    base_branch: Option<String>,
+    commit_message: crate::git::CommitMessage,
+}
+
+#[derive(Debug, Clone)]
+struct GroupApplyInput {
+    group_id: AgentGroupId,
+    selected_job_id: JobId,
+    selected_agent_id: String,
+    workspace_root: PathBuf,
+    selected_worktree_path: PathBuf,
+    base_branch: String,
+    commit_message: crate::git::CommitMessage,
+    cleanup_worktrees: Vec<(JobId, PathBuf)>,
+    group_job_ids: Vec<JobId>,
 }
 
 /// Main application state
@@ -164,6 +211,16 @@ pub struct KycoApp {
     popup_status: Option<(String, bool)>,
     /// Diff view state
     diff_state: DiffState,
+    /// View mode to return to after closing diff
+    diff_return_view: ViewMode,
+    /// Pending merge/apply confirmation (shown in ApplyConfirmPopup)
+    apply_confirm_target: Option<ApplyTarget>,
+    /// View mode to return to after canceling apply confirmation
+    apply_confirm_return_view: ViewMode,
+    /// Error message shown in apply confirmation popup
+    apply_confirm_error: Option<String>,
+    /// Receiver for async apply/merge results
+    apply_confirm_rx: Option<std::sync::mpsc::Receiver<Result<ApplyThreadOutcome, String>>>,
     /// Markdown rendering cache (for agent responses)
     commonmark_cache: egui_commonmark::CommonMarkCache,
     /// Comparison popup state for multi-agent results
@@ -238,6 +295,10 @@ pub struct KycoApp {
     mode_edit_claude_permission: String,
     /// Mode editor: Codex sandbox mode
     mode_edit_codex_sandbox: String,
+    /// Mode editor: output states (comma-separated)
+    mode_edit_output_states: String,
+    /// Mode editor: state prompt for chain workflows
+    mode_edit_state_prompt: String,
     /// Settings editor: max concurrent jobs
     settings_max_concurrent: String,
     /// Settings editor: auto run
@@ -306,6 +367,8 @@ pub struct KycoApp {
     chain_edit_pass_full_response: bool,
     /// Chain editor: status message
     chain_edit_status: Option<(String, bool)>,
+    /// Chain editor: pending confirmation dialog
+    chain_pending_confirmation: super::chains::PendingConfirmation,
     /// Config import: selected workspace index
     import_workspace_selected: usize,
     /// Config import: import modes
@@ -399,6 +462,11 @@ impl KycoApp {
             autocomplete: AutocompleteState::default(),
             popup_status: None,
             diff_state: DiffState::new(),
+            diff_return_view: ViewMode::JobList,
+            apply_confirm_target: None,
+            apply_confirm_return_view: ViewMode::JobList,
+            apply_confirm_error: None,
+            apply_confirm_rx: None,
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
             comparison_state: ComparisonState::default(),
             permission_state: PermissionPopupState::default(),
@@ -423,6 +491,8 @@ impl KycoApp {
             mode_edit_model: String::new(),
             mode_edit_claude_permission: "auto".to_string(),
             mode_edit_codex_sandbox: "auto".to_string(),
+            mode_edit_output_states: String::new(),
+            mode_edit_state_prompt: String::new(),
             selected_agent: None,
             agent_edit_name: String::new(),
             agent_edit_aliases: String::new(),
@@ -469,6 +539,7 @@ impl KycoApp {
             chain_edit_stop_on_failure: true,
             chain_edit_pass_full_response: true,
             chain_edit_status: None,
+            chain_pending_confirmation: super::chains::PendingConfirmation::None,
             voice_config_changed: false,
             voice_pending_execute: false,
             update_checker: UpdateChecker::new(),
@@ -554,6 +625,8 @@ impl KycoApp {
                 mode_edit_model: &mut self.mode_edit_model,
                 mode_edit_claude_permission: &mut self.mode_edit_claude_permission,
                 mode_edit_codex_sandbox: &mut self.mode_edit_codex_sandbox,
+                mode_edit_output_states: &mut self.mode_edit_output_states,
+                mode_edit_state_prompt: &mut self.mode_edit_state_prompt,
                 view_mode: &mut self.view_mode,
                 config: &mut self.config,
                 work_dir: &self.work_dir,
@@ -599,6 +672,7 @@ impl KycoApp {
                 chain_edit_stop_on_failure: &mut self.chain_edit_stop_on_failure,
                 chain_edit_pass_full_response: &mut self.chain_edit_pass_full_response,
                 chain_edit_status: &mut self.chain_edit_status,
+                pending_confirmation: &mut self.chain_pending_confirmation,
                 view_mode: &mut self.view_mode,
                 config: &mut self.config,
                 work_dir: &self.work_dir,
@@ -611,6 +685,213 @@ impl KycoApp {
         self.cached_jobs = jobs::refresh_jobs(&self.job_manager);
     }
 
+    fn open_apply_confirm(&mut self, target: ApplyTarget) {
+        self.apply_confirm_target = Some(target);
+        self.apply_confirm_return_view = self.view_mode;
+        self.apply_confirm_error = None;
+        self.apply_confirm_rx = None;
+        self.view_mode = ViewMode::ApplyConfirmPopup;
+    }
+
+    fn workspace_root_for_job(&self, job: &Job) -> PathBuf {
+        job.workspace_path
+            .clone()
+            .unwrap_or_else(|| self.work_dir.clone())
+    }
+
+    fn open_job_diff(&mut self, job_id: JobId, return_view: ViewMode) {
+        let Some(job) = self.cached_jobs.iter().find(|j| j.id == job_id).cloned() else {
+            self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+            return;
+        };
+
+        let workspace_root = self.workspace_root_for_job(&job);
+        let gm = match crate::git::GitManager::new(&workspace_root) {
+            Ok(gm) => gm,
+            Err(e) => {
+                self.logs.push(LogEvent::error(format!(
+                    "Failed to initialize git manager for {}: {}",
+                    workspace_root.display(),
+                    e
+                )));
+                return;
+            }
+        };
+
+        let diff_result = if let Some(worktree) = job.git_worktree_path.as_ref().filter(|p| p.exists()) {
+            gm.diff(worktree, job.base_branch.as_deref()).map(|mut diff| {
+                if let Ok(untracked) = gm.untracked_files(worktree) {
+                    if !untracked.is_empty() {
+                        if !diff.is_empty() {
+                            diff.push_str("\n\n");
+                        }
+                        diff.push_str("--- Untracked files ---\n");
+                        for file in untracked {
+                            diff.push_str(&file.display().to_string());
+                            diff.push('\n');
+                        }
+                    }
+                }
+                diff
+            })
+        } else {
+            gm.diff(&workspace_root, None).map(|mut diff| {
+                let mut header = "--- Workspace changes (no worktree) ---\n\n".to_string();
+                if let Ok(untracked) = gm.untracked_files(&workspace_root) {
+                    if !untracked.is_empty() {
+                        if !diff.is_empty() {
+                            diff.push_str("\n\n");
+                        }
+                        diff.push_str("--- Untracked files ---\n");
+                        for file in untracked {
+                            diff.push_str(&file.display().to_string());
+                            diff.push('\n');
+                        }
+                    }
+                }
+
+                if diff.is_empty() {
+                    header.push_str("No changes in workspace.");
+                    header
+                } else {
+                    format!("{}{}", header, diff)
+                }
+            })
+        };
+
+        match diff_result {
+            Ok(content) => {
+                self.diff_state.set_content(content);
+                self.diff_return_view = return_view;
+                self.view_mode = ViewMode::DiffView;
+            }
+            Err(e) => {
+                self.logs
+                    .push(LogEvent::error(format!("Failed to load diff: {}", e)));
+            }
+        }
+    }
+
+    fn build_apply_thread_input(&self, target: &ApplyTarget) -> Result<ApplyThreadInput, String> {
+        match target {
+            ApplyTarget::Single { job_id } => {
+                let job = self
+                    .job_manager
+                    .lock()
+                    .map_err(|_| "Failed to lock job manager".to_string())?
+                    .get(*job_id)
+                    .cloned()
+                    .ok_or_else(|| format!("Job #{} not found", job_id))?;
+
+                let workspace_root = self.workspace_root_for_job(&job);
+                Ok(ApplyThreadInput::Single(SingleApplyInput {
+                    job_id: *job_id,
+                    workspace_root,
+                    worktree_path: job.git_worktree_path.clone(),
+                    base_branch: job.base_branch.clone(),
+                    commit_message: crate::git::CommitMessage::from_job(&job),
+                }))
+            }
+            ApplyTarget::Group {
+                group_id,
+                selected_job_id,
+            } => {
+                let group = self
+                    .group_manager
+                    .lock()
+                    .map_err(|_| "Failed to lock group manager".to_string())?
+                    .get(*group_id)
+                    .cloned()
+                    .ok_or_else(|| format!("Group #{} not found", group_id))?;
+
+                if !matches!(group.status, crate::GroupStatus::Comparing | crate::GroupStatus::Selected) {
+                    return Err(format!(
+                        "Group #{} is not ready to merge yet (status: {})",
+                        group_id, group.status
+                    ));
+                }
+
+                if !group.job_ids.contains(selected_job_id) {
+                    return Err(format!(
+                        "Selected job #{} is not part of group #{}",
+                        selected_job_id, group_id
+                    ));
+                }
+
+                let manager = self
+                    .job_manager
+                    .lock()
+                    .map_err(|_| "Failed to lock job manager".to_string())?;
+
+                let selected_job = manager
+                    .get(*selected_job_id)
+                    .cloned()
+                    .ok_or_else(|| format!("Selected job #{} not found", selected_job_id))?;
+
+                let selected_worktree_path = selected_job
+                    .git_worktree_path
+                    .clone()
+                    .ok_or_else(|| "Selected job has no worktree".to_string())?;
+
+                let base_branch = selected_job
+                    .base_branch
+                    .clone()
+                    .ok_or_else(|| "Selected job has no base branch recorded".to_string())?;
+
+                let cleanup_worktrees: Vec<(JobId, PathBuf)> = group
+                    .job_ids
+                    .iter()
+                    .filter_map(|&job_id| {
+                        manager
+                            .get(job_id)
+                            .and_then(|j| j.git_worktree_path.clone().map(|p| (job_id, p)))
+                    })
+                    .collect();
+
+                let workspace_root = self.workspace_root_for_job(&selected_job);
+                Ok(ApplyThreadInput::Group(GroupApplyInput {
+                    group_id: *group_id,
+                    selected_job_id: *selected_job_id,
+                    selected_agent_id: selected_job.agent_id.clone(),
+                    workspace_root,
+                    selected_worktree_path,
+                    base_branch,
+                    commit_message: crate::git::CommitMessage::from_job(&selected_job),
+                    cleanup_worktrees,
+                    group_job_ids: group.job_ids.clone(),
+                }))
+            }
+        }
+    }
+
+    fn start_apply_confirm_merge(&mut self) {
+        if self.apply_confirm_rx.is_some() {
+            return;
+        }
+
+        let Some(target) = self.apply_confirm_target.clone() else {
+            self.apply_confirm_error = Some("No merge target selected".to_string());
+            return;
+        };
+
+        let input = match self.build_apply_thread_input(&target) {
+            Ok(input) => input,
+            Err(e) => {
+                self.apply_confirm_error = Some(e);
+                return;
+            }
+        };
+
+        self.apply_confirm_error = None;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.apply_confirm_rx = Some(rx);
+
+        std::thread::spawn(move || {
+            let result = run_apply_thread(input);
+            let _ = tx.send(result);
+        });
+    }
+
     /// Queue a job for execution
     fn queue_job(&mut self, job_id: JobId) {
         jobs::queue_job(&self.job_manager, job_id, &mut self.logs);
@@ -619,177 +900,54 @@ impl KycoApp {
 
     /// Apply job changes (merge worktree to main)
     fn apply_job(&mut self, job_id: JobId) {
-        // Group jobs: treat Apply as "select this result and merge".
-        let group_id = {
-            let manager = match self.job_manager.lock() {
-                Ok(m) => m,
-                Err(_) => {
-                    self.logs.push(LogEvent::error("Failed to lock job manager".to_string()));
-                    return;
-                }
-            };
-            manager.get(job_id).and_then(|j| j.group_id)
+        let job = match self.job_manager.lock() {
+            Ok(manager) => manager.get(job_id).cloned(),
+            Err(_) => None,
         };
 
-        if let Some(group_id) = group_id {
-            let git = match crate::git::GitManager::new(&self.work_dir) {
-                Ok(g) => g,
-                Err(e) => {
-                    self.logs.push(LogEvent::error(format!("Failed to initialize git manager: {}", e)));
-                    return;
-                }
-            };
-
-            let mut gm = match self.group_manager.lock() {
-                Ok(m) => m,
-                Err(_) => {
-                    self.logs.push(LogEvent::error("Failed to lock group manager".to_string()));
-                    return;
-                }
-            };
-            let mut jm = match self.job_manager.lock() {
-                Ok(m) => m,
-                Err(_) => {
-                    self.logs.push(LogEvent::error("Failed to lock job manager".to_string()));
-                    return;
-                }
-            };
-
-            if !gm.select_result(group_id, job_id) {
-                self.logs.push(LogEvent::error(format!(
-                    "Failed to select job #{} for group #{}",
-                    job_id, group_id
-                )));
-                return;
-            }
-
-            let result = super::groups::merge_and_cleanup(group_id, &mut gm, &mut jm, &git);
-            if result.success {
-                self.logs.push(LogEvent::system(result.message));
-            } else {
-                self.logs.push(LogEvent::error(result.message));
-            }
-
-            drop(jm);
-            drop(gm);
-            self.refresh_jobs();
-            return;
-        }
-
-        // Single job apply: merge worktree back (if used) and cleanup.
-        let mut manager = match self.job_manager.lock() {
-            Ok(m) => m,
-            Err(_) => {
-                self.logs.push(LogEvent::error("Failed to lock job manager".to_string()));
-                return;
-            }
-        };
-        let Some(job) = manager.get(job_id).cloned() else {
+        let Some(job) = job else {
             self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
             return;
         };
 
-        let Some(worktree) = job.git_worktree_path.clone() else {
-            // No worktree isolation: changes are in the main working tree. Commit them now.
-            let git = match crate::git::GitManager::new(&self.work_dir) {
-                Ok(g) => g,
-                Err(e) => {
-                    self.logs.push(LogEvent::error(format!("Failed to initialize git manager: {}", e)));
-                    return;
-                }
-            };
-
-            let message = crate::git::CommitMessage::from_job(&job);
-            match git.commit_root_changes(&message) {
-                Ok(true) => {
-                    self.logs.push(LogEvent::system(format!("Committed and applied job #{}", job_id)));
-                }
-                Ok(false) => {
-                    self.logs.push(LogEvent::system(format!(
-                        "Applied job #{} (no changes to commit)",
-                        job_id
-                    )));
-                }
-                Err(e) => {
-                    self.logs.push(LogEvent::error(format!("Failed to commit changes: {}", e)));
-                    return;
-                }
+        let target = if let Some(group_id) = job.group_id {
+            ApplyTarget::Group {
+                group_id,
+                selected_job_id: job_id,
             }
-
-            if let Some(j) = manager.get_mut(job_id) {
-                j.set_status(crate::JobStatus::Merged);
-            }
-            drop(manager);
-            self.refresh_jobs();
-            return;
+        } else {
+            ApplyTarget::Single { job_id }
         };
 
-        let Some(base_branch) = job.base_branch.clone() else {
-            self.logs.push(LogEvent::error(format!(
-                "Job #{} has no base branch recorded",
-                job_id
-            )));
-            return;
-        };
-
-        let git = match crate::git::GitManager::new(&self.work_dir) {
-            Ok(g) => g,
-            Err(e) => {
-                self.logs.push(LogEvent::error(format!("Failed to initialize git manager: {}", e)));
-                return;
-            }
-        };
-
-        let commit_message = crate::git::CommitMessage::from_job(&job);
-        if let Err(e) = git.apply_changes(&worktree, &base_branch, Some(&commit_message)) {
-            self.logs.push(LogEvent::error(format!("Failed to merge changes: {}", e)));
-            return;
-        }
-
-        if let Err(e) = git.remove_worktree_by_path(&worktree) {
-            self.logs.push(LogEvent::error(format!(
-                "Merged changes, but failed to clean up worktree: {}",
-                e
-            )));
-        }
-
-        if let Some(j) = manager.get_mut(job_id) {
-            j.set_status(crate::JobStatus::Merged);
-            j.git_worktree_path = None;
-            j.branch_name = None;
-        }
-        self.logs.push(LogEvent::system(format!("Applied job #{}", job_id)));
-        drop(manager);
-        self.refresh_jobs();
+        self.open_apply_confirm(target);
     }
 
     /// Reject job changes
     fn reject_job(&mut self, job_id: JobId) {
-        let mut manager = match self.job_manager.lock() {
-            Ok(m) => m,
-            Err(_) => {
-                self.logs.push(LogEvent::error("Failed to lock job manager".to_string()));
-                return;
-            }
+        let job = match self.job_manager.lock() {
+            Ok(manager) => manager.get(job_id).cloned(),
+            Err(_) => None,
         };
-        let Some(job) = manager.get(job_id).cloned() else {
+
+        let Some(job) = job else {
             self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
             return;
         };
 
         if let Some(worktree) = job.git_worktree_path.clone() {
-            if let Ok(git) = crate::git::GitManager::new(&self.work_dir) {
+            let workspace_root = self.workspace_root_for_job(&job);
+            if let Ok(git) = crate::git::GitManager::new(&workspace_root) {
                 if let Err(e) = git.remove_worktree_by_path(&worktree) {
                     self.logs.push(LogEvent::error(format!(
                         "Failed to remove worktree for rejected job: {}",
                         e
                     )));
                 }
-            }
-
-            if let Some(j) = manager.get_mut(job_id) {
-                j.git_worktree_path = None;
-                j.branch_name = None;
+            } else {
+                self.logs.push(LogEvent::error(format!(
+                    "Failed to initialize git manager for {}",
+                    workspace_root.display()
+                )));
             }
         } else {
             self.logs.push(LogEvent::system(
@@ -797,11 +955,14 @@ impl KycoApp {
             ));
         }
 
-        if let Some(j) = manager.get_mut(job_id) {
-            j.set_status(crate::JobStatus::Rejected);
+        if let Ok(mut manager) = self.job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.set_status(crate::JobStatus::Rejected);
+                j.git_worktree_path = None;
+                j.branch_name = None;
+            }
         }
         self.logs.push(LogEvent::system(format!("Rejected job #{}", job_id)));
-        drop(manager);
         self.refresh_jobs();
     }
 
@@ -1423,37 +1584,11 @@ impl KycoApp {
                 DetailPanelAction::Queue(job_id) => self.queue_job(job_id),
                 DetailPanelAction::Apply(job_id) => self.apply_job(job_id),
                 DetailPanelAction::Reject(job_id) => self.reject_job(job_id),
+                DetailPanelAction::CompareGroup(group_id) => self.open_comparison_popup(group_id),
                 DetailPanelAction::Continue(job_id, prompt) => {
                     self.continue_job_session(job_id, prompt);
                 }
-                DetailPanelAction::ViewDiff(job_id) => {
-                    // Load the real git diff for this job's worktree
-                    if let Some(job) = self.cached_jobs.iter().find(|j| j.id == job_id) {
-                        if let Some(worktree) = &job.git_worktree_path {
-                            if let Ok(gm) = crate::git::GitManager::new(&self.work_dir) {
-                                match gm.diff(worktree, job.base_branch.as_deref()) {
-                                    Ok(diff) => {
-                                        if diff.is_empty() {
-                                            self.diff_state.set_content("No changes in worktree.".to_string());
-                                        } else {
-                                            self.diff_state.set_content(diff);
-                                        }
-                                        self.view_mode = ViewMode::DiffView;
-                                    }
-                                    Err(e) => {
-                                        self.logs.push(LogEvent::error(format!("Failed to load diff: {}", e)));
-                                    }
-                                }
-                            } else {
-                                self.logs.push(LogEvent::error("Failed to initialize git manager".to_string()));
-                            }
-                        } else {
-                            // Job has no worktree (worktree mode disabled or not yet created)
-                            self.diff_state.set_content("No worktree for this job (worktree mode may be disabled).".to_string());
-                            self.view_mode = ViewMode::DiffView;
-                        }
-                    }
-                }
+                DetailPanelAction::ViewDiff(job_id) => self.open_job_diff(job_id, ViewMode::JobList),
                 DetailPanelAction::Kill(job_id) => self.kill_job(job_id),
                 DetailPanelAction::MarkComplete(job_id) => self.mark_job_complete(job_id),
                 DetailPanelAction::SetPermissionMode(job_id, mode) => {
@@ -1551,9 +1686,202 @@ impl KycoApp {
     /// Render the diff view popup
     fn render_diff_popup(&mut self, ctx: &egui::Context) {
         if super::diff::render_diff_popup(ctx, &self.diff_state) {
-            self.view_mode = ViewMode::JobList;
+            self.view_mode = self.diff_return_view;
             self.diff_state.clear();
         }
+    }
+
+    fn render_apply_confirm_popup(&mut self, ctx: &egui::Context) {
+        use eframe::egui::{RichText, Vec2};
+
+        let Some(target) = self.apply_confirm_target.clone() else {
+            self.view_mode = self.apply_confirm_return_view;
+            return;
+        };
+
+        let in_progress = self.apply_confirm_rx.is_some();
+        let validation_error = self.build_apply_thread_input(&target).err();
+
+        let title = match &target {
+            ApplyTarget::Single { job_id } => format!("Merge Job #{}", job_id),
+            ApplyTarget::Group { group_id, .. } => format!("Merge Group #{}", group_id),
+        };
+        let mut description_lines: Vec<String> = Vec::new();
+        let mut selected_job_id_for_diff: Option<JobId> = None;
+        let mut warning: Option<String> = None;
+
+        match &target {
+            ApplyTarget::Single { job_id } => {
+                let job = self.cached_jobs.iter().find(|j| j.id == *job_id);
+                if let Some(job) = job {
+                    selected_job_id_for_diff = Some(job.id);
+                    let workspace_root = self.workspace_root_for_job(job);
+                    description_lines.push(format!("Repo: {}", workspace_root.display()));
+                    description_lines.push(format!("Agent: {}", job.agent_id));
+                    description_lines.push(format!("Mode: {}", job.mode));
+                    description_lines.push(format!("Target: {}", job.target));
+
+                    let subject = crate::git::CommitMessage::from_job(job).subject;
+                    description_lines.push(format!("Commit: {}", subject));
+
+                    if let Some(worktree) = &job.git_worktree_path {
+                        description_lines.push(format!("Worktree: {}", worktree.display()));
+                        let base = job.base_branch.as_deref().unwrap_or("<unknown>");
+                        description_lines.push(format!("Merge into: {}", base));
+                    } else {
+                        warning = Some(
+                            "No worktree: this will commit ALL current changes in the repo."
+                                .to_string(),
+                        );
+                    }
+                } else {
+                    warning = Some("Job not found".to_string());
+                }
+            }
+            ApplyTarget::Group {
+                group_id,
+                selected_job_id,
+            } => {
+                selected_job_id_for_diff = Some(*selected_job_id);
+                let group = self
+                    .group_manager
+                    .lock()
+                    .ok()
+                    .and_then(|gm| gm.get(*group_id).cloned());
+                if let Some(group) = group {
+                    description_lines.push(format!("Group status: {}", group.status));
+                    description_lines.push(format!("Mode: {}", group.mode));
+                    description_lines.push(format!("Target: {}", group.target));
+                }
+
+                let job = self.cached_jobs.iter().find(|j| j.id == *selected_job_id);
+                if let Some(job) = job {
+                    let workspace_root = self.workspace_root_for_job(job);
+                    description_lines.push(format!("Repo: {}", workspace_root.display()));
+                    description_lines.push(format!("Selected result: #{} ({})", job.id, job.agent_id));
+
+                    let subject = crate::git::CommitMessage::from_job(job).subject;
+                    description_lines.push(format!("Commit: {}", subject));
+
+                    if let Some(worktree) = &job.git_worktree_path {
+                        description_lines.push(format!("Worktree: {}", worktree.display()));
+                    }
+                    if let Some(base) = job.base_branch.as_deref() {
+                        description_lines.push(format!("Merge into: {}", base));
+                    }
+
+                    warning = Some(
+                        "Other group jobs will be marked Rejected and all group worktrees will be deleted."
+                            .to_string(),
+                    );
+                } else {
+                    warning = Some("Selected job not found".to_string());
+                }
+            }
+        }
+
+        egui::Window::new("Merge Confirmation")
+            .collapsible(false)
+            .resizable(false)
+            .fixed_size(Vec2::new(620.0, 360.0))
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .frame(
+                egui::Frame::default()
+                    .fill(BG_PRIMARY)
+                    .stroke(Stroke::new(2.0, ACCENT_CYAN))
+                    .inner_margin(16.0)
+                    .corner_radius(8.0),
+            )
+            .show(ctx, |ui| {
+                ui.label(RichText::new(title).size(18.0).strong().color(TEXT_PRIMARY));
+                ui.add_space(8.0);
+                ui.separator();
+                ui.add_space(8.0);
+
+                for line in &description_lines {
+                    ui.label(RichText::new(line).color(TEXT_DIM));
+                }
+
+                if let Some(w) = &warning {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(w).color(ACCENT_RED));
+                }
+
+                if let Some(err) = &validation_error {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(format!("Cannot merge yet: {}", err))
+                            .color(ACCENT_RED),
+                    );
+                }
+
+                if let Some(err) = &self.apply_confirm_error {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(format!("Error: {}", err)).color(ACCENT_RED));
+                }
+
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(12.0);
+
+                if in_progress {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(RichText::new("Merging...").color(TEXT_DIM));
+                    });
+                } else {
+                    ui.label(
+                        RichText::new("Tip: If a merge conflict occurs, the merge is aborted to keep your repo clean.")
+                            .small()
+                            .color(TEXT_MUTED),
+                    );
+                }
+
+                ui.add_space(12.0);
+
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let can_merge = !in_progress && validation_error.is_none();
+                        let merge_btn = egui::Button::new(
+                            RichText::new("✓ Merge")
+                                .color(if can_merge { BG_PRIMARY } else { TEXT_MUTED }),
+                        )
+                        .fill(if can_merge { ACCENT_GREEN } else { BG_SECONDARY });
+
+                        if ui.add_enabled(can_merge, merge_btn).clicked() {
+                            self.start_apply_confirm_merge();
+                        }
+
+                        ui.add_space(8.0);
+
+                        if ui
+                            .add_enabled(
+                                !in_progress,
+                                egui::Button::new(RichText::new("View Diff").color(TEXT_DIM)),
+                            )
+                            .clicked()
+                        {
+                            if let Some(job_id) = selected_job_id_for_diff {
+                                self.open_job_diff(job_id, ViewMode::ApplyConfirmPopup);
+                            }
+                        }
+
+                        ui.add_space(8.0);
+
+                        if ui
+                            .add_enabled(
+                                !in_progress,
+                                egui::Button::new(RichText::new("Cancel").color(TEXT_DIM)),
+                            )
+                            .clicked()
+                        {
+                            self.apply_confirm_target = None;
+                            self.apply_confirm_error = None;
+                            self.view_mode = self.apply_confirm_return_view;
+                        }
+                    });
+                });
+            });
     }
 
     /// Render the permission popup modal (on top of everything)
@@ -1693,45 +2021,22 @@ impl KycoApp {
                     self.logs.push(LogEvent::system(format!("Selected job #{}", job_id)));
                 }
                 ComparisonAction::ViewDiff(job_id) => {
-                    // Load diff for the selected job
-                    if let Some(job) = self.cached_jobs.iter().find(|j| j.id == job_id) {
-                        if let Some(worktree) = &job.git_worktree_path {
-                            let git_manager = crate::git::GitManager::new(&self.work_dir).ok();
-                            if let Some(gm) = git_manager {
-                                match gm.diff(worktree, job.base_branch.as_deref()) {
-                                    Ok(diff) => {
-                                        self.diff_state.set_content(diff);
-                                        // Note: We stay in comparison mode but could show diff as sub-modal
-                                    }
-                                    Err(e) => {
-                                        self.logs.push(LogEvent::error(format!("Failed to load diff: {}", e)));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    self.open_job_diff(job_id, ViewMode::ComparisonPopup);
                 }
                 ComparisonAction::MergeAndClose => {
-                    // Merge the selected job and cleanup
                     if let Some(group_id) = self.comparison_state.group_id() {
-                        let result = super::groups::merge_and_cleanup(
+                        let Some(selected_job_id) = self.comparison_state.selected_job_id else {
+                            self.logs.push(LogEvent::error(
+                                "No job selected for merge".to_string(),
+                            ));
+                            return;
+                        };
+
+                        self.open_apply_confirm(ApplyTarget::Group {
                             group_id,
-                            &mut *self.group_manager.lock().unwrap(),
-                            &mut *self.job_manager.lock().unwrap(),
-                            &crate::git::GitManager::new(&self.work_dir).unwrap(),
-                        );
-
-                        if result.success {
-                            self.logs.push(LogEvent::system(result.message));
-                        } else {
-                            self.logs.push(LogEvent::error(result.message));
-                        }
+                            selected_job_id,
+                        });
                     }
-
-                    // Close popup and return to job list
-                    self.comparison_state.close();
-                    self.view_mode = ViewMode::JobList;
-                    self.refresh_jobs();
                 }
                 ComparisonAction::Cancel => {
                     // Close popup without merging
@@ -1773,6 +2078,91 @@ impl KycoApp {
         self.logs.push(crate::LogEvent::system(
             "Voice settings applied".to_string(),
         ));
+    }
+}
+
+fn run_apply_thread(input: ApplyThreadInput) -> Result<ApplyThreadOutcome, String> {
+    match input {
+        ApplyThreadInput::Single(input) => {
+            let git = crate::git::GitManager::new(&input.workspace_root).map_err(|e| e.to_string())?;
+
+            if let Some(worktree_path) = input.worktree_path {
+                let base_branch = input
+                    .base_branch
+                    .ok_or_else(|| "Job has no base branch recorded".to_string())?;
+
+                git.apply_changes(&worktree_path, &base_branch, Some(&input.commit_message))
+                    .map_err(|e| e.to_string())?;
+
+                let mut message = format!("Merged job #{}", input.job_id);
+                if let Err(e) = git.remove_worktree_by_path(&worktree_path) {
+                    message.push_str(&format!(" (cleanup warning: {})", e));
+                }
+
+                Ok(ApplyThreadOutcome {
+                    target: ApplyTarget::Single { job_id: input.job_id },
+                    group_job_ids: Vec::new(),
+                    message,
+                })
+            } else {
+                match git.commit_root_changes(&input.commit_message) {
+                    Ok(true) => Ok(ApplyThreadOutcome {
+                        target: ApplyTarget::Single { job_id: input.job_id },
+                        group_job_ids: Vec::new(),
+                        message: format!("Committed and applied job #{}", input.job_id),
+                    }),
+                    Ok(false) => Ok(ApplyThreadOutcome {
+                        target: ApplyTarget::Single { job_id: input.job_id },
+                        group_job_ids: Vec::new(),
+                        message: format!(
+                            "Applied job #{} (no changes to commit)",
+                            input.job_id
+                        ),
+                    }),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+        }
+        ApplyThreadInput::Group(input) => {
+            let git = crate::git::GitManager::new(&input.workspace_root).map_err(|e| e.to_string())?;
+
+            git.apply_changes(
+                &input.selected_worktree_path,
+                &input.base_branch,
+                Some(&input.commit_message),
+            )
+            .map_err(|e| e.to_string())?;
+
+            let mut cleanup_warnings = Vec::new();
+            for (job_id, worktree_path) in &input.cleanup_worktrees {
+                if let Err(e) = git.remove_worktree_by_path(worktree_path) {
+                    cleanup_warnings.push(format!("Job #{}: {}", job_id, e));
+                }
+            }
+
+            let message = if cleanup_warnings.is_empty() {
+                format!(
+                    "Merged changes from {} and cleaned up {} worktrees",
+                    input.selected_agent_id,
+                    input.cleanup_worktrees.len()
+                )
+            } else {
+                format!(
+                    "Merged changes from {} (cleanup warnings: {})",
+                    input.selected_agent_id,
+                    cleanup_warnings.join(", ")
+                )
+            };
+
+            Ok(ApplyThreadOutcome {
+                target: ApplyTarget::Group {
+                    group_id: input.group_id,
+                    selected_job_id: input.selected_job_id,
+                },
+                group_job_ids: input.group_job_ids,
+                message,
+            })
+        }
     }
 }
 
@@ -2040,8 +2430,20 @@ impl eframe::App for KycoApp {
                 }
                 ViewMode::DiffView => {
                     if i.key_pressed(Key::Escape) || i.key_pressed(Key::Q) {
-                        self.view_mode = ViewMode::JobList;
+                        self.view_mode = self.diff_return_view;
                         self.diff_state.clear();
+                    }
+                }
+                ViewMode::ApplyConfirmPopup => {
+                    if i.key_pressed(Key::Escape) || i.key_pressed(Key::Q) {
+                        if self.apply_confirm_rx.is_none() {
+                            self.apply_confirm_target = None;
+                            self.apply_confirm_error = None;
+                            self.view_mode = self.apply_confirm_return_view;
+                        }
+                    }
+                    if i.key_pressed(Key::Enter) && self.apply_confirm_rx.is_none() {
+                        self.start_apply_confirm_merge();
                     }
                 }
                 ViewMode::ComparisonPopup => {
@@ -2233,6 +2635,66 @@ impl eframe::App for KycoApp {
             }
         }
 
+        // Poll apply/merge result if an operation is running
+        let apply_result = self
+            .apply_confirm_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok());
+
+        if let Some(result) = apply_result {
+            self.apply_confirm_rx = None;
+
+            match result {
+                Ok(outcome) => {
+                    match outcome.target {
+                        ApplyTarget::Single { job_id } => {
+                            if let Ok(mut jm) = self.job_manager.lock() {
+                                if let Some(job) = jm.get_mut(job_id) {
+                                    job.set_status(crate::JobStatus::Merged);
+                                    job.git_worktree_path = None;
+                                    job.branch_name = None;
+                                }
+                            }
+                        }
+                        ApplyTarget::Group {
+                            group_id,
+                            selected_job_id,
+                        } => {
+                            if let Ok(mut gm) = self.group_manager.lock() {
+                                gm.select_result(group_id, selected_job_id);
+                                gm.mark_merged(group_id);
+                            }
+
+                            if let Ok(mut jm) = self.job_manager.lock() {
+                                for job_id in &outcome.group_job_ids {
+                                    if let Some(job) = jm.get_mut(*job_id) {
+                                        if *job_id == selected_job_id {
+                                            job.set_status(crate::JobStatus::Merged);
+                                        } else {
+                                            job.set_status(crate::JobStatus::Rejected);
+                                        }
+                                        job.git_worktree_path = None;
+                                        job.branch_name = None;
+                                    }
+                                }
+                            }
+
+                            self.comparison_state.close();
+                        }
+                    }
+
+                    self.logs.push(LogEvent::system(outcome.message));
+                    self.apply_confirm_target = None;
+                    self.apply_confirm_error = None;
+                    self.view_mode = ViewMode::JobList;
+                    self.refresh_jobs();
+                }
+                Err(err) => {
+                    self.apply_confirm_error = Some(err);
+                }
+            }
+        }
+
         // Bottom status bar - MUST be rendered before SidePanel/CentralPanel
         // so that those panels can properly account for the status bar's height
         super::status_bar::render_status_bar(
@@ -2294,6 +2756,13 @@ impl eframe::App for KycoApp {
                     .show(ctx, |_ui| {});
 
                 self.render_diff_popup(ctx);
+            }
+            ViewMode::ApplyConfirmPopup => {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE.fill(BG_PRIMARY.linear_multiply(0.3)))
+                    .show(ctx, |_ui| {});
+
+                self.render_apply_confirm_popup(ctx);
             }
             ViewMode::ComparisonPopup => {
                 // Show main UI dimmed behind popup

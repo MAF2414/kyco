@@ -400,6 +400,28 @@ impl GitManager {
         Ok(files)
     }
 
+    /// Get untracked files in a worktree/repo.
+    pub fn untracked_files(&self, worktree: &Path) -> Result<Vec<PathBuf>> {
+        let output = Command::new("git")
+            .args(["ls-files", "--others", "--exclude-standard"])
+            .current_dir(worktree)
+            .output()
+            .context("Failed to run git ls-files")?;
+
+        if !output.status.success() {
+            bail!(
+                "git ls-files failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(PathBuf::from)
+            .collect())
+    }
+
     /// Get the diff for a worktree (shows all changes vs base branch)
     ///
     /// This shows both committed and uncommitted changes in the worktree
@@ -556,16 +578,31 @@ impl GitManager {
             .context("Failed to merge branch")?;
 
         if !merge_output.status.success() {
-            // If merge failed and we changed branches, try to restore original branch
+            let stderr = String::from_utf8_lossy(&merge_output.stderr).trim().to_string();
+
+            // Try to abort merge so we don't leave the user's repo in a conflicted "merge in progress" state.
+            let aborted = Command::new("git")
+                .args(["merge", "--abort"])
+                .current_dir(&self.root)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            // If merge failed and we changed branches, try to restore original branch.
             if should_restore_branch {
                 let _ = Command::new("git")
                     .args(["checkout", &current_branch])
                     .current_dir(&self.root)
                     .output();
             }
+
+            if aborted {
+                bail!("git merge failed (merge was aborted): {}", stderr);
+            }
+
             bail!(
-                "git merge failed: {}",
-                String::from_utf8_lossy(&merge_output.stderr)
+                "git merge failed (could not abort merge; try `git merge --abort`): {}",
+                stderr
             );
         }
 

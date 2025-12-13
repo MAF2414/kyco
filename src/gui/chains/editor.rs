@@ -2,8 +2,8 @@
 
 use eframe::egui::{self, RichText, ScrollArea};
 
-use super::persistence::{delete_chain_from_config, save_chain_to_config};
-use super::state::{ChainEditorState, ChainStepEdit, StateDefinitionEdit};
+use super::persistence::save_chain_to_config;
+use super::state::{ChainEditorState, ChainStepEdit, PendingConfirmation, StateDefinitionEdit};
 use crate::gui::animations::animated_button;
 use crate::gui::app::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 
@@ -22,8 +22,9 @@ pub fn render_chain_editor(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>, 
     ui.label(RichText::new(&title).monospace().color(TEXT_PRIMARY));
     ui.add_space(16.0);
 
-    // Get available modes for dropdown
-    let available_modes: Vec<String> = state.config.mode.keys().cloned().collect();
+    // Get available modes for dropdown (sorted alphabetically for consistent UX)
+    let mut available_modes: Vec<String> = state.config.mode.keys().cloned().collect();
+    available_modes.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
 
     // Get available state IDs for trigger_on/skip_on hints
     let available_state_ids: Vec<String> = state.chain_edit_states.iter()
@@ -361,7 +362,8 @@ pub fn render_chain_editor(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>, 
                 if !is_new {
                     ui.add_space(16.0);
                     if animated_button(ui, "Delete", ACCENT_RED, "chain_delete_btn").clicked() {
-                        delete_chain_from_config(state);
+                        // Show confirmation dialog instead of deleting immediately
+                        *state.pending_confirmation = PendingConfirmation::DeleteChain(chain_name.to_string());
                     }
                 }
             });

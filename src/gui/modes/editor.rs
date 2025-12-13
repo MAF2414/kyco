@@ -255,6 +255,49 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             );
             ui.add_space(16.0);
 
+            // Chain integration section
+            ui.separator();
+            ui.add_space(8.0);
+            ui.label(RichText::new("Chain Integration (for workflows)").color(TEXT_PRIMARY));
+            ui.add_space(8.0);
+
+            // Output states
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Output States:").color(TEXT_MUTED));
+                ui.add(
+                    egui::TextEdit::singleline(state.mode_edit_output_states)
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT_PRIMARY)
+                        .hint_text("issues_found, no_issues")
+                        .desired_width(300.0),
+                );
+            });
+            ui.label(
+                RichText::new("Comma-separated states this mode can output (for chain triggers)")
+                    .small()
+                    .color(TEXT_MUTED),
+            );
+            ui.add_space(8.0);
+
+            // State prompt
+            ui.label(RichText::new("State Prompt:").color(TEXT_MUTED));
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Custom instruction for outputting state (auto-generated if empty)")
+                    .small()
+                    .color(TEXT_MUTED),
+            );
+            ui.add_space(4.0);
+            ui.add(
+                egui::TextEdit::multiline(state.mode_edit_state_prompt)
+                    .font(egui::TextStyle::Monospace)
+                    .text_color(TEXT_PRIMARY)
+                    .hint_text("Output: state: issues_found if problems, state: no_issues if good")
+                    .desired_width(f32::INFINITY)
+                    .desired_rows(2),
+            );
+            ui.add_space(16.0);
+
             // Status message
             if let Some((msg, is_error)) = &state.mode_edit_status {
                 let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };

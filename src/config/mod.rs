@@ -207,6 +207,7 @@ impl Config {
                 }),
                 aliases: vec!["r".to_string(), "rev".to_string()],
                 output_states: vec!["issues_found".to_string(), "no_issues".to_string()],
+                state_prompt: None,
                 allowed_tools: vec![], // Legacy, deprecated
             },
         );
@@ -231,6 +232,7 @@ impl Config {
                 }),
                 aliases: vec!["f".to_string()],
                 output_states: vec!["fixed".to_string(), "unfixable".to_string()],
+                state_prompt: None,
                 allowed_tools: vec![], // Legacy, deprecated
             },
         );
@@ -255,6 +257,7 @@ impl Config {
                 }),
                 aliases: vec!["i".to_string(), "impl".to_string()],
                 output_states: vec!["implemented".to_string(), "blocked".to_string()],
+                state_prompt: None,
                 allowed_tools: vec![], // Legacy, deprecated
             },
         );
@@ -284,6 +287,7 @@ impl Config {
                 }),
                 aliases: vec!["p".to_string()],
                 output_states: vec!["plan_ready".to_string(), "needs_clarification".to_string()],
+                state_prompt: None,
                 allowed_tools: vec![], // Legacy, deprecated
             },
         );
@@ -309,6 +313,7 @@ impl Config {
                 }),
                 aliases: vec!["c".to_string()],
                 output_states: vec![],
+                state_prompt: None,
                 allowed_tools: vec![], // Legacy, deprecated
             },
         );
@@ -388,6 +393,8 @@ impl Config {
                             },
                             disallowed_tools: mode_config.disallowed_tools.clone(),
                             allowed_tools: mode_config.allowed_tools.clone(),
+                            output_states: mode_config.output_states.clone(),
+                            state_prompt: mode_config.state_prompt.clone(),
                         },
                     );
                 }

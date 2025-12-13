@@ -22,6 +22,8 @@ pub struct ModeEditorState<'a> {
     pub mode_edit_model: &'a mut String,
     pub mode_edit_claude_permission: &'a mut String,
     pub mode_edit_codex_sandbox: &'a mut String,
+    pub mode_edit_output_states: &'a mut String,
+    pub mode_edit_state_prompt: &'a mut String,
     pub view_mode: &'a mut ViewMode,
     pub config: &'a mut Config,
     pub work_dir: &'a Path,

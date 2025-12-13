@@ -14,13 +14,13 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
     ui.label(RichText::new("Available Chains").monospace().color(TEXT_PRIMARY));
     ui.add_space(8.0);
     ui.label(
-        RichText::new("Chains execute multiple modes in sequence. Use them with: mode=chain_name")
+        RichText::new("Chains execute multiple modes in sequence. Select code, then type the chain name.")
             .color(TEXT_DIM),
     );
     ui.add_space(12.0);
 
-    // Get chains from config with more details
-    let chains: Vec<(String, String, usize, usize, Vec<String>)> = state
+    // Get chains from config with more details (sorted alphabetically for consistent UX)
+    let mut chains: Vec<(String, String, usize, usize, Vec<String>)> = state
         .config
         .chain
         .iter()
@@ -32,6 +32,7 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
             (name.clone(), desc, steps, states, step_modes)
         })
         .collect();
+    chains.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
     // Track chain to duplicate
     let mut chain_to_duplicate: Option<String> = None;
@@ -104,7 +105,14 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Use:").small().color(TEXT_DIM));
                             ui.label(
-                                RichText::new(format!("mode={}", name))
+                                RichText::new(name)
+                                    .monospace()
+                                    .small()
+                                    .color(ACCENT_GREEN),
+                            );
+                            ui.label(RichText::new("or").small().color(TEXT_DIM));
+                            ui.label(
+                                RichText::new(format!("claude:{}", name))
                                     .monospace()
                                     .small()
                                     .color(ACCENT_GREEN),

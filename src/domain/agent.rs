@@ -177,6 +177,15 @@ pub struct ModeTemplate {
     /// Tools to explicitly allow for this mode
     #[serde(default)]
     pub allowed_tools: Vec<String>,
+
+    /// Possible output states this mode can produce (for chain triggers)
+    #[serde(default)]
+    pub output_states: Vec<String>,
+
+    /// Custom prompt for state output instructions
+    /// If set, used instead of auto-generating from output_states
+    #[serde(default)]
+    pub state_prompt: Option<String>,
 }
 
 /// Configuration for an SDK-based agent (Claude or Codex)
@@ -361,6 +370,8 @@ impl AgentConfig {
                 session_mode: SessionMode::Oneshot,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
+                output_states: vec![],
+                state_prompt: None,
             },
         );
 
@@ -378,6 +389,8 @@ impl AgentConfig {
                 session_mode: SessionMode::Oneshot,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
+                output_states: vec![],
+                state_prompt: None,
             },
         );
 
@@ -397,6 +410,8 @@ impl AgentConfig {
                 session_mode: SessionMode::Oneshot,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
+                output_states: vec![],
+                state_prompt: None,
             },
         );
 
@@ -416,6 +431,8 @@ impl AgentConfig {
                 session_mode: SessionMode::Oneshot,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
+                output_states: vec![],
+                state_prompt: None,
             },
         );
 
@@ -434,6 +451,8 @@ impl AgentConfig {
                 session_mode: SessionMode::Oneshot,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
+                output_states: vec![],
+                state_prompt: None,
             },
         );
 
@@ -450,6 +469,8 @@ impl AgentConfig {
                 session_mode: SessionMode::Session, // Chat mode uses sessions by default
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
+                output_states: vec![],
+                state_prompt: None,
             },
         );
 
@@ -470,6 +491,8 @@ impl AgentConfig {
                 session_mode: self.session_mode,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
+                output_states: vec![],
+                state_prompt: None,
             }
         })
     }

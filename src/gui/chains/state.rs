@@ -33,6 +33,17 @@ fn parse_patterns(input: &str) -> Vec<String> {
         .collect()
 }
 
+/// Pending confirmation dialog type
+#[derive(Clone, PartialEq, Eq, Default)]
+pub enum PendingConfirmation {
+    #[default]
+    None,
+    /// Delete chain confirmation (chain name)
+    DeleteChain(String),
+    /// Discard unsaved changes and go back
+    DiscardChanges,
+}
+
 /// State for chain editing UI
 pub struct ChainEditorState<'a> {
     pub selected_chain: &'a mut Option<String>,
@@ -43,6 +54,7 @@ pub struct ChainEditorState<'a> {
     pub chain_edit_stop_on_failure: &'a mut bool,
     pub chain_edit_pass_full_response: &'a mut bool,
     pub chain_edit_status: &'a mut Option<(String, bool)>,
+    pub pending_confirmation: &'a mut PendingConfirmation,
     pub view_mode: &'a mut ViewMode,
     pub config: &'a mut Config,
     pub work_dir: &'a Path,

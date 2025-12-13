@@ -73,6 +73,24 @@ impl ClaudeBridgeAdapter {
             system_prompt.push_str(schema);
         }
 
+        // Add output state instructions for chain workflows
+        // Priority: 1) custom state_prompt, 2) auto-generate from output_states
+        if let Some(ref state_prompt) = template.state_prompt {
+            // Use custom state prompt (allows full control over wording)
+            system_prompt.push_str("\n\n");
+            system_prompt.push_str(state_prompt);
+        } else if !template.output_states.is_empty() {
+            // Auto-generate state instructions from output_states
+            system_prompt.push_str("\n\n## Output State\n");
+            system_prompt.push_str("When you complete this task, indicate the outcome by stating one of the following:\n");
+            for state in &template.output_states {
+                system_prompt.push_str(&format!("- state: {}\n", state));
+            }
+            system_prompt.push_str("\nExample: \"state: ");
+            system_prompt.push_str(&template.output_states[0]);
+            system_prompt.push_str("\" (at the end of your response)");
+        }
+
         if system_prompt.is_empty() {
             None
         } else {

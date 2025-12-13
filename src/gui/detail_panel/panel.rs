@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use crate::agent::bridge::PermissionMode;
 use crate::config::Config;
-use crate::{Job, JobId, JobStatus, LogEvent, SdkType};
+use crate::{AgentGroupId, Job, JobId, JobStatus, LogEvent, SdkType};
 
 use crate::gui::app::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_HIGHLIGHT, BG_SECONDARY, STATUS_QUEUED,
@@ -23,6 +23,8 @@ pub enum DetailPanelAction {
     Apply(JobId),
     Reject(JobId),
     ViewDiff(JobId),
+    /// Open the multi-agent comparison popup for this group
+    CompareGroup(AgentGroupId),
     /// Stop/kill a running job
     Kill(JobId),
     /// Mark a REPL job as complete (user confirms they finished in Terminal)
@@ -370,8 +372,35 @@ fn render_action_buttons(
                 }
             }
             JobStatus::Done => {
+                // Multi-agent groups: offer comparison as the primary UI entrypoint.
+                if let Some(group_id) = job.group_id {
+                    if ui
+                        .button(RichText::new("≍ Compare").color(ACCENT_CYAN))
+                        .on_hover_text("Compare results from all agents in this group")
+                        .clicked()
+                    {
+                        action = Some(DetailPanelAction::CompareGroup(group_id));
+                    }
+                }
+
+                let base_branch = job
+                    .base_branch
+                    .as_deref()
+                    .unwrap_or("current branch");
+                let merge_hover = if job.group_id.is_some() {
+                    format!(
+                        "Merge this result into '{}' and clean up all group worktrees",
+                        base_branch
+                    )
+                } else if job.git_worktree_path.is_some() {
+                    format!("Merge this job's worktree into '{}'", base_branch)
+                } else {
+                    "No worktree: commit ALL current workspace changes".to_string()
+                };
+
                 if ui
-                    .button(RichText::new("✓ Apply").color(ACCENT_GREEN))
+                    .button(RichText::new("✓ Merge").color(ACCENT_GREEN))
+                    .on_hover_text(merge_hover)
                     .clicked()
                 {
                     action = Some(DetailPanelAction::Apply(current_job_id));

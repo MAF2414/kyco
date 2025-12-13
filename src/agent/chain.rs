@@ -200,9 +200,21 @@ impl<'a> ChainRunner<'a> {
             )))
             .await;
 
+        // Track the previous step's mode for auto-generating state patterns
+        let mut last_mode: Option<String> = None;
+
         for (step_index, step) in chain.steps.iter().enumerate() {
-            // Detect states from previous output using chain's state definitions
-            let detected_states = self.detect_states(&chain.states, &last_output);
+            // Detect states from previous output
+            // Priority: 1) chain's explicit state definitions, 2) auto-generate from mode's output_states
+            let detected_states = if !chain.states.is_empty() {
+                // Use chain's explicit state definitions
+                self.detect_states(&chain.states, &last_output)
+            } else if let Some(ref prev_mode) = last_mode {
+                // Auto-generate states from previous mode's output_states
+                self.detect_states_from_mode(prev_mode, &last_output)
+            } else {
+                Vec::new()
+            };
 
             // Check if this step should run based on trigger conditions
             let should_run = self.should_step_run(step, &detected_states);
@@ -352,6 +364,9 @@ impl<'a> ChainRunner<'a> {
                         }),
                     });
 
+                    // Track the mode for auto-generating state patterns in the next step
+                    last_mode = Some(step.mode.clone());
+
                     if !agent_result.success && chain.stop_on_failure {
                         chain_success = false;
                         let _ = event_tx
@@ -464,6 +479,62 @@ impl<'a> ChainRunner<'a> {
 
             if matched {
                 detected.push(state.id.clone());
+            }
+        }
+
+        detected
+    }
+
+    /// Auto-detects states from output text using a mode's output_states.
+    ///
+    /// This enables chains to work without explicit state definitions by
+    /// automatically generating patterns from the mode's output_states.
+    /// For example, if a mode has `output_states = ["issues_found", "no_issues"]`,
+    /// this will look for patterns like:
+    /// - `state to "issues_found"` or `state: issues_found`
+    /// - `issues_found` (the state name itself, case-insensitive)
+    ///
+    /// # Arguments
+    ///
+    /// * `mode_name` - The name of the mode to look up
+    /// * `output` - The output text to search for state patterns
+    ///
+    /// # Returns
+    ///
+    /// A vector of detected state IDs from the mode's output_states.
+    fn detect_states_from_mode(&self, mode_name: &str, output: &Option<String>) -> Vec<String> {
+        let Some(output_text) = output else {
+            return Vec::new();
+        };
+
+        // Look up the mode to get its output_states
+        let Some(mode) = self.config.mode.get(mode_name) else {
+            return Vec::new();
+        };
+
+        if mode.output_states.is_empty() {
+            return Vec::new();
+        }
+
+        let output_lower = output_text.to_lowercase();
+        let mut detected = Vec::new();
+
+        for state_id in &mode.output_states {
+            let state_lower = state_id.to_lowercase();
+
+            // Check for various patterns that indicate this state
+            let patterns = [
+                format!("state to \"{}\"", state_lower),
+                format!("state: {}", state_lower),
+                format!("set state to {}", state_lower),
+                format!("setting state to {}", state_lower),
+                state_lower.clone(), // The state name itself
+            ];
+
+            let matched = patterns.iter().any(|p| output_lower.contains(p));
+
+            if matched {
+                detected.push(state_id.clone());
             }
         }
 

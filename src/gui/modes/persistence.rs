@@ -31,6 +31,8 @@ pub fn load_mode_for_editing(state: &mut ModeEditorState<'_>, name: &str) {
             .unwrap_or_else(|| "auto".to_string());
         *state.mode_edit_readonly = mode.disallowed_tools.contains(&"Write".to_string())
             || mode.disallowed_tools.contains(&"Edit".to_string());
+        *state.mode_edit_output_states = mode.output_states.join(", ");
+        *state.mode_edit_state_prompt = mode.state_prompt.clone().unwrap_or_default();
         *state.mode_edit_status = None;
     }
 }
@@ -108,6 +110,21 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         }),
     };
 
+    // Build output_states
+    let output_states: Vec<String> = state
+        .mode_edit_output_states
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    // Build state_prompt
+    let state_prompt = if state.mode_edit_state_prompt.trim().is_empty() {
+        None
+    } else {
+        Some(state.mode_edit_state_prompt.clone())
+    };
+
     // Create the ModeConfig struct
     let mode_config = ModeConfig {
         agent: if state.mode_edit_agent.is_empty() {
@@ -134,7 +151,8 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         claude,
         codex,
         aliases,
-        output_states: Vec::new(),
+        output_states,
+        state_prompt,
         allowed_tools, // Legacy, deprecated
     };
 

@@ -118,6 +118,7 @@ system_prompt_mode = "append"
 [mode.refactor]
 aliases = ["r", "ref"]
 output_states = ["refactored"]
+state_prompt = "When done, output: state: refactored"
 allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 prompt = """
 Refactor `{target}`: {description}
@@ -127,7 +128,6 @@ Refactor `{target}`: {description}
 1. Read and understand the code
 2. Check dependencies to avoid breaking changes
 3. Refactor for clarity while preserving exact behavior
-4. Set state to "refactored"
 """
 system_prompt = """
 You refactor code. Preserve exact behavior. Match project style.
@@ -147,6 +147,7 @@ DON'T:
 [mode.tests]
 aliases = ["t", "test"]
 output_states = ["tests_pass", "tests_fail"]
+state_prompt = "Run tests and output: state: tests_pass or state: tests_fail"
 allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Write tests for `{target}`: {description}
@@ -155,7 +156,7 @@ Write tests for `{target}`: {description}
 
 1. Check related tests for existing patterns
 2. Write tests covering happy path, edge cases, and errors
-3. Run tests and set state to "tests_pass" or "tests_fail"
+3. Run the tests
 """
 system_prompt = """
 You write tests. Use the project's existing test framework and patterns.
@@ -178,6 +179,7 @@ DON'T:
 [mode.docs]
 aliases = ["d", "doc"]
 output_states = ["documented"]
+state_prompt = "When done, output: state: documented"
 allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 prompt = """
 Document `{target}`: {description}
@@ -186,7 +188,6 @@ Document `{target}`: {description}
 
 1. Read the code and identify existing doc style
 2. Write clear documentation with examples
-3. Set state to "documented"
 """
 system_prompt = """
 You write documentation. Match the project's existing doc format.
@@ -205,6 +206,7 @@ DON'T:
 [mode.review]
 aliases = ["v", "rev"]
 output_states = ["issues_found", "no_issues"]
+state_prompt = "Output: state: issues_found if problems found, state: no_issues if code is good"
 prompt = """
 Review `{target}`: {description}
 
@@ -213,7 +215,6 @@ Review `{target}`: {description}
 1. Read the code and its dependencies
 2. Identify bugs, security issues, performance problems
 3. Output findings with SEVERITY, LOCATION, ISSUE, SUGGESTION
-4. Set state to "issues_found" or "no_issues"
 """
 system_prompt = """
 You review code. READ-ONLY - no edits.
@@ -237,6 +238,7 @@ disallowed_tools = ["Write", "Edit"]
 [mode.fix]
 aliases = ["f"]
 output_states = ["fixed", "unfixable"]
+state_prompt = "Output: state: fixed if issue resolved, state: unfixable if cannot be fixed"
 allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Fix `{target}`: {description}
@@ -247,7 +249,6 @@ Fix `{target}`: {description}
 2. Check dependencies for impact of fix
 3. Implement minimal, targeted fix
 4. Run related tests if available
-5. Set state to "fixed" or "unfixable"
 """
 system_prompt = """
 You fix bugs. Minimal, surgical changes only.
@@ -267,6 +268,7 @@ DON'T:
 [mode.implement]
 aliases = ["i", "impl"]
 output_states = ["implemented", "blocked"]
+state_prompt = "Output: state: implemented if done, state: blocked if cannot proceed"
 allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Implement at `{target}`: {description}
@@ -277,7 +279,6 @@ Implement at `{target}`: {description}
 2. Implement the MINIMAL solution that satisfies the requirement
 3. Resist the urge to add "nice to have" features
 4. Handle errors consistently with surrounding code
-5. Set state to "implemented" or "blocked"
 """
 system_prompt = """
 You implement features. Do the simplest thing that works.
@@ -736,6 +737,15 @@ DON'T:
 #
 # The output summary from each step is passed as context to the next step,
 # giving each agent fresh context and the accumulated knowledge from prior steps.
+#
+# STATE DETECTION:
+# States are automatically detected from the previous mode's output_states.
+# No manual state definitions needed! The chain runner looks for patterns like:
+# - "state to \"issues_found\""
+# - "state: issues_found"
+# - The state name itself (case-insensitive)
+#
+# For custom patterns, add explicit [[chain.X.states]] definitions.
 #
 # Example workflow: review-and-fix
 #   1. Review code → outputs state "issues_found" or "no_issues"
