@@ -48,8 +48,7 @@
       "explorer/context": [
         {
           "command": "kyco.sendBatch",
-          "group": "kyco@1",
-          "when": "explorerResourceIsFolder || explorerResourceIsRoot || resourceScheme == file"
+          "group": "kyco@1"
         }
       ]
     }

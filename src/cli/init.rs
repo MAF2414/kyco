@@ -872,30 +872,25 @@ steps = [
 ]
 "#;
 
-/// Ensures a config file exists for a workspace, creating it if missing.
+/// Ensures the global config file exists (~/.kyco/config.toml), creating it if missing.
 /// This is called automatically when a new workspace is registered.
 /// Returns true if config was created, false if it already existed or couldn't be created.
-pub fn ensure_config_exists(workspace_path: &Path) -> bool {
-    // Only initialize if the workspace directory actually exists
-    if !workspace_path.exists() || !workspace_path.is_dir() {
+pub fn ensure_config_exists(_workspace_path: &Path) -> bool {
+    let config_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".kyco");
+    let config_path = config_dir.join("config.toml");
+
+    // Global config already exists
+    if config_path.exists() {
         return false;
     }
 
-    let config_path = workspace_path.join(".kyco").join("config.toml");
-    let legacy_path = workspace_path.join("kyco.toml");
-
-    // Config already exists (either new or legacy location)
-    if config_path.exists() || legacy_path.exists() {
-        return false;
-    }
-
-    // Create .kyco directory if needed
-    if let Some(parent) = config_path.parent() {
-        if !parent.exists() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                info!("Failed to create .kyco directory: {}", e);
-                return false;
-            }
+    // Create ~/.kyco directory if needed
+    if !config_dir.exists() {
+        if let Err(e) = std::fs::create_dir_all(&config_dir) {
+            info!("Failed to create ~/.kyco directory: {}", e);
+            return false;
         }
     }
 
@@ -905,30 +900,25 @@ pub fn ensure_config_exists(workspace_path: &Path) -> bool {
         return false;
     }
 
-    info!("Auto-initialized config: {}", config_path.display());
+    info!("Auto-initialized global config: {}", config_path.display());
     true
 }
 
 /// Initialize a new KYCo configuration
-pub async fn init_command(work_dir: &Path, config_path: Option<PathBuf>, force: bool) -> Result<()> {
-    let config_path = config_path
-        .map(|p| if p.is_absolute() { p } else { work_dir.join(p) })
-        .unwrap_or_else(|| work_dir.join(".kyco").join("config.toml"));
-
-    // Check for existing config (both new and legacy locations)
-    let legacy_path = work_dir.join("kyco.toml");
+/// By default creates the global config at ~/.kyco/config.toml
+/// Use --config to specify a custom path
+pub async fn init_command(_work_dir: &Path, config_path: Option<PathBuf>, force: bool) -> Result<()> {
+    // Default to global config path
+    let config_path = config_path.unwrap_or_else(|| {
+        dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".kyco")
+            .join("config.toml")
+    });
 
     if config_path.exists() && !force {
         bail!(
             "Configuration already exists: {}\nUse --force to overwrite.",
-            config_path.display()
-        );
-    }
-
-    if legacy_path.exists() && legacy_path != config_path && !force {
-        bail!(
-            "Legacy configuration exists: {}\nMove it to {} or use --force to create new config.",
-            legacy_path.display(),
             config_path.display()
         );
     }

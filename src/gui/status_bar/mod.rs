@@ -1,6 +1,6 @@
 //! Status bar module for the GUI
 //!
-//! Renders the bottom status bar with auto-run/auto-scan toggles,
+//! Renders the bottom status bar with auto-run toggle,
 //! settings button, modes button, agents button, workspace selector, and update notifications.
 
 use eframe::egui::{self, RichText};
@@ -28,7 +28,6 @@ pub enum InstallStatus {
 /// Status bar state that can be modified by the status bar UI
 pub struct StatusBarState<'a> {
     pub auto_run: &'a mut bool,
-    pub auto_scan: &'a mut bool,
     pub view_mode: &'a mut ViewMode,
     pub selected_mode: &'a mut Option<String>,
     pub mode_edit_status: &'a mut Option<(String, bool)>,
@@ -73,31 +72,6 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     .clicked()
                 {
                     *state.auto_run = !*state.auto_run;
-                }
-
-                ui.add_space(16.0);
-
-                // Auto-scan toggle
-                let auto_scan_text = if *state.auto_scan {
-                    "[S]can: ON"
-                } else {
-                    "[S]can: off"
-                };
-                let auto_scan_color = if *state.auto_scan {
-                    ACCENT_GREEN
-                } else {
-                    TEXT_MUTED
-                };
-                if ui
-                    .label(
-                        RichText::new(auto_scan_text)
-                            .small()
-                            .monospace()
-                            .color(auto_scan_color),
-                    )
-                    .clicked()
-                {
-                    *state.auto_scan = !*state.auto_scan;
                 }
 
                 ui.add_space(16.0);

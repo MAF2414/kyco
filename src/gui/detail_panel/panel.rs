@@ -9,8 +9,8 @@ use crate::config::Config;
 use crate::{Job, JobId, JobStatus, LogEvent, SdkType};
 
 use crate::gui::app::{
-    ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_SECONDARY, STATUS_QUEUED, STATUS_RUNNING, TEXT_DIM,
-    TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_HIGHLIGHT, BG_SECONDARY, STATUS_QUEUED,
+    STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
 
 use super::colors::{log_color, status_color};
@@ -42,6 +42,8 @@ pub struct DetailPanelState<'a> {
     pub log_scroll_to_bottom: bool,
     /// Input buffer for session continuation prompt
     pub continuation_prompt: &'a mut String,
+    /// Markdown cache for rendering agent responses
+    pub commonmark_cache: &'a mut egui_commonmark::CommonMarkCache,
     /// Current Claude permission mode overrides per job
     pub permission_mode_overrides: &'a HashMap<JobId, PermissionMode>,
 }
@@ -59,7 +61,7 @@ pub fn render_detail_panel(
         if let Some(job) = state.cached_jobs.iter().find(|j| j.id == job_id) {
             // First render the fixed-height job info section
             render_job_info(ui, job);
-            render_result_section(ui, job);
+            render_result_section(ui, job, state.commonmark_cache);
 
             ui.add_space(8.0);
 
@@ -159,7 +161,11 @@ fn render_job_info(ui: &mut egui::Ui, job: &Job) {
 }
 
 /// Render result section (from YAML block or raw text)
-fn render_result_section(ui: &mut egui::Ui, job: &Job) {
+fn render_result_section(
+    ui: &mut egui::Ui,
+    job: &Job,
+    commonmark_cache: &mut egui_commonmark::CommonMarkCache,
+) {
     let response_text = job
         .full_response
         .as_deref()
@@ -214,15 +220,24 @@ fn render_result_section(ui: &mut egui::Ui, job: &Job) {
                     ui.label(RichText::new("Response:").small().color(TEXT_MUTED));
                     ui.add_space(4.0);
 
-                    egui::ScrollArea::both()
+                    egui::ScrollArea::vertical()
                         .max_height(240.0)
                         .auto_shrink([false; 2])
                         .show(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(RichText::new(text).color(TEXT_DIM).monospace())
-                                    .selectable(true)
-                                    .wrap_mode(egui::TextWrapMode::Extend),
-                            );
+                            ui.scope(|ui| {
+                                // Make egui_commonmark match our CRT theme colors.
+                                let visuals = &mut ui.style_mut().visuals;
+                                visuals.override_text_color = Some(TEXT_DIM);
+                                visuals.weak_text_color = Some(TEXT_MUTED);
+                                visuals.hyperlink_color = ACCENT_CYAN;
+                                visuals.code_bg_color = BG_HIGHLIGHT;
+                                visuals.extreme_bg_color = BG_HIGHLIGHT;
+                                visuals.widgets.active.fg_stroke.color = TEXT_PRIMARY;
+                                visuals.widgets.hovered.fg_stroke.color = TEXT_PRIMARY;
+
+                                egui_commonmark::CommonMarkViewer::new()
+                                    .show(ui, commonmark_cache, text);
+                            });
                         });
 
                     // Still show stats if we didn't render the structured stats bar
@@ -257,15 +272,23 @@ fn render_result_section(ui: &mut egui::Ui, job: &Job) {
                 ui.add_space(4.0);
 
                 if let Some(text) = response_text {
-                    egui::ScrollArea::both()
+                    egui::ScrollArea::vertical()
                         .max_height(240.0)
                         .auto_shrink([false; 2])
                         .show(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(RichText::new(text).color(TEXT_DIM).monospace())
-                                    .selectable(true)
-                                    .wrap_mode(egui::TextWrapMode::Extend),
-                            );
+                            ui.scope(|ui| {
+                                let visuals = &mut ui.style_mut().visuals;
+                                visuals.override_text_color = Some(TEXT_DIM);
+                                visuals.weak_text_color = Some(TEXT_MUTED);
+                                visuals.hyperlink_color = ACCENT_CYAN;
+                                visuals.code_bg_color = BG_HIGHLIGHT;
+                                visuals.extreme_bg_color = BG_HIGHLIGHT;
+                                visuals.widgets.active.fg_stroke.color = TEXT_PRIMARY;
+                                visuals.widgets.hovered.fg_stroke.color = TEXT_PRIMARY;
+
+                                egui_commonmark::CommonMarkViewer::new()
+                                    .show(ui, commonmark_cache, text);
+                            });
                         });
                 }
             });
