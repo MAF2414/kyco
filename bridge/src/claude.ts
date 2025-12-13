@@ -1,0 +1,581 @@
+/**
+ * Claude Agent SDK Integration
+ *
+ * Wraps the Claude Agent SDK to provide a streaming interface for KYCO.
+ */
+
+import { query, type Query } from '@anthropic-ai/claude-agent-sdk';
+import { v4 as uuidv4 } from 'uuid';
+import type {
+  ClaudeQueryRequest,
+  BridgeEvent,
+  HookPreToolUseEvent,
+  ToolApprovalResponse,
+  PermissionMode,
+  ToolApprovalNeededEvent,
+} from './types.js';
+import { SessionStore } from './store.js';
+
+/** Active queries that can be interrupted */
+const activeQueries = new Map<string, Query>();
+
+type ClaudeTextBlock = { type: 'text'; text: string };
+type ClaudeImageBlock = {
+  type: 'image';
+  source: { type: 'base64'; media_type: string; data: string };
+};
+type ClaudeContentBlock = ClaudeTextBlock | ClaudeImageBlock;
+
+type ClaudeMessageParam = {
+  role: 'user';
+  content: ClaudeContentBlock[];
+};
+
+type ClaudePromptMessage = {
+  type: 'user';
+  session_id: string;
+  message: ClaudeMessageParam;
+  parent_tool_use_id: null;
+};
+
+function normalizeImageBase64Data(data: string): { data: string; mediaType?: string } {
+  const trimmed = data.trim();
+  const match = /^data:([^;]+);base64,(.*)$/s.exec(trimmed);
+  if (match) {
+    return { mediaType: match[1], data: match[2]?.trim() ?? '' };
+  }
+  return { data: trimmed };
+}
+
+function buildPromptContentBlocks(request: ClaudeQueryRequest): ClaudeContentBlock[] {
+  const blocks: ClaudeContentBlock[] = [];
+
+  if (request.prompt.length > 0) {
+    blocks.push({ type: 'text', text: request.prompt });
+  }
+
+  for (const image of request.images ?? []) {
+    const normalized = normalizeImageBase64Data(image.data);
+    const mediaType = image.mediaType ?? normalized.mediaType ?? 'image/png';
+    blocks.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: mediaType,
+        data: normalized.data,
+      },
+    });
+  }
+
+  if (blocks.length === 0) {
+    blocks.push({ type: 'text', text: '' });
+  }
+
+  return blocks;
+}
+
+async function* buildClaudePrompt(request: ClaudeQueryRequest): AsyncIterable<ClaudePromptMessage> {
+  yield {
+    type: 'user',
+    session_id: '',
+    message: {
+      role: 'user',
+      content: buildPromptContentBlocks(request),
+    },
+    parent_tool_use_id: null,
+  };
+}
+
+function mergeEnv(overrides?: Record<string, string>): Record<string, string> {
+  const base: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') {
+      base[key] = value;
+    }
+  }
+  return { ...base, ...(overrides ?? {}) };
+}
+
+/**
+ * Pending tool approval requests
+ * Key: requestId, Value: Promise resolver
+ */
+const pendingApprovals = new Map<string, {
+  resolve: (response: ToolApprovalResponse) => void;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+}>();
+
+/**
+ * Event emitter callback type for streaming events out
+ */
+type EventEmitter = (event: BridgeEvent) => void;
+
+/** Current event emitter for the active query */
+let currentEventEmitter: EventEmitter | null = null;
+
+/**
+ * Execute a Claude query and stream events back
+ */
+export async function* executeClaudeQuery(
+  request: ClaudeQueryRequest,
+  store: SessionStore,
+  _kycoCallbackUrl?: string,
+): AsyncGenerator<BridgeEvent> {
+  // Use provided sessionId for resume, otherwise we'll get a new one from SDK
+  let sessionId = request.sessionId || '';
+  const startTime = Date.now();
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let costUsd = 0;
+
+  // Event queue for async generator
+  const eventQueue: BridgeEvent[] = [];
+  let resolveNext: (() => void) | null = null;
+
+  // Set up event emitter
+  const emitEvent = (event: BridgeEvent) => {
+    eventQueue.push(event);
+    if (resolveNext) {
+      resolveNext();
+      resolveNext = null;
+    }
+  };
+
+  currentEventEmitter = emitEvent;
+
+  try {
+    // Build the query options
+    const options: Parameters<typeof query>[0]['options'] = {
+      cwd: request.cwd,
+      permissionMode: (request.permissionMode || 'default') as PermissionMode,
+    };
+
+    // Load Claude Code settings for parity with the CLI (incl. CLAUDE.md).
+    // Note: SDK loads no settings unless `settingSources` is provided.
+    options.settingSources = request.settingSources ?? ['user', 'project', 'local'];
+
+    // Environment variables (merged with process.env)
+    if (request.env) {
+      options.env = mergeEnv(request.env);
+    }
+
+    if (options.permissionMode === 'bypassPermissions') {
+      options.allowDangerouslySkipPermissions = true;
+    }
+
+    // Resume existing session if provided
+    if (request.sessionId) {
+      options.resume = request.sessionId;
+      options.forkSession = request.forkSession ?? false;
+    }
+
+    // Continue flag for multi-turn in same session
+    if (request.sessionId && !request.forkSession) {
+      options.continue = true;
+    }
+
+    // Tool configuration
+    if (request.allowedTools?.length) {
+      options.allowedTools = request.allowedTools;
+    }
+    if (request.disallowedTools?.length) {
+      options.disallowedTools = request.disallowedTools;
+    }
+
+    // Hook configuration (Claude SDK)
+    // Phase 1: emit PreToolUse events only (non-blocking / no modifications).
+    if (request.hooks?.events?.includes('PreToolUse')) {
+      options.hooks = {
+        PreToolUse: [{
+          hooks: [async (input: unknown) => {
+            try {
+              const hookInput = input as {
+                session_id: string;
+                transcript_path: string;
+                tool_name: string;
+                tool_input: unknown;
+                tool_use_id: string;
+              };
+              const event: HookPreToolUseEvent = {
+                type: 'hook.pre_tool_use',
+                sessionId: sessionId || hookInput.session_id,
+                timestamp: Date.now(),
+                toolName: hookInput.tool_name,
+                toolInput: hookInput.tool_input as Record<string, unknown>,
+                toolUseId: hookInput.tool_use_id,
+                transcriptPath: hookInput.transcript_path,
+              };
+              emitEvent(event);
+            } catch {
+              // Hooks must never break execution.
+            }
+            return { continue: true };
+          }],
+        }],
+      };
+    }
+
+    // Subagents (Claude SDK only)
+    if (request.agents) {
+      options.agents = request.agents;
+    }
+
+    // MCP server configuration (Claude SDK only)
+    if (request.mcpServers) {
+      options.mcpServers = request.mcpServers;
+    }
+
+    // Plugins (Claude SDK only)
+    if (request.plugins?.length) {
+      options.plugins = request.plugins;
+    }
+
+    // Load Claude Code settings sources (must include "project" for CLAUDE.md)
+    if (request.settingSources?.length) {
+      options.settingSources = request.settingSources;
+    }
+
+    // System prompt
+    const promptMode = request.systemPromptMode ?? 'append';
+    if (promptMode === 'replace' && request.systemPrompt) {
+      options.systemPrompt = request.systemPrompt;
+    } else {
+      options.systemPrompt = request.systemPrompt
+        ? { type: 'preset', preset: 'claude_code', append: request.systemPrompt }
+        : { type: 'preset', preset: 'claude_code' };
+    }
+
+    // Max turns
+    if (request.maxTurns) {
+      options.maxTurns = request.maxTurns;
+    }
+
+    // Structured output
+    if (request.outputSchema) {
+      options.outputFormat = {
+        type: 'json_schema',
+        schema: request.outputSchema,
+      };
+    }
+
+    // Extended thinking - enable by default with 10000 tokens
+    // This allows Claude to "think" before responding, improving quality
+    options.maxThinkingTokens = request.maxThinkingTokens ?? 10000;
+
+    // Model selection
+    if (request.model) {
+      options.model = request.model;
+    }
+
+    // Add canUseTool callback for permission requests
+    // This is only called when permissionMode is 'default' or 'acceptEdits'
+    // and a tool needs explicit approval
+    options.canUseTool = async (toolName: string, toolInput: Record<string, unknown>) => {
+      const requestId = uuidv4();
+
+      // Emit permission request event
+      const approvalEvent: ToolApprovalNeededEvent = {
+        type: 'tool.approval_needed',
+        sessionId,
+        timestamp: Date.now(),
+        requestId,
+        toolName,
+        toolInput,
+      };
+      emitEvent(approvalEvent);
+
+      // Wait for KYCO to respond
+      const response = await waitForApproval(requestId, toolName, toolInput);
+
+      if (response.decision === 'allow') {
+        return {
+          behavior: 'allow' as const,
+          updatedInput: response.modifiedInput || toolInput,
+        };
+      } else {
+        return {
+          behavior: 'deny' as const,
+          message: response.reason || 'User denied permission',
+        };
+      }
+    };
+
+    // Start the query
+    const q = query({ prompt: buildClaudePrompt(request), options });
+
+    // Process the stream in a background task
+    const processStream = async () => {
+      try {
+        for await (const message of q) {
+          switch (message.type) {
+            case 'system': {
+              if (message.subtype === 'init') {
+                // Capture the real session ID from the SDK
+                sessionId = message.session_id;
+                activeQueries.set(sessionId, q);
+
+                // Emit session start with real session ID
+                emitEvent({
+                  type: 'session.start',
+                  sessionId: message.session_id,
+                  timestamp: Date.now(),
+                  model: message.model,
+                  tools: message.tools,
+                });
+              }
+              break;
+            }
+
+            case 'assistant': {
+              const content = message.message.content;
+              for (const block of content) {
+                if (block.type === 'text') {
+                  emitEvent({
+                    type: 'text',
+                    sessionId,
+                    timestamp: Date.now(),
+                    content: block.text,
+                    partial: false,
+                  });
+                } else if (block.type === 'tool_use') {
+                  emitEvent({
+                    type: 'tool.use',
+                    sessionId,
+                    timestamp: Date.now(),
+                    toolName: block.name,
+                    toolInput: block.input as Record<string, unknown>,
+                    toolUseId: block.id,
+                  });
+                }
+              }
+              break;
+            }
+
+            case 'user': {
+              // Tool results come as user messages
+              const content = message.message.content;
+              for (const block of content) {
+                if (block.type === 'tool_result') {
+                  const output = typeof block.content === 'string'
+                    ? block.content
+                    : JSON.stringify(block.content);
+
+                  emitEvent({
+                    type: 'tool.result',
+                    sessionId,
+                    timestamp: Date.now(),
+                    toolUseId: block.tool_use_id,
+                    success: !block.is_error,
+                    output,
+                  });
+                }
+              }
+              break;
+            }
+
+            case 'result': {
+              if (message.subtype === 'success') {
+                totalInputTokens = message.usage.input_tokens;
+                totalOutputTokens = message.usage.output_tokens;
+                costUsd = message.total_cost_usd;
+
+                emitEvent({
+                  type: 'session.complete',
+                  sessionId,
+                  timestamp: Date.now(),
+                  success: true,
+                  result: message.result,
+                  usage: {
+                    inputTokens: totalInputTokens,
+                    outputTokens: totalOutputTokens,
+                    cacheReadTokens: message.usage.cache_read_input_tokens,
+                    cacheWriteTokens: message.usage.cache_creation_input_tokens,
+                  },
+                  costUsd,
+                  durationMs: Date.now() - startTime,
+                });
+              } else {
+                emitEvent({
+                  type: 'session.complete',
+                  sessionId,
+                  timestamp: Date.now(),
+                  success: false,
+                  usage: {
+                    inputTokens: message.usage.input_tokens,
+                    outputTokens: message.usage.output_tokens,
+                  },
+                  costUsd: message.total_cost_usd,
+                  durationMs: Date.now() - startTime,
+                });
+              }
+              break;
+            }
+          }
+        }
+
+        // Update session store
+        const existingSession = store.get(sessionId);
+        store.upsert({
+          id: sessionId,
+          type: 'claude',
+          createdAt: existingSession?.createdAt || startTime,
+          lastActiveAt: Date.now(),
+          cwd: request.cwd,
+          turnCount: (existingSession?.turnCount || 0) + 1,
+          totalTokens: (existingSession?.totalTokens || 0) + totalInputTokens + totalOutputTokens,
+          totalCostUsd: (existingSession?.totalCostUsd || 0) + costUsd,
+        });
+      } catch (error) {
+        emitEvent({
+          type: 'error',
+          sessionId,
+          timestamp: Date.now(),
+          message: error instanceof Error ? error.message : String(error),
+        });
+
+        emitEvent({
+          type: 'session.complete',
+          sessionId,
+          timestamp: Date.now(),
+          success: false,
+          durationMs: Date.now() - startTime,
+        });
+      } finally {
+        activeQueries.delete(sessionId);
+        currentEventEmitter = null;
+      }
+    };
+
+    // Start processing in background
+    const streamPromise = processStream();
+
+    // Yield events as they come in
+    while (true) {
+      if (eventQueue.length > 0) {
+        const event = eventQueue.shift()!;
+        yield event;
+
+        // Stop if session completed
+        if (event.type === 'session.complete') {
+          break;
+        }
+      } else {
+        // Wait for next event
+        await new Promise<void>(resolve => {
+          resolveNext = resolve;
+          // Also check if the stream is done
+          streamPromise.then(() => {
+            if (resolveNext) {
+              resolveNext();
+              resolveNext = null;
+            }
+          });
+        });
+
+        // Check if we should exit
+        if (eventQueue.length === 0) {
+          // Stream finished without more events
+          break;
+        }
+      }
+    }
+
+  } catch (error) {
+    yield {
+      type: 'error',
+      sessionId,
+      timestamp: Date.now(),
+      message: error instanceof Error ? error.message : String(error),
+    };
+
+    yield {
+      type: 'session.complete',
+      sessionId,
+      timestamp: Date.now(),
+      success: false,
+      durationMs: Date.now() - startTime,
+    };
+  }
+}
+
+/**
+ * Wait for KYCO to respond to a tool approval request
+ */
+function waitForApproval(
+  requestId: string,
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): Promise<ToolApprovalResponse> {
+  return new Promise((resolve) => {
+    pendingApprovals.set(requestId, {
+      resolve,
+      toolName,
+      toolInput,
+    });
+
+    // Timeout after 5 minutes (user might be AFK)
+    setTimeout(() => {
+      if (pendingApprovals.has(requestId)) {
+        pendingApprovals.delete(requestId);
+        resolve({
+          requestId,
+          decision: 'deny',
+          reason: 'Approval request timed out',
+        });
+      }
+    }, 5 * 60 * 1000);
+  });
+}
+
+/**
+ * Interrupt an active query
+ */
+export async function interruptClaudeQuery(sessionId: string): Promise<boolean> {
+  const q = activeQueries.get(sessionId);
+  if (q) {
+    await q.interrupt();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Change permission mode for an active session.
+ */
+export async function setClaudePermissionMode(sessionId: string, mode: PermissionMode): Promise<boolean> {
+  const q = activeQueries.get(sessionId);
+  if (q) {
+    await q.setPermissionMode(mode);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve a pending tool approval request
+ */
+export function resolveToolApproval(response: ToolApprovalResponse): boolean {
+  const pending = pendingApprovals.get(response.requestId);
+  if (pending) {
+    pending.resolve(response);
+    pendingApprovals.delete(response.requestId);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Get pending approval requests (for debugging/status)
+ */
+export function getPendingApprovals(): Array<{
+  requestId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+}> {
+  return Array.from(pendingApprovals.entries()).map(([requestId, data]) => ({
+    requestId,
+    toolName: data.toolName,
+    toolInput: data.toolInput,
+  }));
+}
