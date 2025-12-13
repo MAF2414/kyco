@@ -7,6 +7,16 @@ interface Dependency {
     line: number;
 }
 
+interface Diagnostic {
+    /** Error, Warning, Information, or Hint */
+    severity: string;
+    message: string;
+    line: number;
+    column: number;
+    /** Optional error code from the language server */
+    code?: string;
+}
+
 // Output channel for debugging - created lazily
 let outputChannel: vscode.OutputChannel | undefined;
 
@@ -16,15 +26,23 @@ interface SelectionPayload {
     line_start: number;
     line_end: number;
     workspace: string;
+    /** Git repository root if file is in a git repo, null otherwise */
+    git_root: string | null;
+    /** Project root: git_root > workspace_folder > file's parent dir */
+    project_root: string;
     dependencies: Dependency[];
     dependency_count: number;
     additional_dependency_count: number;
     related_tests: string[];
+    /** Errors and warnings from the language server for this file */
+    diagnostics: Diagnostic[];
 }
 
 interface BatchFile {
     path: string;
     workspace: string;
+    git_root: string | null;
+    project_root: string;
     line_start: number | null;
     line_end: number | null;
 }
@@ -33,9 +51,89 @@ interface BatchPayload {
     files: BatchFile[];
 }
 
+interface KycoHttpConfig {
+    port: number;
+    token?: string;
+    mtime?: number;
+}
+
 const MAX_DEPENDENCIES = 30;
 const LSP_RETRY_DELAY_MS = 500;
 const LSP_MAX_RETRIES = 3;
+const KYCO_AUTH_HEADER = 'X-KYCO-Token';
+const KYCO_DEFAULT_PORT = 9876;
+
+// Git Extension API types (vscode.git is always available)
+interface GitExtension {
+    getAPI(version: number): GitAPI;
+}
+
+interface GitAPI {
+    repositories: GitRepository[];
+}
+
+interface GitRepository {
+    rootUri: vscode.Uri;
+}
+
+/**
+ * Get the Git repository root for a file.
+ * Returns null if the file is not in a Git repository.
+ */
+function getGitRoot(fileUri: vscode.Uri): string | null {
+    try {
+        const gitExtension = vscode.extensions.getExtension<GitExtension>('vscode.git');
+        if (!gitExtension) {
+            return null;
+        }
+
+        // Activate the extension if not already active
+        if (!gitExtension.isActive) {
+            return null; // Don't block on activation
+        }
+
+        const gitApi = gitExtension.exports.getAPI(1);
+        if (!gitApi || !gitApi.repositories) {
+            return null;
+        }
+
+        // Find repository containing this file
+        const filePath = fileUri.fsPath;
+        for (const repo of gitApi.repositories) {
+            const repoRoot = repo.rootUri.fsPath;
+            if (filePath.startsWith(repoRoot + path.sep) || filePath === repoRoot) {
+                return repoRoot;
+            }
+        }
+
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Get the project root for a file with fallback chain:
+ * 1. Git repository root (if in a git repo)
+ * 2. VSCode workspace folder containing the file
+ * 3. Parent directory of the file
+ */
+function getProjectRoot(fileUri: vscode.Uri): string {
+    // Try Git root first
+    const gitRoot = getGitRoot(fileUri);
+    if (gitRoot) {
+        return gitRoot;
+    }
+
+    // Fall back to workspace folder
+    const workspaceFolder = vscode.workspace.getWorkspaceFolder(fileUri);
+    if (workspaceFolder) {
+        return workspaceFolder.uri.fsPath;
+    }
+
+    // Last resort: parent directory of the file
+    return path.dirname(fileUri.fsPath);
+}
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('KYCo extension activated');
@@ -68,11 +166,18 @@ export function activate(context: vscode.ExtensionContext) {
             const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
             const workspace = workspaceFolder?.uri.fsPath ?? '';
 
+            // Get Git repository root and project root (for correct cwd in agent)
+            const gitRoot = getGitRoot(document.uri);
+            const projectRoot = getProjectRoot(document.uri);
+
             // Get dependencies via Language Server
             const { dependencies, totalCount, additionalCount } = await findDependencies(document, selection);
 
             // Find related test files
             const relatedTests = await findRelatedTests(filePath, workspace);
+
+            // Get diagnostics (errors, warnings) for the current file
+            const diagnostics = getDiagnosticsForDocument(document);
 
             const payload: SelectionPayload = {
                 file_path: filePath,
@@ -80,13 +185,17 @@ export function activate(context: vscode.ExtensionContext) {
                 line_start: lineStart,
                 line_end: lineEnd,
                 workspace: workspace,
+                git_root: gitRoot,
+                project_root: projectRoot,
                 dependencies: dependencies,
                 dependency_count: totalCount,
                 additional_dependency_count: additionalCount,
-                related_tests: relatedTests
+                related_tests: relatedTests,
+                diagnostics: diagnostics
             };
 
-            sendSelectionRequest(payload);
+            const kycoHttp = await getKycoHttpConfig(workspace);
+            sendSelectionRequest(payload, kycoHttp);
         }
     );
 
@@ -133,12 +242,15 @@ export function activate(context: vscode.ExtensionContext) {
             const batchFiles: BatchFile[] = validFiles.map(uri => ({
                 path: uri.fsPath,
                 workspace: workspace,
+                git_root: getGitRoot(uri),
+                project_root: getProjectRoot(uri),
                 line_start: null,
                 line_end: null
             }));
 
             const payload: BatchPayload = { files: batchFiles };
-            sendBatchRequest(payload, validFiles.length);
+            const kycoHttp = await getKycoHttpConfig(workspace);
+            sendBatchRequest(payload, validFiles.length, kycoHttp);
         }
     );
 
@@ -237,12 +349,15 @@ export function activate(context: vscode.ExtensionContext) {
                         const batchFiles: BatchFile[] = matchingFiles.map(uri => ({
                             path: uri.fsPath,
                             workspace: workspace,
+                            git_root: getGitRoot(uri),
+                            project_root: getProjectRoot(uri),
                             line_start: null,
                             line_end: null
                         }));
 
                         const payload: BatchPayload = { files: batchFiles };
-                        sendBatchRequest(payload, matchingFiles.length);
+                        const kycoHttp = await getKycoHttpConfig(workspace);
+                        sendBatchRequest(payload, matchingFiles.length, kycoHttp);
 
                     } catch (error) {
                         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -423,6 +538,41 @@ async function findDependencies(
     }
 }
 
+/**
+ * Get all diagnostics (errors, warnings, etc.) for a document from the Language Server.
+ */
+function getDiagnosticsForDocument(document: vscode.TextDocument): Diagnostic[] {
+    const vscodeDiagnostics = vscode.languages.getDiagnostics(document.uri);
+
+    return vscodeDiagnostics.map(diag => {
+        let severity: string;
+        switch (diag.severity) {
+            case vscode.DiagnosticSeverity.Error:
+                severity = 'Error';
+                break;
+            case vscode.DiagnosticSeverity.Warning:
+                severity = 'Warning';
+                break;
+            case vscode.DiagnosticSeverity.Information:
+                severity = 'Information';
+                break;
+            case vscode.DiagnosticSeverity.Hint:
+                severity = 'Hint';
+                break;
+            default:
+                severity = 'Unknown';
+        }
+
+        return {
+            severity,
+            message: diag.message,
+            line: diag.range.start.line + 1,  // 1-indexed
+            column: diag.range.start.character + 1,  // 1-indexed
+            code: diag.code ? String(diag.code) : undefined
+        };
+    });
+}
+
 async function findRelatedTests(filePath: string, workspace: string): Promise<string[]> {
     if (!workspace) return [];
 
@@ -474,18 +624,25 @@ async function findRelatedTests(filePath: string, workspace: string): Promise<st
     }
 }
 
-function sendSelectionRequest(payload: SelectionPayload): void {
+function sendSelectionRequest(payload: SelectionPayload, kycoHttp?: KycoHttpConfig): void {
     const jsonPayload = JSON.stringify(payload);
+
+    const headers: Record<string, string | number> = {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(jsonPayload)
+    };
+
+    // Add auth token if available (required by kyco with http_token enabled)
+    if (kycoHttp?.token) {
+        headers[KYCO_AUTH_HEADER] = kycoHttp.token;
+    }
 
     const options: http.RequestOptions = {
         hostname: 'localhost',
-        port: 9876,
+        port: kycoHttp?.port ?? KYCO_DEFAULT_PORT,
         path: '/selection',
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(jsonPayload)
-        },
+        headers,
         timeout: 5000
     };
 
@@ -510,18 +667,24 @@ function sendSelectionRequest(payload: SelectionPayload): void {
     req.end();
 }
 
-function sendBatchRequest(payload: BatchPayload, fileCount: number): void {
+function sendBatchRequest(payload: BatchPayload, fileCount: number, kycoHttp?: KycoHttpConfig): void {
     const jsonPayload = JSON.stringify(payload);
+
+    const headers: Record<string, string | number> = {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(jsonPayload)
+    };
+
+    if (kycoHttp?.token) {
+        headers[KYCO_AUTH_HEADER] = kycoHttp.token;
+    }
 
     const options: http.RequestOptions = {
         hostname: 'localhost',
-        port: 9876,
+        port: kycoHttp?.port ?? KYCO_DEFAULT_PORT,
         path: '/batch',
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(jsonPayload)
-        },
+        headers,
         timeout: 5000
     };
 
@@ -548,4 +711,106 @@ function sendBatchRequest(payload: BatchPayload, fileCount: number): void {
 
 export function deactivate() {
     console.log('KYCo extension deactivated');
+}
+
+// ============================================================================
+// Auth token discovery
+// ============================================================================
+
+// In-memory cache keyed by workspace path; refreshed when `.kyco/config.toml` changes.
+const httpConfigCache = new Map<string, KycoHttpConfig>();
+
+async function getKycoHttpConfig(workspace: string): Promise<KycoHttpConfig> {
+    if (!workspace) {
+        return { port: KYCO_DEFAULT_PORT };
+    }
+
+    const configUri = vscode.Uri.file(path.join(workspace, '.kyco', 'config.toml'));
+
+    try {
+        const stat = await vscode.workspace.fs.stat(configUri);
+        const cached = httpConfigCache.get(workspace);
+        if (cached && cached.mtime === stat.mtime) {
+            return cached;
+        }
+
+        const bytes = await vscode.workspace.fs.readFile(configUri);
+        const text = Buffer.from(bytes).toString('utf8');
+        const token = extractHttpTokenFromToml(text);
+        const port = extractHttpPortFromToml(text) ?? KYCO_DEFAULT_PORT;
+        const cfg: KycoHttpConfig = { port, token, mtime: stat.mtime };
+        httpConfigCache.set(workspace, cfg);
+        return cfg;
+    } catch {
+        // Don't cache failures/misses: users may start `kyco gui` after the first send attempt.
+        httpConfigCache.delete(workspace);
+        return { port: KYCO_DEFAULT_PORT };
+    }
+}
+
+function extractHttpTokenFromToml(tomlText: string): string | undefined {
+    const lines = tomlText.split(/\r?\n/);
+    let inSettingsGui = false;
+
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) {
+            continue;
+        }
+
+        // Table headers
+        if (line.startsWith('[') && line.endsWith(']')) {
+            inSettingsGui = line === '[settings.gui]';
+            continue;
+        }
+
+        if (!inSettingsGui) {
+            continue;
+        }
+
+        // http_token = "..."
+        const mDouble = line.match(/^http_token\\s*=\\s*\"([^\"]*)\"\\s*(?:#.*)?$/);
+        if (mDouble) {
+            return mDouble[1] || undefined;
+        }
+
+        // http_token = '...'
+        const mSingle = line.match(/^http_token\\s*=\\s*'([^']*)'\\s*(?:#.*)?$/);
+        if (mSingle) {
+            return mSingle[1] || undefined;
+        }
+    }
+
+    return undefined;
+}
+
+function extractHttpPortFromToml(tomlText: string): number | undefined {
+    const lines = tomlText.split(/\r?\n/);
+    let inSettingsGui = false;
+
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) {
+            continue;
+        }
+
+        if (line.startsWith('[') && line.endsWith(']')) {
+            inSettingsGui = line === '[settings.gui]';
+            continue;
+        }
+
+        if (!inSettingsGui) {
+            continue;
+        }
+
+        const m = line.match(/^http_port\\s*=\\s*(\\d+)\\s*(?:#.*)?$/);
+        if (m) {
+            const parsed = Number(m[1]);
+            if (Number.isFinite(parsed) && parsed > 0 && parsed < 65536) {
+                return parsed;
+            }
+        }
+    }
+
+    return undefined;
 }

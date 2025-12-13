@@ -14,12 +14,16 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.search.searches.ReferencesSearch
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vcs.ProjectLevelVcsManager
 import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import com.google.gson.Gson
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
+import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl
+import com.intellij.codeInsight.daemon.impl.HighlightInfo
+import com.intellij.lang.annotation.HighlightSeverity
 
 class SendSelectionAction : AnAction() {
 
@@ -28,20 +32,73 @@ class SendSelectionAction : AnAction() {
         val line: Int
     )
 
+    private data class Diagnostic(
+        /** Error, Warning, Information, or Hint */
+        val severity: String,
+        val message: String,
+        val line: Int,
+        val column: Int,
+        /** Optional error code */
+        val code: String? = null
+    )
+
     private data class SelectionPayload(
         val file_path: String,
         val selected_text: String,
         val line_start: Int,
         val line_end: Int,
         val workspace: String,
+        /** Git repository root if file is in a git repo, null otherwise */
+        val git_root: String?,
+        /** Project root: git_root > project_base_path > file's parent dir */
+        val project_root: String,
         val dependencies: List<Dependency>,
         val dependency_count: Int,
         val additional_dependency_count: Int,
-        val related_tests: List<String>
+        val related_tests: List<String>,
+        /** Errors and warnings from IDE analysis for this file */
+        val diagnostics: List<Diagnostic>
     )
 
     companion object {
         private const val MAX_DEPENDENCIES = 30
+
+        /**
+         * Get the VCS (Git) root for a file.
+         * Returns null if the file is not in a VCS repository.
+         */
+        fun getGitRoot(project: Project, virtualFile: VirtualFile?): String? {
+            if (virtualFile == null) return null
+            return try {
+                val vcsManager = ProjectLevelVcsManager.getInstance(project)
+                vcsManager.getVcsRootFor(virtualFile)?.path
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        /**
+         * Get the project root for a file with fallback chain:
+         * 1. Git repository root (if in a git repo)
+         * 2. Project base path
+         * 3. Parent directory of the file
+         */
+        fun getProjectRoot(project: Project, virtualFile: VirtualFile?): String {
+            // Try Git root first
+            val gitRoot = getGitRoot(project, virtualFile)
+            if (gitRoot != null) {
+                return gitRoot
+            }
+
+            // Fall back to project base path
+            val basePath = project.basePath
+            if (basePath != null) {
+                return basePath
+            }
+
+            // Last resort: parent directory of the file
+            return virtualFile?.parent?.path ?: ""
+        }
     }
 
     override fun actionPerformed(event: AnActionEvent) {
@@ -87,16 +144,30 @@ class SendSelectionAction : AnAction() {
                 emptyList()
             }
 
+            // Get diagnostics (errors, warnings) for the current file
+            val diagnostics = if (project != null && psiFile != null) {
+                findDiagnostics(project, psiFile)
+            } else {
+                emptyList()
+            }
+
+            // Get git root and project root for correct cwd in agent
+            val gitRoot = if (project != null) getGitRoot(project, virtualFile) else null
+            val projectRoot = if (project != null) getProjectRoot(project, virtualFile) else workspace
+
             val payload = SelectionPayload(
                 file_path = filePath,
                 selected_text = selectedText,
                 line_start = lineStart,
                 line_end = lineEnd,
                 workspace = workspace,
+                git_root = gitRoot,
+                project_root = projectRoot,
                 dependencies = dependencies,
                 dependency_count = totalCount,
                 additional_dependency_count = additionalCount,
-                related_tests = relatedTests
+                related_tests = relatedTests,
+                diagnostics = diagnostics
             )
 
             sendRequest(project, payload)
@@ -240,13 +311,55 @@ class SendSelectionAction : AnAction() {
         }
     }
 
+    private fun findDiagnostics(project: Project, psiFile: PsiFile): List<Diagnostic> {
+        return ReadAction.compute<List<Diagnostic>, Throwable> {
+            val document = psiFile.viewProvider.document ?: return@compute emptyList()
+            val diagnostics = mutableListOf<Diagnostic>()
+
+            try {
+                val highlights = DaemonCodeAnalyzerImpl.getHighlights(
+                    document,
+                    null,  // null = all severities
+                    project
+                )
+
+                for (info in highlights) {
+                    // Only include errors, warnings, and weak warnings
+                    val severity = when {
+                        info.severity >= HighlightSeverity.ERROR -> "Error"
+                        info.severity >= HighlightSeverity.WARNING -> "Warning"
+                        info.severity >= HighlightSeverity.WEAK_WARNING -> "Information"
+                        else -> continue  // Skip hints and lower severities
+                    }
+
+                    val line = document.getLineNumber(info.startOffset) + 1
+                    val lineStartOffset = document.getLineStartOffset(line - 1)
+                    val column = info.startOffset - lineStartOffset + 1
+
+                    diagnostics.add(Diagnostic(
+                        severity = severity,
+                        message = info.description ?: info.toolTip?.replace(Regex("<[^>]*>"), "") ?: "Unknown issue",
+                        line = line,
+                        column = column,
+                        code = info.inspectionToolId
+                    ))
+                }
+            } catch (e: Exception) {
+                // If DaemonCodeAnalyzer is not available, return empty list
+            }
+
+            diagnostics
+        }
+    }
+
     private fun sendRequest(project: Project?, payload: SelectionPayload) {
         try {
-            val url = URI("http://localhost:9876/selection").toURL()
+            val url = URI("http://localhost:${KycoHttpAuth.port(payload.workspace)}/selection").toURL()
             val connection = url.openConnection() as HttpURLConnection
 
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
+            KycoHttpAuth.apply(connection, payload.workspace)
             connection.doOutput = true
             connection.connectTimeout = 5000
             connection.readTimeout = 5000

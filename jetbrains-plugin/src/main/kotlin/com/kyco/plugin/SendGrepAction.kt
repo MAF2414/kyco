@@ -28,6 +28,8 @@ class SendGrepAction : AnAction() {
     private data class BatchFile(
         val path: String,
         val workspace: String,
+        val git_root: String?,
+        val project_root: String,
         val line_start: Int?,
         val line_end: Int?
     )
@@ -148,6 +150,8 @@ class SendGrepAction : AnAction() {
                                     BatchFile(
                                         path = file.path,
                                         workspace = workspace,
+                                        git_root = SendSelectionAction.getGitRoot(project, file),
+                                        project_root = SendSelectionAction.getProjectRoot(project, file),
                                         line_start = null,
                                         line_end = null
                                     )
@@ -170,11 +174,12 @@ class SendGrepAction : AnAction() {
 
     private fun sendRequest(project: Project?, payload: BatchPayload, fileCount: Int) {
         try {
-            val url = URI("http://localhost:9876/batch").toURL()
+            val url = URI("http://localhost:${KycoHttpAuth.port(payload.files.firstOrNull()?.workspace)}/batch").toURL()
             val connection = url.openConnection() as HttpURLConnection
 
             connection.requestMethod = "POST"
             connection.setRequestProperty("Content-Type", "application/json")
+            KycoHttpAuth.apply(connection, payload.files.firstOrNull()?.workspace)
             connection.doOutput = true
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
