@@ -176,8 +176,41 @@ impl GitManager {
             );
         }
 
+        // Refuse to create worktrees when running as root to avoid permission issues
+        #[cfg(unix)]
+        {
+            if unsafe { libc::geteuid() } == 0 {
+                bail!(
+                    "Cannot create worktree: running as root. \
+                    This would create files owned by root that cannot be modified later. \
+                    Please run KYCo as your normal user."
+                );
+            }
+        }
+
         // Get the current branch name (base branch for the worktree)
         let base_branch = self.current_branch()?;
+
+        // Check if worktrees directory exists and has wrong ownership
+        if self.worktrees_dir.exists() {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if let Ok(metadata) = std::fs::metadata(&self.worktrees_dir) {
+                    let dir_uid = metadata.uid();
+                    let current_uid = unsafe { libc::geteuid() };
+                    if dir_uid == 0 && current_uid != 0 {
+                        bail!(
+                            "Cannot create worktree: {} is owned by root. \n\
+                            Please fix the permissions with:\n\
+                            sudo chown -R $(whoami) {:?}",
+                            self.worktrees_dir.display(),
+                            self.worktrees_dir
+                        );
+                    }
+                }
+            }
+        }
 
         // Ensure the worktrees directory exists
         std::fs::create_dir_all(&self.worktrees_dir)?;
