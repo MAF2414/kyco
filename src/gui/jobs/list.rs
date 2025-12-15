@@ -2,6 +2,7 @@
 //!
 //! This module contains the job list panel rendering logic.
 
+use super::super::animations::{blocked_indicator, pending_indicator, queued_indicator};
 use super::super::app::{ACCENT_PURPLE, BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 use super::super::detail_panel::status_color;
 use crate::{Job, JobStatus};
@@ -13,9 +14,14 @@ pub fn render_job_list(
     cached_jobs: &[Job],
     selected_job_id: &mut Option<u64>,
 ) {
-    // Request repaint for animation if any job is running
-    let has_running_job = cached_jobs.iter().any(|j| j.status == JobStatus::Running);
-    if has_running_job {
+    // Request repaint for animation if any job has an animated status indicator
+    let has_animated_job = cached_jobs.iter().any(|j| {
+        matches!(
+            j.status,
+            JobStatus::Running | JobStatus::Blocked | JobStatus::Queued | JobStatus::Pending
+        )
+    });
+    if has_animated_job {
         ui.ctx().request_repaint();
     }
 
@@ -77,16 +83,16 @@ pub fn render_job_list(
                                         ui.add(egui::Spinner::new().size(12.0).color(status_col));
                                     }
                                     JobStatus::Blocked => {
-                                        // Lock symbol for blocked jobs waiting for file lock
-                                        ui.label(RichText::new("[L]").monospace().color(status_col));
+                                        // Pulsing lock symbol for blocked jobs waiting for file lock
+                                        blocked_indicator(ui, status_col, 12.0);
                                     }
                                     JobStatus::Queued => {
-                                        // Clock/hourglass symbol for queued
-                                        ui.label(RichText::new("[~]").monospace().color(status_col));
+                                        // Animated dots cycling for queued jobs
+                                        queued_indicator(ui, status_col, 12.0);
                                     }
                                     JobStatus::Pending => {
-                                        // Pause/waiting symbol
-                                        ui.label(RichText::new("[.]").monospace().color(status_col));
+                                        // Gentle breathing pulse for pending jobs
+                                        pending_indicator(ui, status_col, 12.0);
                                     }
                                     JobStatus::Done => {
                                         // Checkmark for success
@@ -154,13 +160,13 @@ pub fn render_job_list(
                                 }
                             });
 
-                            // Target (truncated)
-                            let target = if job.target.len() > 40 {
-                                format!("{}...", &job.target[..40])
-                            } else {
-                                job.target.clone()
-                            };
-                            ui.label(RichText::new(target).color(TEXT_DIM));
+                            // Target - show only filename (full path available in detail panel)
+                            let target = std::path::Path::new(&job.target)
+                                .file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or(&job.target);
+                            ui.label(RichText::new(target).color(TEXT_DIM))
+                                .on_hover_text(&job.target);
                         });
 
                     if response.response.interact(egui::Sense::click()).clicked() {

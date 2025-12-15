@@ -374,3 +374,50 @@ impl Default for TypewriterState {
         Self::new()
     }
 }
+
+/// Animated lock icon for blocked status (pulsing lock brackets)
+pub fn blocked_indicator(ui: &mut Ui, color: Color32, size: f32) {
+    let time = ui.ctx().input(|i| i.time);
+    // Slow pulse for "waiting" feel
+    let pulse = ((time * 1.5).sin() * 0.5 + 0.5) as f32;
+    let alpha = 140 + (pulse * 115.0) as u8;
+    let animated_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+
+    // Allocate space and render the lock symbol
+    let text = RichText::new("[L]").monospace().color(animated_color).size(size);
+    ui.label(text);
+
+    ui.ctx().request_repaint();
+}
+
+/// Animated dots for queued status (cycling through . .. ...)
+pub fn queued_indicator(ui: &mut Ui, color: Color32, size: f32) {
+    let time = ui.ctx().input(|i| i.time);
+    // Cycle through 4 states every ~1.2 seconds
+    let state = ((time * 2.5) as usize) % 4;
+    let dots = match state {
+        0 => "[   ]",
+        1 => "[.  ]",
+        2 => "[.. ]",
+        _ => "[...]",
+    };
+
+    let text = RichText::new(dots).monospace().color(color).size(size);
+    ui.label(text);
+
+    ui.ctx().request_repaint();
+}
+
+/// Animated dot for pending status (gentle breathing pulse)
+pub fn pending_indicator(ui: &mut Ui, color: Color32, size: f32) {
+    let time = ui.ctx().input(|i| i.time);
+    // Very gentle breathing animation
+    let pulse = ((time * 2.0).sin() * 0.5 + 0.5) as f32;
+    let alpha = 100 + (pulse * 155.0) as u8;
+    let animated_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
+
+    let text = RichText::new("[.]").monospace().color(animated_color).size(size);
+    ui.label(text);
+
+    ui.ctx().request_repaint();
+}

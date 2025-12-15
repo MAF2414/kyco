@@ -39,22 +39,73 @@ impl ClaudeBridgeAdapter {
     }
 
     /// Build the prompt for a job
-    fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
+    ///
+    /// When running in a worktree, file paths are converted to relative paths
+    /// so the AI edits files within the worktree rather than the original repo.
+    fn build_prompt(&self, job: &Job, config: &AgentConfig, _worktree: &Path) -> String {
         let template = config.get_mode_template(&job.mode);
-        let file_path = job.source_file.display().to_string();
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
-        let ide_context = job.ide_context.as_deref().unwrap_or("");
+
+        // Determine if we need to convert paths for worktree usage
+        let (file_path, target, ide_context) = if job.git_worktree_path.is_some() {
+            if let Some(workspace) = &job.workspace_path {
+                let ws_str = workspace.display().to_string();
+                // Ensure we match paths with trailing slash properly
+                let ws_prefix = if ws_str.ends_with('/') {
+                    ws_str.clone()
+                } else {
+                    format!("{}/", ws_str)
+                };
+
+                // Make source file path relative
+                let file_path = job
+                    .source_file
+                    .strip_prefix(workspace)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| job.source_file.display().to_string());
+
+                // Make target path relative
+                let target = if job.target.starts_with(&ws_prefix) {
+                    job.target.replacen(&ws_prefix, "", 1)
+                } else if job.target.starts_with(&ws_str) {
+                    job.target.replacen(&ws_str, "", 1).trim_start_matches('/').to_string()
+                } else {
+                    job.target.clone()
+                };
+
+                // Fix paths in ide_context by replacing the workspace prefix
+                let ide_context = job
+                    .ide_context
+                    .as_deref()
+                    .map(|ctx| ctx.replace(&ws_prefix, "").replace(&ws_str, ""))
+                    .unwrap_or_default();
+
+                (file_path, target, ide_context)
+            } else {
+                (
+                    job.source_file.display().to_string(),
+                    job.target.clone(),
+                    job.ide_context.as_deref().unwrap_or("").to_string(),
+                )
+            }
+        } else {
+            (
+                job.source_file.display().to_string(),
+                job.target.clone(),
+                job.ide_context.as_deref().unwrap_or("").to_string(),
+            )
+        };
 
         template
             .prompt_template
             .replace("{file}", &file_path)
             .replace("{line}", &line.to_string())
-            .replace("{target}", &job.target)
+            .replace("{target}", &target)
             .replace("{mode}", &job.mode)
             .replace("{description}", description)
             .replace("{scope_type}", "file")
-            .replace("{ide_context}", ide_context)
+            .replace("{ide_context}", &ide_context)
     }
 
     /// Build system prompt
@@ -62,9 +113,17 @@ impl ClaudeBridgeAdapter {
         let template = config.get_mode_template(&job.mode);
         let mut system_prompt = template.system_prompt.unwrap_or_default();
 
-        // Add worktree instruction if applicable
-        if job.git_worktree_path.is_some() {
-            system_prompt.push_str("\n\nIMPORTANT: You are working in an isolated Git worktree. When you have completed the task, commit all your changes with a descriptive commit message. Do NOT push.");
+        // Add explicit worktree instruction with the actual path
+        if let Some(wt_path) = &job.git_worktree_path {
+            system_prompt.push_str(&format!(
+                "\n\n## Working Directory\n\
+                **IMPORTANT:** You are working in an isolated Git worktree at:\n`{}`\n\n\
+                - All file paths in the task are relative to this worktree.\n\
+                - Do NOT edit files outside this directory.\n\
+                - When you have completed the task, commit your changes with a descriptive message.\n\
+                - Do NOT push.",
+                wt_path.display()
+            ));
         }
 
         // Add output schema if configured
@@ -115,7 +174,7 @@ impl AgentRunner for ClaudeBridgeAdapter {
         event_tx: mpsc::Sender<LogEvent>,
     ) -> Result<AgentResult> {
         let job_id = job.id;
-        let prompt = self.build_prompt(job, config);
+        let prompt = self.build_prompt(job, config, worktree);
         let cwd = worktree.to_string_lossy().to_string();
 
         // Log start
@@ -462,22 +521,85 @@ impl CodexBridgeAdapter {
     }
 
     /// Build the prompt for a job
-    fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
+    ///
+    /// When running in a worktree, file paths are converted to relative paths
+    /// so the AI edits files within the worktree rather than the original repo.
+    fn build_prompt(&self, job: &Job, config: &AgentConfig, _worktree: &Path) -> String {
         let template = config.get_mode_template(&job.mode);
-        let file_path = job.source_file.display().to_string();
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
-        let ide_context = job.ide_context.as_deref().unwrap_or("");
+
+        // Determine if we need to convert paths for worktree usage
+        let (file_path, target, ide_context) = if job.git_worktree_path.is_some() {
+            if let Some(workspace) = &job.workspace_path {
+                let ws_str = workspace.display().to_string();
+                // Ensure we match paths with trailing slash properly
+                let ws_prefix = if ws_str.ends_with('/') {
+                    ws_str.clone()
+                } else {
+                    format!("{}/", ws_str)
+                };
+
+                // Make source file path relative
+                let file_path = job
+                    .source_file
+                    .strip_prefix(workspace)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| job.source_file.display().to_string());
+
+                // Make target path relative
+                let target = if job.target.starts_with(&ws_prefix) {
+                    job.target.replacen(&ws_prefix, "", 1)
+                } else if job.target.starts_with(&ws_str) {
+                    job.target.replacen(&ws_str, "", 1).trim_start_matches('/').to_string()
+                } else {
+                    job.target.clone()
+                };
+
+                // Fix paths in ide_context by replacing the workspace prefix
+                let ide_context = job
+                    .ide_context
+                    .as_deref()
+                    .map(|ctx| ctx.replace(&ws_prefix, "").replace(&ws_str, ""))
+                    .unwrap_or_default();
+
+                (file_path, target, ide_context)
+            } else {
+                (
+                    job.source_file.display().to_string(),
+                    job.target.clone(),
+                    job.ide_context.as_deref().unwrap_or("").to_string(),
+                )
+            }
+        } else {
+            (
+                job.source_file.display().to_string(),
+                job.target.clone(),
+                job.ide_context.as_deref().unwrap_or("").to_string(),
+            )
+        };
 
         let mut prompt = template
             .prompt_template
             .replace("{file}", &file_path)
             .replace("{line}", &line.to_string())
-            .replace("{target}", &job.target)
+            .replace("{target}", &target)
             .replace("{mode}", &job.mode)
             .replace("{description}", description)
             .replace("{scope_type}", "file")
-            .replace("{ide_context}", ide_context);
+            .replace("{ide_context}", &ide_context);
+
+        // Add explicit worktree instruction to the prompt for Codex (no separate system prompt)
+        if let Some(wt_path) = &job.git_worktree_path {
+            prompt.push_str(&format!(
+                "\n\n---\n**IMPORTANT: Working Directory**\n\
+                You are working in an isolated Git worktree at: `{}`\n\
+                All file paths are relative to this worktree. \
+                Do NOT edit files outside this directory. \
+                When done, commit your changes with a descriptive message. Do NOT push.",
+                wt_path.display()
+            ));
+        }
 
         // For Codex we don't have a separate system prompt channel; append the YAML output schema
         // so the executor can reliably parse titles/summaries (used for commit messages, chains).
@@ -508,7 +630,7 @@ impl AgentRunner for CodexBridgeAdapter {
         event_tx: mpsc::Sender<LogEvent>,
     ) -> Result<AgentResult> {
         let job_id = job.id;
-        let prompt = self.build_prompt(job, config);
+        let prompt = self.build_prompt(job, config, worktree);
         let cwd = worktree.to_string_lossy().to_string();
 
         // Log start

@@ -7,6 +7,10 @@ use eframe::egui::{self, RichText};
 use std::sync::{Arc, Mutex};
 
 use crate::gui::animations::animated_button;
+
+/// Compile-time version string to avoid runtime allocation
+const VERSION_TEXT: &str = concat!("kyco v", env!("CARGO_PKG_VERSION"));
+
 use crate::gui::app::{
     ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
@@ -81,38 +85,37 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     if let Ok(registry) = registry_arc.lock() {
                         let workspaces = registry.list();
                         if workspaces.len() > 1 {
-                            // Show workspace dropdown
-                            let current_name = state.active_workspace_id
+                            // Show workspace dropdown - borrow name directly, no allocation needed
+                            let current_name: &str = state.active_workspace_id
                                 .and_then(|id| registry.get(id))
-                                .map(|ws| ws.name.clone())
-                                .unwrap_or_else(|| "No workspace".to_string());
+                                .map(|ws| ws.name.as_str())
+                                .unwrap_or("No workspace");
 
                             ui.label(RichText::new("Workspace:").small().color(TEXT_DIM));
 
                             egui::ComboBox::from_id_salt("workspace_selector")
-                                .selected_text(RichText::new(&current_name).small().color(TEXT_PRIMARY))
+                                .selected_text(RichText::new(current_name).small().color(TEXT_PRIMARY))
                                 .width(120.0)
                                 .show_ui(ui, |ui| {
                                     for ws in &workspaces {
                                         let is_selected = state.active_workspace_id.map_or(false, |id| id == ws.id);
-                                        let text = RichText::new(&ws.name).small();
+                                        let text = RichText::new(ws.name.as_str()).small();
                                         if ui.selectable_label(is_selected, text).clicked() {
                                             *state.active_workspace_id = Some(ws.id);
                                         }
                                     }
                                 });
                         } else if !workspaces.is_empty() {
-                            // Single workspace - just show the name
-                            let name = &workspaces[0].name;
-                            ui.label(RichText::new(format!("📁 {}", name)).small().color(TEXT_DIM));
+                            // Single workspace - just show the name with folder icon prefix
+                            ui.label(RichText::new("📁 ").small().color(TEXT_DIM));
+                            ui.label(RichText::new(workspaces[0].name.as_str()).small().color(TEXT_DIM));
                         }
                     }
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Show current version
-                    let version_text = format!("kyco v{}", env!("CARGO_PKG_VERSION"));
-                    ui.label(RichText::new(&version_text).small().color(TEXT_MUTED));
+                    // Show current version (compile-time constant)
+                    ui.label(RichText::new(VERSION_TEXT).small().color(TEXT_MUTED));
 
                     // Show update notification/install status
                     match state.install_status {
