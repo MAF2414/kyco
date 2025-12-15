@@ -1,7 +1,6 @@
 //! Main detail panel rendering
 
 use eframe::egui::{self, RichText, ScrollArea};
-use egui_extras::{Size, StripBuilder};
 use std::collections::HashMap;
 
 use crate::agent::bridge::PermissionMode;
@@ -15,6 +14,7 @@ use crate::gui::app::{
 
 use super::colors::{log_color, status_color};
 use super::prompt::build_prompt_preview;
+use crate::gui::diff::render_diff_content;
 
 /// Actions that can be triggered from the detail panel
 #[derive(Debug, Clone)]
@@ -48,6 +48,8 @@ pub struct DetailPanelState<'a> {
     pub commonmark_cache: &'a mut egui_commonmark::CommonMarkCache,
     /// Current Claude permission mode overrides per job
     pub permission_mode_overrides: &'a HashMap<JobId, PermissionMode>,
+    /// Diff content for the selected job (if available)
+    pub diff_content: Option<&'a str>,
 }
 
 /// Render the detail panel and return any action triggered by the user
@@ -78,35 +80,35 @@ pub fn render_detail_panel(
             ui.add_space(8.0);
             ui.separator();
 
-            // Use StripBuilder to allocate remaining space between prompt and activity log
-            // This ensures both sections are always visible and share the available space
-            let available_height = ui.available_height();
+            // Layout: Prompt (collapsed) -> Diff (main content) -> Activity Log (collapsed)
 
-            // Reserve minimum heights for each section
-            let min_section_height = 100.0;
-            let separator_height = 20.0; // spacing + separator
+            // 1. Prompt Section (collapsed by default)
+            render_prompt_section_collapsible(ui, job, state.config);
 
-            // Calculate proportional heights (40% prompt, 60% activity log)
-            let usable_height = (available_height - separator_height).max(min_section_height * 2.0);
-            let prompt_height = (usable_height * 0.4).max(min_section_height);
-            let log_height = (usable_height * 0.6).max(min_section_height);
+            ui.add_space(4.0);
 
-            StripBuilder::new(ui)
-                .size(Size::exact(prompt_height))
-                .size(Size::exact(separator_height))
-                .size(Size::remainder().at_least(log_height))
-                .vertical(|mut strip| {
-                    strip.cell(|ui| {
-                        render_prompt_section(ui, job, state.config);
+            // 2. Diff Section (main content - takes remaining space)
+            if let Some(diff_content) = state.diff_content {
+                render_diff_section_expandable(ui, diff_content);
+            } else {
+                // No diff available - show placeholder
+                ui.add_space(8.0);
+                egui::Frame::NONE
+                    .fill(BG_SECONDARY)
+                    .corner_radius(4.0)
+                    .inner_margin(16.0)
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(RichText::new("No diff available").color(TEXT_MUTED));
+                            ui.label(RichText::new("Diff will appear here when the job completes with changes").color(TEXT_DIM).small());
+                        });
                     });
-                    strip.cell(|ui| {
-                        ui.add_space(8.0);
-                        ui.separator();
-                    });
-                    strip.cell(|ui| {
-                        render_activity_log(ui, job, state.logs, state.log_scroll_to_bottom);
-                    });
-                });
+            }
+
+            ui.add_space(4.0);
+
+            // 3. Activity Log Section (collapsed by default)
+            render_activity_log_collapsible(ui, job, state.logs, state.log_scroll_to_bottom);
         } else {
             ui.label(RichText::new("Job not found").color(TEXT_MUTED));
         }
@@ -564,34 +566,6 @@ fn permission_mode_display(mode: PermissionMode) -> &'static str {
     }
 }
 
-/// Render prompt section
-fn render_prompt_section(ui: &mut egui::Ui, job: &Job, config: &Config) {
-    // Show prompt - either sent_prompt (if job ran) or preview (before running)
-    // Use Cow to avoid cloning sent_prompt when it exists
-    use std::borrow::Cow;
-
-    let (prompt_text, prompt_label): (Cow<'_, str>, &str) = match &job.sent_prompt {
-        Some(prompt) => (Cow::Borrowed(prompt.as_str()), "SENT PROMPT"),
-        None => (Cow::Owned(build_prompt_preview(job, config)), "PROMPT PREVIEW"),
-    };
-
-    ui.label(RichText::new(prompt_label).monospace().color(TEXT_MUTED));
-    ui.add_space(2.0);
-
-    // Use all available height in this section (space is allocated by StripBuilder)
-    ScrollArea::vertical()
-        .id_salt("prompt_scroll")
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.add(
-                egui::TextEdit::multiline(&mut prompt_text.as_ref())
-                    .font(egui::TextStyle::Monospace)
-                    .text_color(TEXT_DIM)
-                    .desired_width(f32::INFINITY)
-                    .interactive(false),
-            );
-        });
-}
 
 /// Get static string label for log event kind (avoids format! allocation per frame)
 #[inline]
@@ -608,30 +582,96 @@ fn log_kind_label(kind: &crate::LogEventKind) -> &'static str {
     }
 }
 
-/// Render activity log section
-fn render_activity_log(ui: &mut egui::Ui, job: &Job, logs: &[LogEvent], scroll_to_bottom: bool) {
-    ui.label(RichText::new("ACTIVITY LOG").monospace().color(TEXT_MUTED));
+// ============================================================================
+// Collapsible sections for clean layout
+// ============================================================================
 
-    ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .stick_to_bottom(scroll_to_bottom)
+/// Render prompt section with collapsible header (collapsed by default)
+fn render_prompt_section_collapsible(ui: &mut egui::Ui, job: &Job, config: &Config) {
+    use std::borrow::Cow;
+
+    let (prompt_text, prompt_label): (Cow<'_, str>, &str) = match &job.sent_prompt {
+        Some(prompt) => (Cow::Borrowed(prompt.as_str()), "SENT PROMPT"),
+        None => (Cow::Owned(build_prompt_preview(job, config)), "PROMPT PREVIEW"),
+    };
+
+    // Count lines for display
+    let line_count = prompt_text.lines().count();
+
+    egui::CollapsingHeader::new(
+        RichText::new(format!("{} ({} lines)", prompt_label, line_count))
+            .monospace()
+            .color(TEXT_MUTED)
+    )
+    .default_open(false)
+    .show(ui, |ui| {
+        ScrollArea::vertical()
+            .id_salt("prompt_scroll")
+            .auto_shrink([false, false])
+            .max_height(200.0)
+            .show(ui, |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut prompt_text.as_ref())
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT_DIM)
+                        .desired_width(f32::INFINITY)
+                        .interactive(false),
+                );
+            });
+    });
+}
+
+/// Render diff section that expands to fill available space
+fn render_diff_section_expandable(ui: &mut egui::Ui, diff_content: &str) {
+    // Count changes for header
+    let added = diff_content.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
+    let removed = diff_content.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("DIFF").monospace().color(TEXT_PRIMARY));
+        ui.add_space(8.0);
+        if added > 0 {
+            ui.label(RichText::new(format!("+{}", added)).color(ACCENT_GREEN).small());
+        }
+        if removed > 0 {
+            ui.label(RichText::new(format!("-{}", removed)).color(ACCENT_RED).small());
+        }
+    });
+    ui.add_space(4.0);
+
+    // Diff takes all remaining space
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .corner_radius(4.0)
+        .inner_margin(4.0)
         .show(ui, |ui| {
-            // Show job-specific logs first
-            for event in &job.log_events {
-                let color = log_color(&event.kind);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(log_kind_label(&event.kind))
-                            .monospace()
-                            .color(TEXT_MUTED),
-                    );
-                    ui.label(RichText::new(&event.summary).color(color));
+            ScrollArea::vertical()
+                .id_salt("diff_scroll")
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    render_diff_content(ui, diff_content);
                 });
-            }
+        });
+}
 
-            // Then show global logs filtered by job_id
-            for event in logs {
-                if event.job_id.is_none() || event.job_id == Some(job.id) {
+/// Render activity log section with collapsible header (collapsed by default)
+fn render_activity_log_collapsible(ui: &mut egui::Ui, job: &Job, logs: &[LogEvent], scroll_to_bottom: bool) {
+    let log_count = job.log_events.len() + logs.iter().filter(|e| e.job_id.is_none() || e.job_id == Some(job.id)).count();
+
+    egui::CollapsingHeader::new(
+        RichText::new(format!("ACTIVITY LOG ({})", log_count))
+            .monospace()
+            .color(TEXT_MUTED)
+    )
+    .default_open(false)
+    .show(ui, |ui| {
+        ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .max_height(200.0)
+            .stick_to_bottom(scroll_to_bottom)
+            .show(ui, |ui| {
+                // Show job-specific logs first
+                for event in &job.log_events {
                     let color = log_color(&event.kind);
                     ui.horizontal(|ui| {
                         ui.label(
@@ -642,6 +682,21 @@ fn render_activity_log(ui: &mut egui::Ui, job: &Job, logs: &[LogEvent], scroll_t
                         ui.label(RichText::new(&event.summary).color(color));
                     });
                 }
-            }
-        });
+
+                // Then show global logs filtered by job_id
+                for event in logs {
+                    if event.job_id.is_none() || event.job_id == Some(job.id) {
+                        let color = log_color(&event.kind);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(log_kind_label(&event.kind))
+                                    .monospace()
+                                    .color(TEXT_MUTED),
+                            );
+                            ui.label(RichText::new(&event.summary).color(color));
+                        });
+                    }
+                }
+            });
+    });
 }

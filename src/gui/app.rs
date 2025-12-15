@@ -213,6 +213,10 @@ pub struct KycoApp {
     diff_state: DiffState,
     /// View mode to return to after closing diff
     diff_return_view: ViewMode,
+    /// Inline diff content for detail panel (loaded when job selected)
+    inline_diff_content: Option<String>,
+    /// Previously selected job ID (to detect selection changes)
+    prev_selected_job_id: Option<u64>,
     /// Pending merge/apply confirmation (shown in ApplyConfirmPopup)
     apply_confirm_target: Option<ApplyTarget>,
     /// View mode to return to after canceling apply confirmation
@@ -463,6 +467,8 @@ impl KycoApp {
             popup_status: None,
             diff_state: DiffState::new(),
             diff_return_view: ViewMode::JobList,
+            inline_diff_content: None,
+            prev_selected_job_id: None,
             apply_confirm_target: None,
             apply_confirm_return_view: ViewMode::JobList,
             apply_confirm_error: None,
@@ -770,6 +776,57 @@ impl KycoApp {
                     .push(LogEvent::error(format!("Failed to load diff: {}", e)));
             }
         }
+    }
+
+    /// Load inline diff for the currently selected job (for detail panel display)
+    fn load_inline_diff_for_selected(&mut self) {
+        let Some(job_id) = self.selected_job_id else {
+            self.inline_diff_content = None;
+            return;
+        };
+
+        let Some(job) = self.cached_jobs.iter().find(|j| j.id == job_id).cloned() else {
+            self.inline_diff_content = None;
+            return;
+        };
+
+        // Only load diff for completed jobs with changes
+        if job.status != crate::JobStatus::Done {
+            self.inline_diff_content = None;
+            return;
+        }
+
+        let workspace_root = self.workspace_root_for_job(&job);
+        let gm = match crate::git::GitManager::new(&workspace_root) {
+            Ok(gm) => gm,
+            Err(_) => {
+                self.inline_diff_content = None;
+                return;
+            }
+        };
+
+        let diff_result: Option<String> = if let Some(worktree) = job.git_worktree_path.as_ref().filter(|p| p.exists()) {
+            gm.diff(worktree, job.base_branch.as_deref()).ok().map(|mut diff| {
+                if let Ok(untracked) = gm.untracked_files(worktree) {
+                    if !untracked.is_empty() {
+                        if !diff.is_empty() {
+                            diff.push_str("\n\n");
+                        }
+                        diff.push_str("--- Untracked files ---\n");
+                        for file in untracked {
+                            diff.push_str(&file.display().to_string());
+                            diff.push('\n');
+                        }
+                    }
+                }
+                diff
+            })
+        } else {
+            // No worktree - show workspace diff
+            gm.diff(&workspace_root, None).ok()
+        };
+
+        self.inline_diff_content = diff_result.filter(|d| !d.is_empty());
     }
 
     fn build_apply_thread_input(&self, target: &ApplyTarget) -> Result<ApplyThreadInput, String> {
@@ -1577,6 +1634,7 @@ impl KycoApp {
             continuation_prompt: &mut self.continuation_prompt,
             commonmark_cache: &mut self.commonmark_cache,
             permission_mode_overrides: &self.permission_mode_overrides,
+            diff_content: self.inline_diff_content.as_deref(),
         };
 
         if let Some(action) = render_detail_panel(ui, &mut state) {
@@ -2170,6 +2228,12 @@ impl eframe::App for KycoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Refresh jobs periodically (every frame for now, could optimize)
         self.refresh_jobs();
+
+        // Load inline diff when job selection changes
+        if self.selected_job_id != self.prev_selected_job_id {
+            self.prev_selected_job_id = self.selected_job_id;
+            self.load_inline_diff_for_selected();
+        }
 
         // Check for HTTP selection events from IDE extensions
         while let Ok(req) = self.http_rx.try_recv() {

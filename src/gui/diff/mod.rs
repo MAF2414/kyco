@@ -191,7 +191,9 @@ pub fn render_diff_popup(ctx: &egui::Context, diff_state: &DiffState) -> bool {
 }
 
 /// Render diff content with line numbers and colored backgrounds
-fn render_diff_content(ui: &mut egui::Ui, diff: &str) {
+///
+/// This function can be used both in the diff popup and inline in other panels.
+pub fn render_diff_content(ui: &mut egui::Ui, diff: &str) {
     let mut old_line_num: u32 = 0;
     let mut new_line_num: u32 = 0;
     let mut in_header = true;
