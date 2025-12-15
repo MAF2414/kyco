@@ -74,19 +74,43 @@ impl BridgeClient {
     ///
     /// Returns an iterator over bridge events. The iterator will yield events
     /// until the session completes or an error occurs.
+    ///
+    /// Automatically retries up to 3 times on connection failures.
     pub fn claude_query(
         &self,
         request: &ClaudeQueryRequest,
     ) -> Result<impl Iterator<Item = Result<BridgeEvent>>> {
         let url = format!("{}/claude/query", self.base_url);
 
-        let response = self
-            .client
-            .post(&url)
-            .send_json(request)
-            .context("Failed to start Claude query")?;
+        const MAX_RETRIES: u32 = 3;
+        let mut last_error = None;
 
-        Ok(EventStream::new(response.into_reader()))
+        for attempt in 1..=MAX_RETRIES {
+            match self.client.post(&url).send_json(request) {
+                Ok(response) => {
+                    return Ok(EventStream::new(response.into_reader()));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Claude query attempt {}/{} failed: {}",
+                        attempt,
+                        MAX_RETRIES,
+                        e
+                    );
+                    last_error = Some(e);
+
+                    if attempt < MAX_RETRIES {
+                        // Wait before retrying (exponential backoff: 500ms, 1s, 2s)
+                        let delay = Duration::from_millis(500 * (1 << (attempt - 1)));
+                        std::thread::sleep(delay);
+                    }
+                }
+            }
+        }
+
+        Err(last_error
+            .map(|e| anyhow::anyhow!("Failed to start Claude query after {} attempts: {}", MAX_RETRIES, e))
+            .unwrap_or_else(|| anyhow::anyhow!("Failed to start Claude query")))
     }
 
     /// Execute a Codex query and stream events
