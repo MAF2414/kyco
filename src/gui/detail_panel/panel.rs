@@ -162,6 +162,36 @@ fn render_job_info(ui: &mut egui::Ui, job: &Job) {
     }
 }
 
+/// Apply CRT theme visuals for markdown rendering
+#[inline]
+fn apply_markdown_theme(ui: &mut egui::Ui) {
+    let visuals = &mut ui.style_mut().visuals;
+    visuals.override_text_color = Some(TEXT_DIM);
+    visuals.weak_text_color = Some(TEXT_MUTED);
+    visuals.hyperlink_color = ACCENT_CYAN;
+    visuals.code_bg_color = BG_HIGHLIGHT;
+    visuals.extreme_bg_color = BG_HIGHLIGHT;
+    visuals.widgets.active.fg_stroke.color = TEXT_PRIMARY;
+    visuals.widgets.hovered.fg_stroke.color = TEXT_PRIMARY;
+}
+
+/// Render markdown content with themed scroll area
+fn render_markdown_scroll(
+    ui: &mut egui::Ui,
+    text: &str,
+    commonmark_cache: &mut egui_commonmark::CommonMarkCache,
+) {
+    egui::ScrollArea::vertical()
+        .max_height(240.0)
+        .auto_shrink([false; 2])
+        .show(ui, |ui| {
+            ui.scope(|ui| {
+                apply_markdown_theme(ui);
+                egui_commonmark::CommonMarkViewer::new().show(ui, commonmark_cache, text);
+            });
+        });
+}
+
 /// Render result section (from YAML block or raw text)
 fn render_result_section(
     ui: &mut egui::Ui,
@@ -222,25 +252,7 @@ fn render_result_section(
                     ui.label(RichText::new("Response:").small().color(TEXT_MUTED));
                     ui.add_space(4.0);
 
-                    egui::ScrollArea::vertical()
-                        .max_height(240.0)
-                        .auto_shrink([false; 2])
-                        .show(ui, |ui| {
-                            ui.scope(|ui| {
-                                // Make egui_commonmark match our CRT theme colors.
-                                let visuals = &mut ui.style_mut().visuals;
-                                visuals.override_text_color = Some(TEXT_DIM);
-                                visuals.weak_text_color = Some(TEXT_MUTED);
-                                visuals.hyperlink_color = ACCENT_CYAN;
-                                visuals.code_bg_color = BG_HIGHLIGHT;
-                                visuals.extreme_bg_color = BG_HIGHLIGHT;
-                                visuals.widgets.active.fg_stroke.color = TEXT_PRIMARY;
-                                visuals.widgets.hovered.fg_stroke.color = TEXT_PRIMARY;
-
-                                egui_commonmark::CommonMarkViewer::new()
-                                    .show(ui, commonmark_cache, text);
-                            });
-                        });
+                    render_markdown_scroll(ui, text, commonmark_cache);
 
                     // Still show stats if we didn't render the structured stats bar
                     if !has_structured {
@@ -262,7 +274,7 @@ fn render_result_section(
                     }
                 }
             });
-    } else if response_text.is_some() {
+    } else if let Some(text) = response_text {
         // No parsed result, but we have a full response to display.
         ui.add_space(8.0);
         egui::Frame::NONE
@@ -273,26 +285,7 @@ fn render_result_section(
                 ui.label(RichText::new("Response:").small().color(TEXT_MUTED));
                 ui.add_space(4.0);
 
-                if let Some(text) = response_text {
-                    egui::ScrollArea::vertical()
-                        .max_height(240.0)
-                        .auto_shrink([false; 2])
-                        .show(ui, |ui| {
-                            ui.scope(|ui| {
-                                let visuals = &mut ui.style_mut().visuals;
-                                visuals.override_text_color = Some(TEXT_DIM);
-                                visuals.weak_text_color = Some(TEXT_MUTED);
-                                visuals.hyperlink_color = ACCENT_CYAN;
-                                visuals.code_bg_color = BG_HIGHLIGHT;
-                                visuals.extreme_bg_color = BG_HIGHLIGHT;
-                                visuals.widgets.active.fg_stroke.color = TEXT_PRIMARY;
-                                visuals.widgets.hovered.fg_stroke.color = TEXT_PRIMARY;
-
-                                egui_commonmark::CommonMarkViewer::new()
-                                    .show(ui, commonmark_cache, text);
-                            });
-                        });
-                }
+                render_markdown_scroll(ui, text, commonmark_cache);
             });
     } else if let Some(stats) = &job.stats {
         // Show just stats if no result block but we have timing/files
@@ -458,10 +451,8 @@ fn render_action_buttons(
                     let can_change = job.bridge_session_id.is_some();
 
                     ui.add_enabled_ui(can_change, |ui| {
-                        egui::ComboBox::from_id_salt(format!(
-                            "permission_mode_dropdown_{}",
-                            current_job_id
-                        ))
+                        // Use tuple-based ID to avoid format! allocation every frame
+                        egui::ComboBox::from_id_salt(("permission_mode", current_job_id))
                         .selected_text(permission_mode_display(current_mode))
                         .width(170.0)
                         .show_ui(ui, |ui| {
@@ -576,16 +567,14 @@ fn permission_mode_display(mode: PermissionMode) -> &'static str {
 /// Render prompt section
 fn render_prompt_section(ui: &mut egui::Ui, job: &Job, config: &Config) {
     // Show prompt - either sent_prompt (if job ran) or preview (before running)
-    let prompt_text = job
-        .sent_prompt
-        .clone()
-        .unwrap_or_else(|| build_prompt_preview(job, config));
+    // Use Cow to avoid cloning sent_prompt when it exists
+    use std::borrow::Cow;
 
-    let prompt_label = if job.sent_prompt.is_some() {
-        "SENT PROMPT"
-    } else {
-        "PROMPT PREVIEW"
+    let (prompt_text, prompt_label): (Cow<'_, str>, &str) = match &job.sent_prompt {
+        Some(prompt) => (Cow::Borrowed(prompt.as_str()), "SENT PROMPT"),
+        None => (Cow::Owned(build_prompt_preview(job, config)), "PROMPT PREVIEW"),
     };
+
     ui.label(RichText::new(prompt_label).monospace().color(TEXT_MUTED));
     ui.add_space(2.0);
 
@@ -595,13 +584,28 @@ fn render_prompt_section(ui: &mut egui::Ui, job: &Job, config: &Config) {
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.add(
-                egui::TextEdit::multiline(&mut prompt_text.as_str())
+                egui::TextEdit::multiline(&mut prompt_text.as_ref())
                     .font(egui::TextStyle::Monospace)
                     .text_color(TEXT_DIM)
                     .desired_width(f32::INFINITY)
                     .interactive(false),
             );
         });
+}
+
+/// Get static string label for log event kind (avoids format! allocation per frame)
+#[inline]
+fn log_kind_label(kind: &crate::LogEventKind) -> &'static str {
+    use crate::LogEventKind;
+    match kind {
+        LogEventKind::Thought => "[thought]",
+        LogEventKind::ToolCall => "[tool]",
+        LogEventKind::ToolOutput => "[output]",
+        LogEventKind::Text => "[text]",
+        LogEventKind::Error => "[error]",
+        LogEventKind::System => "[system]",
+        LogEventKind::Permission => "[permission]",
+    }
 }
 
 /// Render activity log section
@@ -617,7 +621,7 @@ fn render_activity_log(ui: &mut egui::Ui, job: &Job, logs: &[LogEvent], scroll_t
                 let color = log_color(&event.kind);
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("[{}]", event.kind))
+                        RichText::new(log_kind_label(&event.kind))
                             .monospace()
                             .color(TEXT_MUTED),
                     );
@@ -625,13 +629,13 @@ fn render_activity_log(ui: &mut egui::Ui, job: &Job, logs: &[LogEvent], scroll_t
                 });
             }
 
-            // Then show global logs
+            // Then show global logs filtered by job_id
             for event in logs {
                 if event.job_id.is_none() || event.job_id == Some(job.id) {
                     let color = log_color(&event.kind);
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new(format!("[{}]", event.kind))
+                            RichText::new(log_kind_label(&event.kind))
                                 .monospace()
                                 .color(TEXT_MUTED),
                         );
