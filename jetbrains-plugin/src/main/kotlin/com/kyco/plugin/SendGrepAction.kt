@@ -9,19 +9,19 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
-import com.intellij.psi.search.FilenameIndex
-import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.LocalFileSystem
 import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import com.google.gson.Gson
 import com.intellij.openapi.application.ApplicationManager
-import java.util.regex.Pattern
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Action to search for files matching a pattern and send them to KYCo as a batch.
+ * Uses external tools (rg/grep) for maximum search performance.
  */
 class SendGrepAction : AnAction() {
 
@@ -55,83 +55,47 @@ class SendGrepAction : AnAction() {
             return // User cancelled
         }
 
-        // Ask for file extension filter (optional)
-        val fileExtension = Messages.showInputDialog(
+        // Ask for file glob/extension filter (optional)
+        val fileFilter = Messages.showInputDialog(
             project,
-            "File extension filter (leave empty for all files):",
+            "File filter (e.g., *.kt, *.java - leave empty for all):",
             "KYCo: File Filter",
             Messages.getQuestionIcon(),
             "",
             null
         )
 
-        if (fileExtension == null) {
+        if (fileFilter == null) {
             return // User cancelled
         }
+
+        val workspace = project.basePath ?: return
 
         // Run search in background with progress
         ProgressManager.getInstance().run(object : Task.Backgroundable(project, "KYCo: Searching files...", true) {
             override fun run(indicator: ProgressIndicator) {
                 try {
-                    indicator.isIndeterminate = false
-                    indicator.fraction = 0.0
+                    indicator.isIndeterminate = true
+                    indicator.text = "Searching with external tool..."
 
-                    val regex = Pattern.compile(pattern)
-                    val matchingFiles = mutableListOf<VirtualFile>()
-                    val workspace = project.basePath ?: ""
+                    // Try rg first, then grep
+                    val matchingFilePaths = searchWithExternalTool(pattern, fileFilter, workspace, indicator)
 
-                    // Get all files in project
-                    val allFiles = ReadAction.compute<Collection<VirtualFile>, Throwable> {
-                        val scope = GlobalSearchScope.projectScope(project)
-                        if (fileExtension.isNotBlank()) {
-                            FilenameIndex.getAllFilesByExt(project, fileExtension, scope)
-                        } else {
-                            // Get all files - use a common approach
-                            val files = mutableListOf<VirtualFile>()
-                            FilenameIndex.processAllFileNames({ name ->
-                                val matchedFiles = FilenameIndex.getVirtualFilesByName(name, scope)
-                                files.addAll(matchedFiles)
-                                true
-                            }, scope, null)
-                            files.distinctBy { it.path }
-                        }
+                    if (indicator.isCanceled) {
+                        return
                     }
 
-                    val fileList = allFiles.toList()
-                    val totalFiles = fileList.size
-
-                    // Search for pattern in files
-                    for ((index, file) in fileList.withIndex()) {
-                        if (indicator.isCanceled) {
-                            return
-                        }
-
-                        indicator.fraction = index.toDouble() / totalFiles
-                        indicator.text2 = "Checking ${file.name}..."
-
-                        // Skip binary files and large files
-                        if (file.length > 1_000_000) continue // Skip files > 1MB
-
-                        try {
-                            val content = ReadAction.compute<String, Throwable> {
-                                String(file.contentsToByteArray(), Charsets.UTF_8)
-                            }
-
-                            if (regex.matcher(content).find()) {
-                                matchingFiles.add(file)
-                            }
-                        } catch (e: Exception) {
-                            // Skip files that can't be read
-                        }
-                    }
-
-                    indicator.fraction = 1.0
-
-                    if (matchingFiles.isEmpty()) {
+                    if (matchingFilePaths.isEmpty()) {
                         ApplicationManager.getApplication().invokeLater {
                             showNotification(project, "No files matching \"$pattern\" found", NotificationType.INFORMATION)
                         }
                         return
+                    }
+
+                    // Convert paths to VirtualFiles for git_root/project_root resolution
+                    val localFileSystem = LocalFileSystem.getInstance()
+                    val matchingFiles = matchingFilePaths.mapNotNull { path ->
+                        localFileSystem.findFileByPath(path)
                     }
 
                     // Confirm with user
@@ -170,6 +134,118 @@ class SendGrepAction : AnAction() {
                 }
             }
         })
+    }
+
+    /**
+     * Search using external tools: tries rg first, then grep.
+     * Returns list of absolute file paths.
+     */
+    private fun searchWithExternalTool(
+        pattern: String,
+        fileFilter: String,
+        cwd: String,
+        indicator: ProgressIndicator
+    ): List<String> {
+        // Try ripgrep first (fastest)
+        if (commandExists("rg")) {
+            indicator.text = "Searching with ripgrep..."
+            return searchWithRipgrep(pattern, fileFilter, cwd)
+        }
+
+        // Fallback to grep on Unix systems
+        if (!System.getProperty("os.name").lowercase().contains("win") && commandExists("grep")) {
+            indicator.text = "Searching with grep..."
+            return searchWithGrep(pattern, fileFilter, cwd)
+        }
+
+        // No external tool available
+        throw RuntimeException("Neither 'rg' (ripgrep) nor 'grep' found. Please install ripgrep for best performance.")
+    }
+
+    /**
+     * Check if a command exists on the system
+     */
+    private fun commandExists(cmd: String): Boolean {
+        return try {
+            val checkCmd = if (System.getProperty("os.name").lowercase().contains("win")) "where" else "which"
+            val process = ProcessBuilder(checkCmd, cmd)
+                .redirectErrorStream(true)
+                .start()
+            process.waitFor(5, TimeUnit.SECONDS)
+            process.exitValue() == 0
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Search using ripgrep (rg) - extremely fast, respects .gitignore
+     */
+    private fun searchWithRipgrep(pattern: String, fileFilter: String, cwd: String): List<String> {
+        val args = mutableListOf(
+            "rg",
+            "--files-with-matches",
+            "--no-heading",
+            "--color=never",
+            "-e", pattern
+        )
+
+        if (fileFilter.isNotBlank()) {
+            args.add("--glob")
+            args.add(fileFilter)
+        }
+
+        val process = ProcessBuilder(args)
+            .directory(File(cwd))
+            .redirectErrorStream(false)
+            .start()
+
+        val output = process.inputStream.bufferedReader().readText()
+        process.waitFor(60, TimeUnit.SECONDS)
+
+        // rg returns 1 when no matches, which is fine
+        return output.lines()
+            .filter { it.isNotBlank() }
+            .map { line ->
+                val file = File(line)
+                if (file.isAbsolute) line else File(cwd, line).absolutePath
+            }
+    }
+
+    /**
+     * Search using grep -r (Unix systems)
+     */
+    private fun searchWithGrep(pattern: String, fileFilter: String, cwd: String): List<String> {
+        val args = mutableListOf("grep", "-rlE", pattern)
+
+        if (fileFilter.isNotBlank()) {
+            args.add("--include=$fileFilter")
+        }
+
+        // Exclude common directories
+        args.addAll(listOf(
+            "--exclude-dir=node_modules",
+            "--exclude-dir=.git",
+            "--exclude-dir=target",
+            "--exclude-dir=dist",
+            "--exclude-dir=build",
+            "."
+        ))
+
+        val process = ProcessBuilder(args)
+            .directory(File(cwd))
+            .redirectErrorStream(false)
+            .start()
+
+        val output = process.inputStream.bufferedReader().readText()
+        process.waitFor(60, TimeUnit.SECONDS)
+
+        return output.lines()
+            .filter { it.isNotBlank() }
+            .map { line ->
+                val cleanPath = if (line.startsWith("./")) line.substring(2) else line
+                File(cwd, cleanPath).absolutePath
+            }
     }
 
     private fun sendRequest(project: Project?, payload: BatchPayload, fileCount: Int) {
