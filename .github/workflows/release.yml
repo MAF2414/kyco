@@ -98,6 +98,44 @@ jobs:
             jetbrains-plugin/kyco-jetbrains-${{ steps.version.outputs.version }}.zip
 
   # ═══════════════════════════════════════════════════════════════════════════
+  # SDK Bridge Build (Node.js sidecar)
+  # ═══════════════════════════════════════════════════════════════════════════
+  build-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: bridge
+        run: npm ci
+
+      - name: Build bridge
+        working-directory: bridge
+        run: npm run build
+
+      - name: Package bridge
+        run: |
+          # Create a clean bridge package with only runtime files
+          mkdir -p bridge-package/bridge
+          cp bridge/package.json bridge-package/bridge/
+          cp bridge/package-lock.json bridge-package/bridge/
+          cp -r bridge/dist bridge-package/bridge/
+
+          # Create tarball
+          tar -czvf kyco-bridge.tar.gz -C bridge-package bridge
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyco-bridge
+          path: kyco-bridge.tar.gz
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # Rust Binary Builds (Matrix)
   # ═══════════════════════════════════════════════════════════════════════════
   build-rust:
@@ -157,7 +195,7 @@ jobs:
   # Create GitHub Release
   # ═══════════════════════════════════════════════════════════════════════════
   create-release:
-    needs: [build-vscode, build-jetbrains, build-rust]
+    needs: [build-vscode, build-jetbrains, build-bridge, build-rust]
     runs-on: ubuntu-latest
 
     steps:
@@ -184,6 +222,9 @@ jobs:
           cp artifacts/jetbrains-plugin/kyco-jetbrains.zip release/
           cp artifacts/jetbrains-plugin/kyco-jetbrains-${{ steps.version.outputs.version }}.zip release/
 
+          # SDK Bridge (Node.js sidecar)
+          cp artifacts/kyco-bridge/kyco-bridge.tar.gz release/
+
           # Rust binaries
           cp artifacts/kyco-macos-x64/kyco-macos-x64 release/
           cp artifacts/kyco-macos-arm64/kyco-macos-arm64 release/
@@ -207,6 +248,7 @@ jobs:
             release/kyco-${{ steps.version.outputs.version }}.vsix
             release/kyco-jetbrains.zip
             release/kyco-jetbrains-${{ steps.version.outputs.version }}.zip
+            release/kyco-bridge.tar.gz
             release/kyco-macos-x64
             release/kyco-macos-arm64
             release/kyco-linux-x64

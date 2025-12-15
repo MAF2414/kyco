@@ -4,12 +4,16 @@
 
 use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use super::types::*;
+
+/// GitHub repository for downloading bridge
+const GITHUB_REPO: &str = "MAF2414/kyco";
 
 /// Default bridge server URL
 const DEFAULT_BRIDGE_URL: &str = "http://127.0.0.1:17432";
@@ -397,11 +401,11 @@ impl BridgeProcess {
         anyhow::bail!("Bridge server failed to become healthy")
     }
 
-    /// Find the bridge directory
-    fn find_bridge_dir() -> Result<std::path::PathBuf> {
+    /// Find the bridge directory, downloading it if necessary
+    fn find_bridge_dir() -> Result<PathBuf> {
         // Check environment variable
         if let Ok(path) = std::env::var("KYCO_BRIDGE_PATH") {
-            let path = std::path::PathBuf::from(path);
+            let path = PathBuf::from(path);
             if path.exists() {
                 return Ok(path);
             }
@@ -426,22 +430,81 @@ impl BridgeProcess {
         }
 
         // Check ~/.kyco/bridge/
-        if let Some(home) = dirs::home_dir() {
-            let bridge_dir = home.join(".kyco").join("bridge");
-            if bridge_dir.exists() {
-                return Ok(bridge_dir);
-            }
+        let kyco_dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".kyco");
+        let bridge_dir = kyco_dir.join("bridge");
+
+        if bridge_dir.exists() {
+            return Ok(bridge_dir);
         }
 
         // Check current working directory (for development)
-        let cwd_bridge = std::path::PathBuf::from("bridge");
+        let cwd_bridge = PathBuf::from("bridge");
         if cwd_bridge.exists() {
             return Ok(cwd_bridge);
         }
 
-        anyhow::bail!(
-            "Could not find bridge directory. Set KYCO_BRIDGE_PATH or run from the KYCO directory."
-        )
+        // Bridge not found - download it automatically
+        tracing::info!("SDK Bridge not found, downloading from GitHub Releases...");
+        Self::download_and_install_bridge(&kyco_dir)?;
+
+        Ok(bridge_dir)
+    }
+
+    /// Download and install the bridge from GitHub Releases
+    fn download_and_install_bridge(kyco_dir: &PathBuf) -> Result<()> {
+        // Create ~/.kyco directory if needed
+        std::fs::create_dir_all(kyco_dir)
+            .context("Failed to create ~/.kyco directory")?;
+
+        let download_url = format!(
+            "https://github.com/{}/releases/latest/download/kyco-bridge.tar.gz",
+            GITHUB_REPO
+        );
+        let tarball_path = kyco_dir.join("kyco-bridge.tar.gz");
+
+        // Download the tarball using curl
+        tracing::info!("Downloading bridge from {}...", download_url);
+        let output = Command::new("curl")
+            .args([
+                "-L",  // Follow redirects
+                "-f",  // Fail on HTTP errors
+                "-#",  // Progress bar
+                "-o",
+                tarball_path.to_str().unwrap_or("kyco-bridge.tar.gz"),
+                &download_url,
+            ])
+            .output()
+            .context("Failed to run curl - is curl installed?")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to download bridge: {}", stderr);
+        }
+
+        // Extract the tarball
+        tracing::info!("Extracting bridge...");
+        let output = Command::new("tar")
+            .args([
+                "-xzf",
+                tarball_path.to_str().unwrap_or("kyco-bridge.tar.gz"),
+                "-C",
+                kyco_dir.to_str().unwrap_or("."),
+            ])
+            .output()
+            .context("Failed to run tar - is tar installed?")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to extract bridge: {}", stderr);
+        }
+
+        // Clean up the tarball
+        let _ = std::fs::remove_file(&tarball_path);
+
+        tracing::info!("SDK Bridge installed to {}", kyco_dir.join("bridge").display());
+        Ok(())
     }
 
     /// Check if the bridge process is still running
