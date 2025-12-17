@@ -10,11 +10,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crate::agent::{AgentRegistry, ChainRunner};
+use crate::agent::{AgentRegistry, ChainRunner, ChainProgressEvent};
 use crate::config::Config;
 use crate::git::GitManager;
 use crate::job::JobManager;
-use crate::{Job, JobResult, JobStatus, LogEvent, LogEventKind, SessionMode};
+use crate::{ChainStepSummary, Job, JobResult, JobStatus, LogEvent, LogEventKind, SessionMode};
 
 /// Message to send back to GUI
 #[derive(Debug, Clone)]
@@ -32,6 +32,8 @@ pub enum ExecutorEvent {
         total_steps: usize,
         mode: String,
         state: Option<String>,
+        /// Summary of the completed step for UI display
+        step_summary: ChainStepSummary,
     },
     /// Chain completed
     ChainCompleted {
@@ -612,10 +614,15 @@ async fn run_chain_job(
         }
     };
 
-    // Update status to running
+    // Update status to running and set chain metadata
     {
         let mut manager = job_manager.lock().unwrap();
         manager.set_status(job_id, JobStatus::Running);
+        if let Some(j) = manager.get_mut(job_id) {
+            j.chain_name = Some(chain_name.clone());
+            j.chain_total_steps = Some(chain.steps.len());
+            j.chain_current_step = Some(0);
+        }
     }
 
     let _ = event_tx.send(ExecutorEvent::JobStarted(job_id));
@@ -808,20 +815,91 @@ async fn run_chain_job(
     // Create chain runner
     let chain_runner = ChainRunner::new(config, agent_registry, &worktree_path);
 
-    // Run the chain
+    // Create progress channel for real-time updates
+    let (progress_tx, progress_rx) = std::sync::mpsc::channel::<ChainProgressEvent>();
+
+    // Spawn a task to forward progress events to the GUI
+    let event_tx_progress = event_tx.clone();
+    let job_manager_progress = Arc::clone(job_manager);
+    let progress_job_id = job_id;
+    let total_steps_for_progress = chain.steps.len();
+    let progress_forwarder = tokio::spawn(async move {
+        while let Ok(progress) = progress_rx.recv() {
+            // Update job's current step in real-time
+            if let Ok(mut manager) = job_manager_progress.lock() {
+                if let Some(j) = manager.get_mut(progress_job_id) {
+                    if progress.is_starting {
+                        j.chain_current_step = Some(progress.step_index);
+                    } else {
+                        j.chain_current_step = Some(progress.step_index + 1);
+                        // Add completed step to history
+                        if let Some(step_result) = &progress.step_result {
+                            let summary = ChainStepSummary {
+                                step_index: step_result.step_index,
+                                mode: step_result.mode.clone(),
+                                skipped: step_result.skipped,
+                                success: step_result.agent_result.as_ref().map(|ar| ar.success).unwrap_or(false),
+                                title: step_result.job_result.as_ref().and_then(|jr| jr.title.clone()),
+                                summary: step_result.job_result.as_ref().and_then(|jr| jr.summary.clone()),
+                                full_response: step_result.full_response.clone(),
+                                error: step_result.agent_result.as_ref().and_then(|ar| ar.error.clone()),
+                                files_changed: step_result.agent_result.as_ref().map(|ar| ar.files_changed).unwrap_or(0),
+                            };
+                            // Only add if not already present
+                            if j.chain_step_history.len() <= step_result.step_index {
+                                j.chain_step_history.push(summary.clone());
+                            }
+                            // Send event for UI update
+                            let _ = event_tx_progress.send(ExecutorEvent::ChainStepCompleted {
+                                job_id: progress_job_id,
+                                step_index: step_result.step_index,
+                                total_steps: total_steps_for_progress,
+                                mode: step_result.mode.clone(),
+                                state: step_result.job_result.as_ref().and_then(|jr| jr.state.clone()),
+                                step_summary: summary,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Run the chain with progress channel
     let chain_result = chain_runner
-        .run_chain(&chain_name, &chain, &job, log_tx)
+        .run_chain(&chain_name, &chain, &job, log_tx, Some(progress_tx))
         .await;
 
+    // Progress channel is dropped when run_chain returns, so progress_forwarder will exit
+    // Give it a moment to process any remaining events
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    progress_forwarder.abort(); // Clean up the forwarder task
+
     // Update job with results
+    let total_steps = chain_result.step_results.len();
     {
         let mut manager = job_manager.lock().unwrap();
         if let Some(j) = manager.get_mut(job_id) {
             // Combine results from all steps
             let mut combined_details = Vec::new();
             let mut total_files_changed = 0;
+            let mut step_history = Vec::new();
 
             for step_result in &chain_result.step_results {
+                // Build ChainStepSummary for history
+                let summary = ChainStepSummary {
+                    step_index: step_result.step_index,
+                    mode: step_result.mode.clone(),
+                    skipped: step_result.skipped,
+                    success: step_result.agent_result.as_ref().map(|ar| ar.success).unwrap_or(false),
+                    title: step_result.job_result.as_ref().and_then(|jr| jr.title.clone()),
+                    summary: step_result.job_result.as_ref().and_then(|jr| jr.summary.clone()),
+                    full_response: step_result.full_response.clone(),
+                    error: step_result.agent_result.as_ref().and_then(|ar| ar.error.clone()),
+                    files_changed: step_result.agent_result.as_ref().map(|ar| ar.files_changed).unwrap_or(0),
+                };
+                step_history.push(summary);
+
                 if step_result.skipped {
                     combined_details.push(format!("[{}] skipped", step_result.mode));
                 } else if let Some(jr) = &step_result.job_result {
@@ -832,7 +910,13 @@ async fn run_chain_job(
                         total_files_changed += ar.files_changed;
                     }
                 }
+                // Note: ChainStepCompleted events are sent in real-time by progress_forwarder,
+                // so we don't send them again here to avoid duplicates
             }
+
+            // Store chain step history in job
+            j.chain_step_history = step_history;
+            j.chain_current_step = Some(total_steps); // Mark as completed
 
             // Set the combined result
             j.result = Some(JobResult {

@@ -13,6 +13,7 @@ import type {
   ToolApprovalResponse,
   PermissionMode,
   ToolApprovalNeededEvent,
+  HeartbeatEvent,
 } from './types.js';
 import { SessionStore } from './store.js';
 
@@ -98,12 +99,14 @@ function mergeEnv(overrides?: Record<string, string>): Record<string, string> {
 
 /**
  * Pending tool approval requests
- * Key: requestId, Value: Promise resolver
+ * Key: requestId, Value: Promise resolver and metadata
  */
 const pendingApprovals = new Map<string, {
   resolve: (response: ToolApprovalResponse) => void;
   toolName: string;
   toolInput: Record<string, unknown>;
+  sessionId: string;
+  heartbeatInterval?: ReturnType<typeof setInterval>;
 }>();
 
 /**
@@ -285,8 +288,19 @@ export async function* executeClaudeQuery(
       };
       emitEvent(approvalEvent);
 
-      // Wait for KYCO to respond
-      const response = await waitForApproval(requestId, toolName, toolInput);
+      // Create heartbeat emitter to keep HTTP connection alive while waiting
+      const emitHeartbeat = () => {
+        const heartbeatEvent: HeartbeatEvent = {
+          type: 'heartbeat',
+          sessionId,
+          timestamp: Date.now(),
+          pendingApprovalRequestId: requestId,
+        };
+        emitEvent(heartbeatEvent);
+      };
+
+      // Wait for KYCO to respond (with heartbeat to keep connection alive)
+      const response = await waitForApproval(requestId, toolName, toolInput, sessionId, emitHeartbeat);
 
       if (response.decision === 'allow') {
         return {
@@ -501,30 +515,42 @@ export async function* executeClaudeQuery(
 
 /**
  * Wait for KYCO to respond to a tool approval request
+ *
+ * IMPORTANT: No timeout! The session stays paused until the user explicitly
+ * decides to allow or deny. This is intentional for security - we never want
+ * to auto-deny and cause Claude to retry in a loop, nor auto-allow dangerous
+ * operations. The user MUST make the decision.
+ *
+ * We send periodic heartbeat events to keep the HTTP connection alive while waiting.
  */
 function waitForApproval(
   requestId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
+  sessionId: string,
+  emitHeartbeat?: () => void,
 ): Promise<ToolApprovalResponse> {
   return new Promise((resolve) => {
+    // Start heartbeat interval to keep HTTP connection alive
+    const heartbeatInterval = emitHeartbeat
+      ? setInterval(() => {
+          emitHeartbeat();
+        }, 15000) // Send heartbeat every 15 seconds
+      : undefined;
+
     pendingApprovals.set(requestId, {
-      resolve,
+      resolve: (response: ToolApprovalResponse) => {
+        // Clear heartbeat when resolved
+        if (heartbeatInterval) {
+          clearInterval(heartbeatInterval);
+        }
+        resolve(response);
+      },
       toolName,
       toolInput,
+      sessionId,
+      heartbeatInterval,
     });
-
-    // Timeout after 5 minutes (user might be AFK)
-    setTimeout(() => {
-      if (pendingApprovals.has(requestId)) {
-        pendingApprovals.delete(requestId);
-        resolve({
-          requestId,
-          decision: 'deny',
-          reason: 'Approval request timed out',
-        });
-      }
-    }, 5 * 60 * 1000);
   });
 }
 
@@ -534,6 +560,24 @@ function waitForApproval(
 export async function interruptClaudeQuery(sessionId: string): Promise<boolean> {
   const q = activeQueries.get(sessionId);
   if (q) {
+    // Clean up any pending approvals for this session first
+    // This prevents heartbeat intervals from running after interrupt
+    for (const [requestId, approval] of pendingApprovals.entries()) {
+      if (approval.sessionId === sessionId) {
+        // Stop heartbeat interval
+        if (approval.heartbeatInterval) {
+          clearInterval(approval.heartbeatInterval);
+        }
+        // Resolve with interrupted status (so the Promise doesn't hang)
+        approval.resolve({
+          requestId,
+          decision: 'deny',
+          reason: 'Session interrupted by user',
+        });
+        pendingApprovals.delete(requestId);
+      }
+    }
+
     await q.interrupt();
     return true;
   }
@@ -558,6 +602,10 @@ export async function setClaudePermissionMode(sessionId: string, mode: Permissio
 export function resolveToolApproval(response: ToolApprovalResponse): boolean {
   const pending = pendingApprovals.get(response.requestId);
   if (pending) {
+    // Stop heartbeat interval (it's also stopped in the resolve callback, but be safe)
+    if (pending.heartbeatInterval) {
+      clearInterval(pending.heartbeatInterval);
+    }
     pending.resolve(response);
     pendingApprovals.delete(response.requestId);
     return true;

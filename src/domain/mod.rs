@@ -8,7 +8,7 @@ mod target;
 mod log_event;
 mod agent_group;
 
-pub use job::{Job, JobId, JobResult, JobStats, JobStatus};
+pub use job::{ChainStepSummary, Job, JobId, JobResult, JobStats, JobStatus};
 pub use comment::{CommentTag, StatusMarker};
 pub use agent::{
     AgentConfig, AgentMode, ClaudeAgentDefinition, CliType, McpServerConfig, ModeTemplate, SdkType,

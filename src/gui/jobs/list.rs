@@ -40,10 +40,14 @@ pub fn render_job_list(
         ui.add_space(4.0);
         ui.separator();
 
-        // Job list
+        // Job list - get available width before ScrollArea
+        let available_width = ui.available_width();
+
         ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                ui.set_min_width(available_width);
+
                 // Sort jobs: Running > Blocked > Queued > Pending > Done/Failed/Merged
                 let mut sorted_jobs = cached_jobs.to_vec();
                 sorted_jobs.sort_by(|a, b| {
@@ -74,6 +78,7 @@ pub fn render_job_list(
                         .fill(bg)
                         .inner_margin(egui::vec2(8.0, 4.0))
                         .show(ui, |ui| {
+                            ui.set_min_width(available_width - 16.0); // Account for margins
                             ui.horizontal(|ui| {
                                 // Status indicator with visual representation for all states
                                 let status_col = status_color(job.status);

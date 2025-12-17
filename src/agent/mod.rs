@@ -41,7 +41,7 @@ mod terminal;
 
 pub use runner::{AgentRunner, AgentResult};
 pub use registry::{AgentRegistry, DEFAULT_TERMINAL_SUFFIX};
-pub use chain::{ChainRunner, ChainResult, ChainStepResult};
+pub use chain::{ChainRunner, ChainResult, ChainStepResult, ChainProgressEvent};
 pub use bridge::{BridgeClient, BridgeProcess, ClaudeBridgeAdapter, CodexBridgeAdapter};
 
 // Legacy exports - deprecated, use bridge adapters instead

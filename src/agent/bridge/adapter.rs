@@ -458,6 +458,11 @@ impl AgentRunner for ClaudeBridgeAdapter {
                         )
                         .await;
                 }
+
+                BridgeEvent::Heartbeat { .. } => {
+                    // Heartbeat events keep the HTTP connection alive during tool approval waits.
+                    // No action needed - just acknowledge receipt.
+                }
             }
         }
 

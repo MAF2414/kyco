@@ -72,6 +72,8 @@ pub struct ChainStepResult {
     pub job_result: Option<JobResult>,
     /// Summary of agent execution (success, errors, file changes), if the step ran.
     pub agent_result: Option<AgentResultSummary>,
+    /// Full response text from the agent (for UI display).
+    pub full_response: Option<String>,
 }
 
 /// Summarized agent result for chain step tracking.
@@ -113,6 +115,21 @@ pub struct ChainResult {
     pub final_state: Option<String>,
     /// Accumulated `"[mode] summary"` entries from all executed steps.
     pub accumulated_summaries: Vec<String>,
+}
+
+/// Progress event sent during chain execution for real-time UI updates.
+#[derive(Debug, Clone)]
+pub struct ChainProgressEvent {
+    /// Current step index (0-based)
+    pub step_index: usize,
+    /// Total number of steps
+    pub total_steps: usize,
+    /// Mode being executed
+    pub mode: String,
+    /// Whether the step is starting (true) or completed (false)
+    pub is_starting: bool,
+    /// Step result (only present when is_starting is false)
+    pub step_result: Option<ChainStepResult>,
 }
 
 /// Executes mode chains by orchestrating sequential agent runs.
@@ -173,6 +190,7 @@ impl<'a> ChainRunner<'a> {
     /// * `chain` - The chain configuration defining steps and behavior
     /// * `initial_job` - The originating job that triggered this chain
     /// * `event_tx` - Channel for streaming log events during execution
+    /// * `progress_tx` - Optional channel for real-time progress updates
     ///
     /// # Returns
     ///
@@ -184,6 +202,7 @@ impl<'a> ChainRunner<'a> {
         chain: &ModeChain,
         initial_job: &Job,
         event_tx: mpsc::Sender<LogEvent>,
+        progress_tx: Option<std::sync::mpsc::Sender<ChainProgressEvent>>,
     ) -> ChainResult {
         let mut step_results = Vec::new();
         let mut last_state: Option<String> = None;
@@ -234,6 +253,7 @@ impl<'a> ChainRunner<'a> {
                     skipped: true,
                     job_result: None,
                     agent_result: None,
+                    full_response: None,
                 });
                 continue;
             }
@@ -256,6 +276,17 @@ impl<'a> ChainRunner<'a> {
                     step.mode
                 )))
                 .await;
+
+            // Send progress event: step starting
+            if let Some(ref tx) = progress_tx {
+                let _ = tx.send(ChainProgressEvent {
+                    step_index,
+                    total_steps: chain.steps.len(),
+                    mode: step.mode.clone(),
+                    is_starting: true,
+                    step_result: None,
+                });
+            }
 
             // Determine what context to pass: full response or just summary
             let previous_context = if chain.pass_full_response {
@@ -304,6 +335,7 @@ impl<'a> ChainRunner<'a> {
                             error: Some(format!("No adapter for agent '{}'", agent_id)),
                             files_changed: 0,
                         }),
+                        full_response: None,
                     });
 
                     if chain.stop_on_failure {
@@ -352,17 +384,31 @@ impl<'a> ChainRunner<'a> {
                         }
                     }
 
-                    step_results.push(ChainStepResult {
+                    let step_result = ChainStepResult {
                         mode: step.mode.clone(),
                         step_index,
                         skipped: false,
                         job_result,
                         agent_result: Some(AgentResultSummary {
                             success: agent_result.success,
-                            error: agent_result.error,
+                            error: agent_result.error.clone(),
                             files_changed: agent_result.changed_files.len(),
                         }),
-                    });
+                        full_response: last_output.clone(),
+                    };
+
+                    // Send progress event: step completed
+                    if let Some(ref tx) = progress_tx {
+                        let _ = tx.send(ChainProgressEvent {
+                            step_index,
+                            total_steps: chain.steps.len(),
+                            mode: step.mode.clone(),
+                            is_starting: false,
+                            step_result: Some(step_result.clone()),
+                        });
+                    }
+
+                    step_results.push(step_result);
 
                     // Track the mode for auto-generating state patterns in the next step
                     last_mode = Some(step.mode.clone());
@@ -399,6 +445,7 @@ impl<'a> ChainRunner<'a> {
                             error: Some(e.to_string()),
                             files_changed: 0,
                         }),
+                        full_response: None,
                     });
 
                     if chain.stop_on_failure {

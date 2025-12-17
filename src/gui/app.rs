@@ -2277,18 +2277,30 @@ impl eframe::App for KycoApp {
                     self.logs.push(LogEvent::system(format!("Job #{} completed", job_id)));
                     // Check if this job is part of a group and update group status
                     self.check_group_completion(job_id);
+                    // Reload diff if this is the currently selected job
+                    if self.selected_job_id == Some(job_id) {
+                        self.load_inline_diff_for_selected();
+                    }
                 }
                 ExecutorEvent::JobFailed(job_id, error) => {
                     self.logs.push(LogEvent::error(format!("Job #{} failed: {}", job_id, error)));
                     // Check if this job is part of a group and update group status
                     self.check_group_completion(job_id);
                 }
-                ExecutorEvent::ChainStepCompleted { job_id: _, step_index, total_steps, mode, state } => {
+                ExecutorEvent::ChainStepCompleted { job_id, step_index, total_steps, mode, state, step_summary } => {
                     let state_str = state.as_deref().unwrap_or("none");
                     self.logs.push(LogEvent::system(format!(
                         "Chain step {}/{} completed: {} (state: {})",
                         step_index + 1, total_steps, mode, state_str
                     )));
+                    // Update chain progress in the job for real-time display
+                    if let Some(job) = self.job_manager.lock().unwrap().get_mut(job_id) {
+                        job.chain_current_step = Some(step_index + 1);
+                        // Add step to history if not already present
+                        if job.chain_step_history.len() <= step_index {
+                            job.chain_step_history.push(step_summary);
+                        }
+                    }
                 }
                 ExecutorEvent::ChainCompleted { job_id: _, chain_name, steps_executed, success } => {
                     if success {
@@ -2326,6 +2338,9 @@ impl eframe::App for KycoApp {
                         ))
                         .for_job(job_id),
                     );
+
+                    // Bring window to front so user notices the permission request
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
             }
         }

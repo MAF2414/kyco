@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::agent::bridge::PermissionMode;
 use crate::config::Config;
-use crate::{AgentGroupId, Job, JobId, JobStatus, LogEvent, SdkType};
+use crate::{AgentGroupId, ChainStepSummary, Job, JobId, JobStatus, LogEvent, SdkType};
 
 use crate::gui::app::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_HIGHLIGHT, BG_SECONDARY, STATUS_QUEUED,
@@ -59,56 +59,74 @@ pub fn render_detail_panel(
 ) -> Option<DetailPanelAction> {
     let mut action: Option<DetailPanelAction> = None;
 
+    // Get the full available size at the start
+    let available_width = ui.available_width();
+    let available_height = ui.available_height();
+
     render_header(ui);
 
     if let Some(job_id) = state.selected_job_id {
         if let Some(job) = state.cached_jobs.iter().find(|j| j.id == job_id) {
-            // First render the fixed-height job info section
-            render_job_info(ui, job);
-            render_result_section(ui, job, state.commonmark_cache);
+            // Wrap everything in a ScrollArea to ensure we never overflow
+            ScrollArea::vertical()
+                .id_salt(("detail_panel_scroll", job.id))
+                .auto_shrink([false, false])
+                .max_height(available_height - 30.0) // Reserve space for header
+                .show(ui, |ui| {
+                    ui.set_min_width(available_width - 16.0);
 
-            ui.add_space(8.0);
+                    // Job info section
+                    render_job_info(ui, job);
+                    render_result_section(ui, job, state.commonmark_cache);
 
-            action = render_action_buttons(
-                ui,
-                job,
-                state.continuation_prompt,
-                state.config,
-                state.permission_mode_overrides,
-            );
+                    ui.add_space(8.0);
 
-            ui.add_space(8.0);
-            ui.separator();
+                    action = render_action_buttons(
+                        ui,
+                        job,
+                        state.continuation_prompt,
+                        state.config,
+                        state.permission_mode_overrides,
+                    );
 
-            // Layout: Prompt (collapsed) -> Diff (main content) -> Activity Log (collapsed)
+                    ui.add_space(8.0);
+                    ui.separator();
 
-            // 1. Prompt Section (collapsed by default)
-            render_prompt_section_collapsible(ui, job, state.config);
+                    // Chain Progress Section (if this is a chain job)
+                    if job.chain_name.is_some() || !job.chain_step_history.is_empty() {
+                        render_chain_progress_section_with_height(ui, job, state.commonmark_cache, available_width);
+                        ui.add_space(4.0);
+                    }
 
-            ui.add_space(4.0);
+                    // Prompt Section (collapsed by default)
+                    render_prompt_section_collapsible(ui, job, state.config);
 
-            // 2. Diff Section (main content - takes remaining space)
-            if let Some(diff_content) = state.diff_content {
-                render_diff_section_expandable(ui, diff_content);
-            } else {
-                // No diff available - show placeholder
-                ui.add_space(8.0);
-                egui::Frame::NONE
-                    .fill(BG_SECONDARY)
-                    .corner_radius(4.0)
-                    .inner_margin(16.0)
-                    .show(ui, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.label(RichText::new("No diff available").color(TEXT_MUTED));
-                            ui.label(RichText::new("Diff will appear here when the job completes with changes").color(TEXT_DIM).small());
-                        });
-                    });
-            }
+                    ui.add_space(4.0);
 
-            ui.add_space(4.0);
+                    // Diff Section
+                    if let Some(diff_content) = state.diff_content {
+                        render_diff_section_inline(ui, diff_content, available_width);
+                    } else {
+                        // No diff available - show placeholder
+                        ui.add_space(8.0);
+                        egui::Frame::NONE
+                            .fill(BG_SECONDARY)
+                            .corner_radius(4.0)
+                            .inner_margin(16.0)
+                            .show(ui, |ui| {
+                                ui.set_min_width(available_width - 48.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(RichText::new("No diff available").color(TEXT_MUTED));
+                                    ui.label(RichText::new("Diff will appear here when the job completes with changes").color(TEXT_DIM).small());
+                                });
+                            });
+                    }
 
-            // 3. Activity Log Section (collapsed by default)
-            render_activity_log_collapsible(ui, job, state.logs, state.log_scroll_to_bottom);
+                    ui.add_space(4.0);
+
+                    // Activity Log Section (collapsed by default)
+                    render_activity_log_inline(ui, job, state.logs, state.log_scroll_to_bottom, available_width);
+                });
         } else {
             ui.label(RichText::new("Job not found").color(TEXT_MUTED));
         }
@@ -621,82 +639,247 @@ fn render_prompt_section_collapsible(ui: &mut egui::Ui, job: &Job, config: &Conf
     });
 }
 
-/// Render diff section that expands to fill available space
-fn render_diff_section_expandable(ui: &mut egui::Ui, diff_content: &str) {
+/// Render diff section inline (no inner scroll - parent handles scrolling)
+fn render_diff_section_inline(ui: &mut egui::Ui, diff_content: &str, available_width: f32) {
     // Count changes for header
     let added = diff_content.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
     let removed = diff_content.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
 
-    ui.horizontal(|ui| {
-        ui.label(RichText::new("DIFF").monospace().color(TEXT_PRIMARY));
-        ui.add_space(8.0);
-        if added > 0 {
-            ui.label(RichText::new(format!("+{}", added)).color(ACCENT_GREEN).small());
-        }
-        if removed > 0 {
-            ui.label(RichText::new(format!("-{}", removed)).color(ACCENT_RED).small());
-        }
-    });
-    ui.add_space(4.0);
-
-    // Diff takes all remaining space
-    egui::Frame::NONE
-        .fill(BG_SECONDARY)
-        .corner_radius(4.0)
-        .inner_margin(4.0)
-        .show(ui, |ui| {
-            ScrollArea::vertical()
-                .id_salt("diff_scroll")
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    render_diff_content(ui, diff_content);
-                });
+    egui::CollapsingHeader::new(
+        RichText::new("DIFF").monospace().color(TEXT_PRIMARY)
+    )
+    .id_salt("diff_section")
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.horizontal(|ui| {
+            if added > 0 {
+                ui.label(RichText::new(format!("+{}", added)).color(ACCENT_GREEN).small());
+            }
+            if removed > 0 {
+                ui.label(RichText::new(format!("-{}", removed)).color(ACCENT_RED).small());
+            }
         });
+        ui.add_space(4.0);
+
+        egui::Frame::NONE
+            .fill(BG_SECONDARY)
+            .corner_radius(4.0)
+            .inner_margin(4.0)
+            .show(ui, |ui| {
+                ui.set_min_width(available_width - 24.0);
+                render_diff_content(ui, diff_content);
+            });
+    });
 }
 
-/// Render activity log section with collapsible header (collapsed by default)
-fn render_activity_log_collapsible(ui: &mut egui::Ui, job: &Job, logs: &[LogEvent], scroll_to_bottom: bool) {
+/// Render activity log section inline (no inner scroll - parent handles scrolling)
+fn render_activity_log_inline(ui: &mut egui::Ui, job: &Job, logs: &[LogEvent], _scroll_to_bottom: bool, available_width: f32) {
     let log_count = job.log_events.len() + logs.iter().filter(|e| e.job_id.is_none() || e.job_id == Some(job.id)).count();
 
+    // Use stable id_salt based on job ID to prevent state reset when log count changes
     egui::CollapsingHeader::new(
         RichText::new(format!("ACTIVITY LOG ({})", log_count))
             .monospace()
             .color(TEXT_MUTED)
     )
+    .id_salt(("activity_log", job.id))
     .default_open(false)
     .show(ui, |ui| {
-        ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .max_height(200.0)
-            .stick_to_bottom(scroll_to_bottom)
-            .show(ui, |ui| {
-                // Show job-specific logs first
-                for event in &job.log_events {
-                    let color = log_color(&event.kind);
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new(log_kind_label(&event.kind))
-                                .monospace()
-                                .color(TEXT_MUTED),
-                        );
-                        ui.label(RichText::new(&event.summary).color(color));
-                    });
-                }
+        ui.set_min_width(available_width - 16.0);
 
-                // Then show global logs filtered by job_id
-                for event in logs {
-                    if event.job_id.is_none() || event.job_id == Some(job.id) {
-                        let color = log_color(&event.kind);
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(log_kind_label(&event.kind))
-                                    .monospace()
-                                    .color(TEXT_MUTED),
-                            );
-                            ui.label(RichText::new(&event.summary).color(color));
-                        });
-                    }
+        // Show job-specific logs first
+        for event in &job.log_events {
+            let color = log_color(&event.kind);
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(log_kind_label(&event.kind))
+                        .monospace()
+                        .color(TEXT_MUTED),
+                );
+                ui.label(RichText::new(&event.summary).color(color));
+            });
+        }
+
+        // Then show global logs filtered by job_id
+        for event in logs {
+            if event.job_id.is_none() || event.job_id == Some(job.id) {
+                let color = log_color(&event.kind);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(log_kind_label(&event.kind))
+                            .monospace()
+                            .color(TEXT_MUTED),
+                    );
+                    ui.label(RichText::new(&event.summary).color(color));
+                });
+            }
+        }
+    });
+}
+
+// ============================================================================
+// Chain Progress Section
+// ============================================================================
+
+/// Render chain progress section inline (no inner scroll - parent handles scrolling)
+fn render_chain_progress_section_with_height(
+    ui: &mut egui::Ui,
+    job: &Job,
+    commonmark_cache: &mut egui_commonmark::CommonMarkCache,
+    available_width: f32,
+) {
+    let chain_name = job.chain_name.as_deref().unwrap_or("Chain");
+    let total_steps = job.chain_total_steps.unwrap_or(job.chain_step_history.len());
+    let current_step = job.chain_current_step.unwrap_or(0);
+    let completed_steps = job.chain_step_history.iter().filter(|s| !s.skipped && s.success).count();
+    let is_running = job.status == JobStatus::Running;
+
+    // Header with chain name and progress
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(format!("⛓ {}", chain_name)).monospace().color(ACCENT_CYAN));
+        ui.add_space(8.0);
+
+        // Progress text
+        if is_running && total_steps > 0 {
+            ui.label(
+                RichText::new(format!("Step {}/{}", current_step + 1, total_steps))
+                    .color(STATUS_RUNNING)
+                    .small(),
+            );
+        } else if !job.chain_step_history.is_empty() {
+            let status_color = if job.status == JobStatus::Done {
+                ACCENT_GREEN
+            } else if job.status == JobStatus::Failed {
+                ACCENT_RED
+            } else {
+                TEXT_MUTED
+            };
+            ui.label(
+                RichText::new(format!("{}/{} completed", completed_steps, total_steps))
+                    .color(status_color)
+                    .small(),
+            );
+        }
+    });
+
+    ui.add_space(4.0);
+
+    // Progress bar - use full width
+    if total_steps > 0 {
+        let progress = if is_running {
+            current_step as f32 / total_steps as f32
+        } else {
+            completed_steps as f32 / total_steps as f32
+        };
+
+        let progress_bar = egui::ProgressBar::new(progress)
+            .fill(if is_running { STATUS_RUNNING } else if job.status == JobStatus::Done { ACCENT_GREEN } else { ACCENT_RED })
+            .animate(is_running);
+        ui.add_sized([available_width - 16.0, 8.0], progress_bar);
+    }
+
+    ui.add_space(8.0);
+
+    // Step history (collapsible, no inner scroll)
+    if !job.chain_step_history.is_empty() {
+        egui::CollapsingHeader::new(
+            RichText::new(format!("CHAIN STEPS ({})", job.chain_step_history.len()))
+                .monospace()
+                .color(TEXT_MUTED),
+        )
+        .id_salt(("chain_steps", job.id))
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.set_min_width(available_width - 16.0);
+            for step in &job.chain_step_history {
+                render_chain_step_full_width(ui, step, job.id, commonmark_cache, available_width - 24.0);
+                ui.add_space(4.0);
+            }
+        });
+    }
+}
+
+/// Render a single chain step with explicit width (no inner scroll)
+fn render_chain_step_full_width(
+    ui: &mut egui::Ui,
+    step: &ChainStepSummary,
+    job_id: u64,
+    commonmark_cache: &mut egui_commonmark::CommonMarkCache,
+    width: f32,
+) {
+    let (status_icon, status_color) = if step.skipped {
+        ("○", TEXT_MUTED)
+    } else if step.success {
+        ("✓", ACCENT_GREEN)
+    } else {
+        ("✗", ACCENT_RED)
+    };
+
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .corner_radius(4.0)
+        .inner_margin(8.0)
+        .show(ui, |ui| {
+            ui.set_min_width(width);
+
+            // Step header
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(status_icon).color(status_color));
+                ui.label(
+                    RichText::new(format!("{}. {}", step.step_index + 1, step.mode))
+                        .monospace()
+                        .color(TEXT_PRIMARY),
+                );
+                if step.skipped {
+                    ui.label(RichText::new("(skipped)").color(TEXT_MUTED).small());
+                } else if step.files_changed > 0 {
+                    ui.label(
+                        RichText::new(format!("{} files", step.files_changed))
+                            .color(TEXT_MUTED)
+                            .small(),
+                    );
                 }
             });
-    });
+
+            // Title if available
+            if let Some(title) = &step.title {
+                ui.label(RichText::new(title).color(TEXT_DIM));
+            }
+
+            // Error if failed
+            if let Some(error) = &step.error {
+                ui.label(RichText::new(format!("Error: {}", error)).color(ACCENT_RED).small());
+            }
+
+            // Summary (short version)
+            if let Some(summary) = &step.summary {
+                ui.add_space(4.0);
+                ui.label(RichText::new("Summary:").small().color(TEXT_MUTED));
+                // Truncate long summaries
+                let truncated = if summary.len() > 200 {
+                    format!("{}...", &summary[..200])
+                } else {
+                    summary.clone()
+                };
+                ui.label(RichText::new(truncated).color(TEXT_DIM).small());
+            }
+
+            // Full response (collapsible, no inner scroll)
+            if let Some(response) = &step.full_response {
+                ui.add_space(4.0);
+                egui::CollapsingHeader::new(
+                    RichText::new("Full Response").small().color(TEXT_MUTED),
+                )
+                .id_salt(("step_response_fw", job_id, step.step_index))
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.set_min_width(width - 16.0);
+                    ui.scope(|ui| {
+                        apply_markdown_theme(ui);
+                        egui_commonmark::CommonMarkViewer::new()
+                            .show(ui, commonmark_cache, response);
+                    });
+                });
+            }
+        });
 }

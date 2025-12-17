@@ -43,6 +43,29 @@ pub struct JobStats {
     pub duration: Option<Duration>,
 }
 
+/// Summary of a completed chain step (for UI display)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainStepSummary {
+    /// Step index (0-based)
+    pub step_index: usize,
+    /// Mode that was executed
+    pub mode: String,
+    /// Whether the step was skipped due to trigger conditions
+    pub skipped: bool,
+    /// Whether the step succeeded
+    pub success: bool,
+    /// Short title from the step result
+    pub title: Option<String>,
+    /// Summary text (for context passing display)
+    pub summary: Option<String>,
+    /// Full response text from the agent
+    pub full_response: Option<String>,
+    /// Error message if the step failed
+    pub error: Option<String>,
+    /// Number of files changed by this step
+    pub files_changed: usize,
+}
+
 impl JobResult {
     /// Parse a YAML summary block from agent output
     ///
@@ -477,6 +500,22 @@ pub struct Job {
     /// The file path that is causing the block
     #[serde(default)]
     pub blocked_file: Option<PathBuf>,
+
+    /// Chain step history (for chain jobs - shows progress and intermediate results)
+    #[serde(default)]
+    pub chain_step_history: Vec<ChainStepSummary>,
+
+    /// Current chain step index (0-based, None if not a chain job or not started)
+    #[serde(default)]
+    pub chain_current_step: Option<usize>,
+
+    /// Total number of steps in the chain (None if not a chain job)
+    #[serde(default)]
+    pub chain_total_steps: Option<usize>,
+
+    /// Name of the chain being executed (None if not a chain job)
+    #[serde(default)]
+    pub chain_name: Option<String>,
 }
 
 impl Job {
@@ -528,6 +567,10 @@ impl Job {
             bridge_session_id: None,
             blocked_by: None,
             blocked_file: None,
+            chain_step_history: Vec::new(),
+            chain_current_step: None,
+            chain_total_steps: None,
+            chain_name: None,
         }
     }
 

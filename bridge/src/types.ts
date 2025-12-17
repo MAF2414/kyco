@@ -289,6 +289,13 @@ export interface HookPreToolUseEvent extends BaseEvent {
   transcriptPath?: string;
 }
 
+/** Heartbeat event to keep HTTP connection alive during tool approval waits */
+export interface HeartbeatEvent extends BaseEvent {
+  type: 'heartbeat';
+  /** The pending approval request ID this heartbeat is for */
+  pendingApprovalRequestId?: string;
+}
+
 /** Union of all event types */
 export type BridgeEvent =
   | SessionStartEvent
@@ -298,7 +305,8 @@ export type BridgeEvent =
   | ErrorEvent
   | SessionCompleteEvent
   | ToolApprovalNeededEvent
-  | HookPreToolUseEvent;
+  | HookPreToolUseEvent
+  | HeartbeatEvent;
 
 // ============================================================================
 // Session Store Types

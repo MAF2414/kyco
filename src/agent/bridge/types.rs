@@ -336,6 +336,15 @@ pub enum BridgeEvent {
         #[serde(rename = "transcriptPath")]
         transcript_path: Option<String>,
     },
+
+    /// Heartbeat event to keep HTTP connection alive during tool approval waits
+    Heartbeat {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        timestamp: u64,
+        #[serde(rename = "pendingApprovalRequestId")]
+        pending_approval_request_id: Option<String>,
+    },
 }
 
 /// Token usage statistics
