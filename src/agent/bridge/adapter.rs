@@ -594,6 +594,13 @@ impl CodexBridgeAdapter {
             .replace("{scope_type}", "file")
             .replace("{ide_context}", &ide_context);
 
+        if let Some(system_prompt) = template.system_prompt.as_deref() {
+            let system_prompt = system_prompt.trim();
+            if !system_prompt.is_empty() {
+                prompt = format!("{}\n\n{}", system_prompt, prompt);
+            }
+        }
+
         // Add explicit worktree instruction to the prompt for Codex (no separate system prompt)
         if let Some(wt_path) = &job.git_worktree_path {
             prompt.push_str(&format!(
@@ -613,6 +620,26 @@ impl CodexBridgeAdapter {
                 prompt.push_str("\n\n");
                 prompt.push_str(schema);
             }
+        }
+
+        // Add output state instructions for chain workflows.
+        // Priority: 1) custom state_prompt, 2) auto-generate from output_states.
+        if let Some(ref state_prompt) = template.state_prompt {
+            if !state_prompt.trim().is_empty() {
+                prompt.push_str("\n\n");
+                prompt.push_str(state_prompt);
+            }
+        } else if !template.output_states.is_empty() {
+            prompt.push_str("\n\n## Output State\n");
+            prompt.push_str(
+                "When you complete this task, indicate the outcome by stating one of the following:\n",
+            );
+            for state in &template.output_states {
+                prompt.push_str(&format!("- state: {}\n", state));
+            }
+            prompt.push_str("\nExample: \"state: ");
+            prompt.push_str(&template.output_states[0]);
+            prompt.push_str("\" (at the end of your response)");
         }
 
         prompt
@@ -834,6 +861,53 @@ impl AgentRunner for CodexBridgeAdapter {
 
     fn is_available(&self) -> bool {
         self.client.health_check().is_ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CodexBridgeAdapter;
+    use crate::{AgentConfig, Job, ScopeDefinition};
+    use std::path::{Path, PathBuf};
+
+    fn create_test_job(
+        mode: &str,
+        description: Option<&str>,
+        source_file: &str,
+        source_line: usize,
+    ) -> Job {
+        let target = format!("{}:{}", source_file, source_line);
+        Job::new(
+            1,
+            mode.to_string(),
+            ScopeDefinition::file(PathBuf::from(source_file)),
+            target,
+            description.map(|s| s.to_string()),
+            "codex".to_string(),
+            PathBuf::from(source_file),
+            source_line,
+            None,
+        )
+    }
+
+    #[test]
+    fn codex_build_prompt_includes_mode_system_prompt() {
+        let adapter = CodexBridgeAdapter::new();
+        let config = AgentConfig::codex_default();
+        let job = create_test_job("refactor", Some("fix the bug"), "src/main.rs", 42);
+
+        let prompt = adapter.build_prompt(&job, &config, Path::new("."));
+
+        assert!(
+            prompt.starts_with("You are running in KYCo 'refactor' mode."),
+            "Expected mode system prompt prefix, got: {}",
+            prompt
+        );
+        assert!(
+            prompt.contains("Refactor the file"),
+            "Expected user prompt to follow system prompt, got: {}",
+            prompt
+        );
     }
 }
 
