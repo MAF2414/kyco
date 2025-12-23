@@ -127,7 +127,11 @@ pub fn render_diff_popup(ctx: &egui::Context, diff_state: &DiffState) -> bool {
         .resizable(true)
         .default_size(window_size)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .frame(Frame::window(&ctx.style()).fill(BG_PRIMARY).corner_radius(8.0))
+        .frame(
+            Frame::window(&ctx.style())
+                .fill(BG_PRIMARY)
+                .corner_radius(8.0),
+        )
         .show(ctx, |ui| {
             // File header
             if let Some(path) = &diff_state.file_path {
@@ -284,7 +288,12 @@ fn render_hunk_header(ui: &mut egui::Ui, line: &str) {
         .inner_margin(egui::vec2(8.0, 4.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(line).monospace().color(ACCENT_CYAN).size(12.0));
+                ui.label(
+                    RichText::new(line)
+                        .monospace()
+                        .color(ACCENT_CYAN)
+                        .size(12.0),
+                );
             });
         });
     ui.add_space(2.0);
@@ -335,10 +344,20 @@ fn render_diff_line(
                 ui.label(RichText::new("│").color(BG_HIGHLIGHT).size(12.0));
 
                 // Prefix (+, -, space)
-                ui.label(RichText::new(prefix).monospace().color(text_color).size(12.0));
+                ui.label(
+                    RichText::new(prefix)
+                        .monospace()
+                        .color(text_color)
+                        .size(12.0),
+                );
 
                 // Line content
-                ui.label(RichText::new(content).monospace().color(text_color).size(12.0));
+                ui.label(
+                    RichText::new(content)
+                        .monospace()
+                        .color(text_color)
+                        .size(12.0),
+                );
             });
         });
 }

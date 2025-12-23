@@ -224,7 +224,8 @@ fn vad_listener_thread(
                     let _ = event_tx.send(VadEvent::SpeechStarted);
                 }
                 Err(e) => {
-                    let _ = event_tx.send(VadEvent::Error(format!("Failed to start recording: {}", e)));
+                    let _ =
+                        event_tx.send(VadEvent::Error(format!("Failed to start recording: {}", e)));
                     state = VadState::Idle;
                 }
             }

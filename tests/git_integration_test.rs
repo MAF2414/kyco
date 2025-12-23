@@ -69,21 +69,31 @@ fn test_worktree_creation_and_removal() {
     let job_id: u64 = 1;
 
     // Create worktree
-    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager
+        .create_worktree(job_id)
+        .expect("Failed to create worktree");
 
     // Verify worktree exists
     assert!(worktree.path.exists(), "Worktree directory should exist");
-    assert!(worktree.path.join("test.txt").exists(), "test.txt should exist in worktree");
+    assert!(
+        worktree.path.join("test.txt").exists(),
+        "test.txt should exist in worktree"
+    );
 
     // Verify content is the same
     let content = fs::read_to_string(worktree.path.join("test.txt")).expect("Failed to read file");
     assert_eq!(content, "initial content\n");
 
     // Remove worktree
-    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+    manager
+        .remove_worktree(job_id)
+        .expect("Failed to remove worktree");
 
     // Verify worktree is gone
-    assert!(!worktree.path.exists(), "Worktree directory should be removed");
+    assert!(
+        !worktree.path.exists(),
+        "Worktree directory should be removed"
+    );
 }
 
 #[test]
@@ -94,14 +104,17 @@ fn test_diff_generation() {
     let job_id: u64 = 2;
 
     // Create worktree
-    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager
+        .create_worktree(job_id)
+        .expect("Failed to create worktree");
 
     // Modify file in worktree
-    fs::write(worktree.path.join("test.txt"), "modified content\n")
-        .expect("Failed to modify file");
+    fs::write(worktree.path.join("test.txt"), "modified content\n").expect("Failed to modify file");
 
     // Check changed files
-    let changed = manager.changed_files(&worktree.path).expect("Failed to get changed files");
+    let changed = manager
+        .changed_files(&worktree.path)
+        .expect("Failed to get changed files");
     assert_eq!(changed.len(), 1, "Should have 1 changed file");
     assert_eq!(changed[0], Path::new("test.txt"));
 
@@ -109,18 +122,32 @@ fn test_diff_generation() {
     let diff = manager
         .diff(&worktree.path, Some(&worktree.base_branch))
         .expect("Failed to get diff");
-    assert!(diff.contains("-initial content"), "Diff should contain removed line");
-    assert!(diff.contains("+modified content"), "Diff should contain added line");
+    assert!(
+        diff.contains("-initial content"),
+        "Diff should contain removed line"
+    );
+    assert!(
+        diff.contains("+modified content"),
+        "Diff should contain added line"
+    );
 
     // Get file-specific diff
     let file_diff = manager
         .diff_file(&worktree.path, Path::new("test.txt"))
         .expect("Failed to get file diff");
-    assert!(file_diff.contains("-initial content"), "File diff should contain removed line");
-    assert!(file_diff.contains("+modified content"), "File diff should contain added line");
+    assert!(
+        file_diff.contains("-initial content"),
+        "File diff should contain removed line"
+    );
+    assert!(
+        file_diff.contains("+modified content"),
+        "File diff should contain added line"
+    );
 
     // Cleanup
-    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+    manager
+        .remove_worktree(job_id)
+        .expect("Failed to remove worktree");
 }
 
 #[test]
@@ -131,11 +158,12 @@ fn test_apply_changes() {
     let job_id: u64 = 3;
 
     // Create worktree
-    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager
+        .create_worktree(job_id)
+        .expect("Failed to create worktree");
 
     // Modify file in worktree
-    fs::write(worktree.path.join("test.txt"), "applied content\n")
-        .expect("Failed to modify file");
+    fs::write(worktree.path.join("test.txt"), "applied content\n").expect("Failed to modify file");
 
     // Apply changes to main repo
     manager
@@ -143,12 +171,17 @@ fn test_apply_changes() {
         .expect("Failed to apply changes");
 
     // Verify changes were applied to main repo
-    let main_content = fs::read_to_string(temp_dir.path().join("test.txt"))
-        .expect("Failed to read main file");
-    assert_eq!(main_content, "applied content\n", "Changes should be applied to main repo");
+    let main_content =
+        fs::read_to_string(temp_dir.path().join("test.txt")).expect("Failed to read main file");
+    assert_eq!(
+        main_content, "applied content\n",
+        "Changes should be applied to main repo"
+    );
 
     // Cleanup
-    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+    manager
+        .remove_worktree(job_id)
+        .expect("Failed to remove worktree");
 }
 
 #[test]
@@ -157,11 +190,12 @@ fn test_apply_changes_uses_commit_message_for_auto_commit() {
     let manager = GitManager::new(temp_dir.path()).expect("Failed to create GitManager");
 
     let job_id: u64 = 30;
-    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager
+        .create_worktree(job_id)
+        .expect("Failed to create worktree");
 
     // Modify file in worktree but do NOT commit.
-    fs::write(worktree.path.join("test.txt"), "applied content\n")
-        .expect("Failed to modify file");
+    fs::write(worktree.path.join("test.txt"), "applied content\n").expect("Failed to modify file");
 
     let message = CommitMessage {
         subject: "Custom commit subject".to_string(),
@@ -183,7 +217,9 @@ fn test_apply_changes_uses_commit_message_for_auto_commit() {
     assert!(msg.contains("Custom commit subject"));
     assert!(msg.contains("Custom commit body"));
 
-    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+    manager
+        .remove_worktree(job_id)
+        .expect("Failed to remove worktree");
 }
 
 #[test]
@@ -194,7 +230,9 @@ fn test_new_file_in_worktree() {
     let job_id: u64 = 4;
 
     // Create worktree
-    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager
+        .create_worktree(job_id)
+        .expect("Failed to create worktree");
 
     // Create new file in worktree
     fs::write(worktree.path.join("new_file.txt"), "new file content\n")
@@ -209,7 +247,9 @@ fn test_new_file_in_worktree() {
     assert!(diff.is_empty(), "Untracked files should not appear in diff");
 
     // Cleanup
-    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+    manager
+        .remove_worktree(job_id)
+        .expect("Failed to remove worktree");
 }
 
 #[test]
@@ -220,7 +260,9 @@ fn test_new_file_staged_in_worktree() {
     let job_id: u64 = 5;
 
     // Create worktree
-    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager
+        .create_worktree(job_id)
+        .expect("Failed to create worktree");
 
     // Create new file in worktree
     fs::write(worktree.path.join("new_file.txt"), "new file content\n")
@@ -241,10 +283,15 @@ fn test_new_file_staged_in_worktree() {
         .expect("Failed to get staged diff");
 
     let staged_files = String::from_utf8_lossy(&output.stdout);
-    assert!(staged_files.contains("new_file.txt"), "Staged file should appear in cached diff");
+    assert!(
+        staged_files.contains("new_file.txt"),
+        "Staged file should appear in cached diff"
+    );
 
     // Cleanup
-    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+    manager
+        .remove_worktree(job_id)
+        .expect("Failed to remove worktree");
 }
 
 #[test]
@@ -255,11 +302,16 @@ fn test_apply_new_file_from_worktree() {
     let job_id: u64 = 6;
 
     // Create worktree
-    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager
+        .create_worktree(job_id)
+        .expect("Failed to create worktree");
 
     // Create a new file in the worktree
-    fs::write(worktree.path.join("brand_new_file.txt"), "brand new content\n")
-        .expect("Failed to create new file");
+    fs::write(
+        worktree.path.join("brand_new_file.txt"),
+        "brand new content\n",
+    )
+    .expect("Failed to create new file");
 
     // Verify new file is in changed_files list
     let changed = manager
@@ -277,13 +329,18 @@ fn test_apply_new_file_from_worktree() {
 
     // Verify new file exists in main repo
     let main_file = temp_dir.path().join("brand_new_file.txt");
-    assert!(main_file.exists(), "New file should exist in main repo after apply");
+    assert!(
+        main_file.exists(),
+        "New file should exist in main repo after apply"
+    );
 
     let content = fs::read_to_string(&main_file).expect("Failed to read new file in main repo");
     assert_eq!(content, "brand new content\n");
 
     // Cleanup
-    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+    manager
+        .remove_worktree(job_id)
+        .expect("Failed to remove worktree");
 }
 
 #[test]
@@ -294,7 +351,9 @@ fn test_apply_new_file_in_subdirectory() {
     let job_id: u64 = 7;
 
     // Create worktree
-    let worktree = manager.create_worktree(job_id).expect("Failed to create worktree");
+    let worktree = manager
+        .create_worktree(job_id)
+        .expect("Failed to create worktree");
 
     // Create a new file in a subdirectory in the worktree
     let subdir = worktree.path.join("subdir");
@@ -309,13 +368,18 @@ fn test_apply_new_file_in_subdirectory() {
 
     // Verify new file exists in main repo with directory structure
     let main_file = temp_dir.path().join("subdir").join("nested_file.txt");
-    assert!(main_file.exists(), "Nested file should exist in main repo after apply");
+    assert!(
+        main_file.exists(),
+        "Nested file should exist in main repo after apply"
+    );
 
     let content = fs::read_to_string(&main_file).expect("Failed to read nested file");
     assert_eq!(content, "nested content\n");
 
     // Cleanup
-    manager.remove_worktree(job_id).expect("Failed to remove worktree");
+    manager
+        .remove_worktree(job_id)
+        .expect("Failed to remove worktree");
 }
 
 #[test]
@@ -324,16 +388,22 @@ fn test_has_uncommitted_changes() {
     let manager = GitManager::new(temp_dir.path()).expect("Failed to create GitManager");
 
     // Initially, no uncommitted changes
-    let has_changes = manager.has_uncommitted_changes().expect("Failed to check uncommitted changes");
+    let has_changes = manager
+        .has_uncommitted_changes()
+        .expect("Failed to check uncommitted changes");
     assert!(!has_changes, "Should have no uncommitted changes initially");
 
     // Modify a file
-    fs::write(temp_dir.path().join("test.txt"), "changed\n")
-        .expect("Failed to modify file");
+    fs::write(temp_dir.path().join("test.txt"), "changed\n").expect("Failed to modify file");
 
     // Now should have uncommitted changes
-    let has_changes = manager.has_uncommitted_changes().expect("Failed to check uncommitted changes");
-    assert!(has_changes, "Should have uncommitted changes after modification");
+    let has_changes = manager
+        .has_uncommitted_changes()
+        .expect("Failed to check uncommitted changes");
+    assert!(
+        has_changes,
+        "Should have uncommitted changes after modification"
+    );
 }
 
 // ============================================================================
@@ -345,10 +415,17 @@ fn test_git_manager_new_with_valid_repo() {
     let temp_dir = create_test_repo();
     let manager = GitManager::new(temp_dir.path());
 
-    assert!(manager.is_ok(), "GitManager::new should succeed for a valid git repository");
+    assert!(
+        manager.is_ok(),
+        "GitManager::new should succeed for a valid git repository"
+    );
 
     let manager = manager.unwrap();
-    assert_eq!(manager.root(), temp_dir.path(), "Root path should match the provided path");
+    assert_eq!(
+        manager.root(),
+        temp_dir.path(),
+        "Root path should match the provided path"
+    );
 }
 
 #[test]
@@ -358,7 +435,10 @@ fn test_git_manager_new_with_non_git_directory() {
 
     let result = GitManager::new(temp_dir.path());
 
-    assert!(result.is_err(), "GitManager::new should fail for non-git directory");
+    assert!(
+        result.is_err(),
+        "GitManager::new should fail for non-git directory"
+    );
     let err_msg = result.err().unwrap().to_string();
     assert!(
         err_msg.contains("Not a git repository"),
@@ -373,7 +453,10 @@ fn test_git_manager_new_with_nonexistent_path() {
 
     let result = GitManager::new(&nonexistent_path);
 
-    assert!(result.is_err(), "GitManager::new should fail for nonexistent path");
+    assert!(
+        result.is_err(),
+        "GitManager::new should fail for nonexistent path"
+    );
     let err_msg = result.err().unwrap().to_string();
     assert!(
         err_msg.contains("Not a git repository"),
@@ -428,7 +511,10 @@ fn test_git_manager_new_with_bare_repo() {
     // Bare repos don't have .git directory, so this should fail
     let result = GitManager::new(repo_path);
 
-    assert!(result.is_err(), "GitManager::new should fail for bare repositories (no .git directory)");
+    assert!(
+        result.is_err(),
+        "GitManager::new should fail for bare repositories (no .git directory)"
+    );
 }
 
 #[test]
@@ -478,8 +564,14 @@ fn test_git_manager_new_with_nested_git_repo() {
     let parent_manager = GitManager::new(temp_dir.path());
     let nested_manager = GitManager::new(&nested_path);
 
-    assert!(parent_manager.is_ok(), "Should create manager for parent repo");
-    assert!(nested_manager.is_ok(), "Should create manager for nested repo");
+    assert!(
+        parent_manager.is_ok(),
+        "Should create manager for parent repo"
+    );
+    assert!(
+        nested_manager.is_ok(),
+        "Should create manager for nested repo"
+    );
 
     // Verify they have different root paths
     let parent_manager = parent_manager.unwrap();
@@ -497,7 +589,10 @@ fn test_git_manager_new_preserves_trailing_slash() {
     let manager = GitManager::new(path_with_slash);
 
     // Should still succeed even with trailing slash
-    assert!(manager.is_ok(), "GitManager::new should handle paths with trailing slash");
+    assert!(
+        manager.is_ok(),
+        "GitManager::new should handle paths with trailing slash"
+    );
 }
 
 #[test]
@@ -507,7 +602,11 @@ fn test_git_manager_root_returns_correct_path() {
 
     // The root() method should return the exact path we passed in
     let root = manager.root();
-    assert_eq!(root, temp_dir.path(), "root() should return the path passed to new()");
+    assert_eq!(
+        root,
+        temp_dir.path(),
+        "root() should return the path passed to new()"
+    );
 }
 
 #[test]
@@ -525,11 +624,17 @@ fn test_git_manager_new_with_empty_repo_no_commits() {
     // GitManager::new should still succeed - the check for commits is in create_worktree
     let manager = GitManager::new(repo_path);
 
-    assert!(manager.is_ok(), "GitManager::new should succeed even without commits");
+    assert!(
+        manager.is_ok(),
+        "GitManager::new should succeed even without commits"
+    );
 
     // But has_commits should return false
     let manager = manager.unwrap();
-    assert!(!manager.has_commits(), "has_commits should return false for empty repo");
+    assert!(
+        !manager.has_commits(),
+        "has_commits should return false for empty repo"
+    );
 }
 
 #[test]
@@ -537,7 +642,10 @@ fn test_git_manager_has_commits_returns_true_for_repo_with_commits() {
     let temp_dir = create_test_repo();
     let manager = GitManager::new(temp_dir.path()).expect("Failed to create GitManager");
 
-    assert!(manager.has_commits(), "has_commits should return true for repo with commits");
+    assert!(
+        manager.has_commits(),
+        "has_commits should return true for repo with commits"
+    );
 }
 
 #[test]
@@ -571,5 +679,8 @@ fn test_git_manager_head_sha_fails_for_empty_repo() {
 
     let result = manager.head_sha();
 
-    assert!(result.is_err(), "head_sha should fail for repo without commits");
+    assert!(
+        result.is_err(),
+        "head_sha should fail for repo without commits"
+    );
 }

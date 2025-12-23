@@ -6,17 +6,21 @@
 //! - Selection popup for IDE extension input
 //! - Controls for job management
 
+use super::detail_panel::ActivityLogFilters;
 use super::diff::DiffState;
 use super::executor::ExecutorEvent;
-use super::groups::{render_comparison_popup, ComparisonAction, ComparisonState};
+use super::groups::{ComparisonAction, ComparisonState, render_comparison_popup};
 use super::http_server::{BatchFile, BatchRequest, SelectionRequest};
 use super::jobs;
-use super::permission::{render_permission_popup, PermissionAction, PermissionPopupState, PermissionRequest};
+use super::permission::{
+    PermissionAction, PermissionPopupState, PermissionRequest, render_permission_popup,
+};
 use super::selection::autocomplete::parse_input_multi;
 use super::selection::{AutocompleteState, SelectionContext};
 use super::update::{UpdateChecker, UpdateStatus};
 use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager, VoiceState};
 use crate::agent::bridge::{BridgeClient, PermissionMode, ToolApprovalResponse, ToolDecision};
+use crate::agent::TerminalSession;
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
 use crate::workspace::{WorkspaceId, WorkspaceRegistry};
@@ -27,6 +31,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 
 /// Minimal default config for GUI initialization
@@ -53,6 +58,42 @@ prompt = "Fix the bug or issue in this code."
 [mode.test]
 aliases = ["t"]
 prompt = "Write comprehensive unit tests for this code."
+"#;
+
+const ORCHESTRATOR_SYSTEM_PROMPT: &str = r#"
+You are an interactive KYCo Orchestrator running in the user's workspace.
+
+Your job is to help the user run KYCo jobs (modes/chains) safely and iteratively.
+
+Rules
+- Do NOT directly edit repository files yourself. Use KYCo jobs so the user can review diffs in the KYCo GUI.
+- Use the `Bash` tool to run `kyco ...` commands.
+- Before starting a large batch of jobs, confirm the plan with the user.
+- Before changing `.kyco/config.toml` (mode CRUD), ask for explicit confirmation.
+
+Discovery
+- List available agents: `kyco agent list`
+- List available modes: `kyco mode list`
+- List available chains: `kyco chain list`
+
+Job lifecycle (GUI must be running)
+- Start a job (creates + queues by default):
+  `kyco job start --file <path> --mode <mode_or_chain> --prompt "<what to do>" [--agent <id>] [--agents a,b] [--force-worktree]`
+- Wait until done/failed/rejected/merged:
+  `kyco job wait <job_id>`
+- Fetch output:
+  - Full output: `kyco job output <job_id>`
+  - Summary only: `kyco job output <job_id> --summary`
+  - State only: `kyco job output <job_id> --state`
+- Inspect job JSON: `kyco job get <job_id> --json`
+
+Mode CRUD (only with explicit user confirmation)
+- Create/update mode: `kyco mode set <name> [--prompt ...] [--system-prompt ...] [--aliases ...] [--readonly] ...`
+- Delete mode: `kyco mode delete <name>`
+
+Orchestration pattern
+- Start a job, wait for completion, read its output/state, then decide follow-ups.
+- If you start multiple jobs, keep track of IDs and report progress to the user.
 "#;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -123,7 +164,9 @@ pub enum ViewMode {
 
 #[derive(Debug, Clone)]
 enum ApplyTarget {
-    Single { job_id: JobId },
+    Single {
+        job_id: JobId,
+    },
     Group {
         group_id: AgentGroupId,
         selected_job_id: JobId,
@@ -239,6 +282,8 @@ pub struct KycoApp {
     auto_run: bool,
     /// Log scroll to bottom
     log_scroll_to_bottom: bool,
+    /// Activity log kind filters (UI state)
+    activity_log_filters: ActivityLogFilters,
     /// Session continuation prompt (for follow-up messages in session mode)
     continuation_prompt: String,
     /// Extension install status message
@@ -383,6 +428,9 @@ pub struct KycoApp {
     import_chains: bool,
     /// Config import: import settings
     import_settings: bool,
+
+    /// UI action: launch an external orchestrator session (Terminal)
+    orchestrator_requested: bool,
 }
 
 impl KycoApp {
@@ -392,6 +440,7 @@ impl KycoApp {
         config: Config,
         config_exists: bool,
         job_manager: Arc<Mutex<JobManager>>,
+        group_manager: Arc<Mutex<GroupManager>>,
         http_rx: Receiver<SelectionRequest>,
         batch_rx: Receiver<BatchRequest>,
         executor_rx: Receiver<ExecutorEvent>,
@@ -437,7 +486,8 @@ impl KycoApp {
 
         // Extract output schema
         let settings_output_schema = config.settings.gui.output_schema.clone();
-        let settings_structured_output_schema = config.settings.gui.structured_output_schema.clone();
+        let settings_structured_output_schema =
+            config.settings.gui.structured_output_schema.clone();
 
         // Load or create workspace registry and register the initial workspace
         let mut workspace_registry = WorkspaceRegistry::load_or_create();
@@ -449,7 +499,7 @@ impl KycoApp {
             config,
             config_exists,
             job_manager,
-            group_manager: Arc::new(Mutex::new(GroupManager::new())),
+            group_manager,
             workspace_registry: Arc::new(Mutex::new(workspace_registry)),
             active_workspace_id: Some(initial_workspace_id),
             cached_jobs: Vec::new(),
@@ -480,6 +530,7 @@ impl KycoApp {
             permission_mode_overrides: HashMap::new(),
             auto_run: settings_auto_run,
             log_scroll_to_bottom: true,
+            activity_log_filters: ActivityLogFilters::default(),
             continuation_prompt: String::new(),
             extension_status: None,
             selected_mode: None,
@@ -556,6 +607,7 @@ impl KycoApp {
             import_agents: true,
             import_chains: false,
             import_settings: false,
+            orchestrator_requested: false,
         }
     }
 
@@ -686,6 +738,49 @@ impl KycoApp {
         );
     }
 
+    fn launch_orchestrator(&mut self) -> anyhow::Result<()> {
+        #[cfg(not(target_os = "macos"))]
+        {
+            anyhow::bail!("Orchestrator launch is only supported on macOS right now.");
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let kyco_dir = self.work_dir.join(".kyco");
+            std::fs::create_dir_all(&kyco_dir)?;
+
+            let prompt_file = kyco_dir.join("orchestrator_system_prompt.txt");
+            std::fs::write(&prompt_file, ORCHESTRATOR_SYSTEM_PROMPT)?;
+
+            let default_agent = self.config.settings.gui.default_agent.trim().to_lowercase();
+            let agent = if default_agent.is_empty() {
+                "claude"
+            } else {
+                default_agent.as_str()
+            };
+
+            let command = match agent {
+                "codex" => "codex \"$(cat .kyco/orchestrator_system_prompt.txt)\"".to_string(),
+                _ => "claude --append-system-prompt \"$(cat .kyco/orchestrator_system_prompt.txt)\""
+                    .to_string(),
+            };
+
+            let session_id = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+
+            let args = vec!["-lc".to_string(), command];
+            TerminalSession::spawn(session_id, "bash", &args, "", &self.work_dir)?;
+
+            self.logs.push(LogEvent::system(format!(
+                "Orchestrator started in Terminal.app ({})",
+                agent
+            )));
+            Ok(())
+        }
+    }
+
     /// Refresh cached jobs from JobManager
     fn refresh_jobs(&mut self) {
         self.cached_jobs = jobs::refresh_jobs(&self.job_manager);
@@ -707,7 +802,8 @@ impl KycoApp {
 
     fn open_job_diff(&mut self, job_id: JobId, return_view: ViewMode) {
         let Some(job) = self.cached_jobs.iter().find(|j| j.id == job_id).cloned() else {
-            self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+            self.logs
+                .push(LogEvent::error(format!("Job #{} not found", job_id)));
             return;
         };
 
@@ -724,46 +820,48 @@ impl KycoApp {
             }
         };
 
-        let diff_result = if let Some(worktree) = job.git_worktree_path.as_ref().filter(|p| p.exists()) {
-            gm.diff(worktree, job.base_branch.as_deref()).map(|mut diff| {
-                if let Ok(untracked) = gm.untracked_files(worktree) {
-                    if !untracked.is_empty() {
-                        if !diff.is_empty() {
-                            diff.push_str("\n\n");
+        let diff_result =
+            if let Some(worktree) = job.git_worktree_path.as_ref().filter(|p| p.exists()) {
+                gm.diff(worktree, job.base_branch.as_deref())
+                    .map(|mut diff| {
+                        if let Ok(untracked) = gm.untracked_files(worktree) {
+                            if !untracked.is_empty() {
+                                if !diff.is_empty() {
+                                    diff.push_str("\n\n");
+                                }
+                                diff.push_str("--- Untracked files ---\n");
+                                for file in untracked {
+                                    diff.push_str(&file.display().to_string());
+                                    diff.push('\n');
+                                }
+                            }
                         }
-                        diff.push_str("--- Untracked files ---\n");
-                        for file in untracked {
-                            diff.push_str(&file.display().to_string());
-                            diff.push('\n');
+                        diff
+                    })
+            } else {
+                gm.diff(&workspace_root, None).map(|mut diff| {
+                    let mut header = "--- Workspace changes (no worktree) ---\n\n".to_string();
+                    if let Ok(untracked) = gm.untracked_files(&workspace_root) {
+                        if !untracked.is_empty() {
+                            if !diff.is_empty() {
+                                diff.push_str("\n\n");
+                            }
+                            diff.push_str("--- Untracked files ---\n");
+                            for file in untracked {
+                                diff.push_str(&file.display().to_string());
+                                diff.push('\n');
+                            }
                         }
                     }
-                }
-                diff
-            })
-        } else {
-            gm.diff(&workspace_root, None).map(|mut diff| {
-                let mut header = "--- Workspace changes (no worktree) ---\n\n".to_string();
-                if let Ok(untracked) = gm.untracked_files(&workspace_root) {
-                    if !untracked.is_empty() {
-                        if !diff.is_empty() {
-                            diff.push_str("\n\n");
-                        }
-                        diff.push_str("--- Untracked files ---\n");
-                        for file in untracked {
-                            diff.push_str(&file.display().to_string());
-                            diff.push('\n');
-                        }
-                    }
-                }
 
-                if diff.is_empty() {
-                    header.push_str("No changes in workspace.");
-                    header
-                } else {
-                    format!("{}{}", header, diff)
-                }
-            })
-        };
+                    if diff.is_empty() {
+                        header.push_str("No changes in workspace.");
+                        header
+                    } else {
+                        format!("{}{}", header, diff)
+                    }
+                })
+            };
 
         match diff_result {
             Ok(content) => {
@@ -805,26 +903,29 @@ impl KycoApp {
             }
         };
 
-        let diff_result: Option<String> = if let Some(worktree) = job.git_worktree_path.as_ref().filter(|p| p.exists()) {
-            gm.diff(worktree, job.base_branch.as_deref()).ok().map(|mut diff| {
-                if let Ok(untracked) = gm.untracked_files(worktree) {
-                    if !untracked.is_empty() {
-                        if !diff.is_empty() {
-                            diff.push_str("\n\n");
+        let diff_result: Option<String> =
+            if let Some(worktree) = job.git_worktree_path.as_ref().filter(|p| p.exists()) {
+                gm.diff(worktree, job.base_branch.as_deref())
+                    .ok()
+                    .map(|mut diff| {
+                        if let Ok(untracked) = gm.untracked_files(worktree) {
+                            if !untracked.is_empty() {
+                                if !diff.is_empty() {
+                                    diff.push_str("\n\n");
+                                }
+                                diff.push_str("--- Untracked files ---\n");
+                                for file in untracked {
+                                    diff.push_str(&file.display().to_string());
+                                    diff.push('\n');
+                                }
+                            }
                         }
-                        diff.push_str("--- Untracked files ---\n");
-                        for file in untracked {
-                            diff.push_str(&file.display().to_string());
-                            diff.push('\n');
-                        }
-                    }
-                }
-                diff
-            })
-        } else {
-            // No worktree - show workspace diff
-            gm.diff(&workspace_root, None).ok()
-        };
+                        diff
+                    })
+            } else {
+                // No worktree - show workspace diff
+                gm.diff(&workspace_root, None).ok()
+            };
 
         self.inline_diff_content = diff_result.filter(|d| !d.is_empty());
     }
@@ -861,7 +962,10 @@ impl KycoApp {
                     .cloned()
                     .ok_or_else(|| format!("Group #{} not found", group_id))?;
 
-                if !matches!(group.status, crate::GroupStatus::Comparing | crate::GroupStatus::Selected) {
+                if !matches!(
+                    group.status,
+                    crate::GroupStatus::Comparing | crate::GroupStatus::Selected
+                ) {
                     return Err(format!(
                         "Group #{} is not ready to merge yet (status: {})",
                         group_id, group.status
@@ -963,7 +1067,8 @@ impl KycoApp {
         };
 
         let Some(job) = job else {
-            self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+            self.logs
+                .push(LogEvent::error(format!("Job #{} not found", job_id)));
             return;
         };
 
@@ -987,7 +1092,8 @@ impl KycoApp {
         };
 
         let Some(job) = job else {
-            self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+            self.logs
+                .push(LogEvent::error(format!("Job #{} not found", job_id)));
             return;
         };
 
@@ -1019,7 +1125,8 @@ impl KycoApp {
                 j.branch_name = None;
             }
         }
-        self.logs.push(LogEvent::system(format!("Rejected job #{}", job_id)));
+        self.logs
+            .push(LogEvent::system(format!("Rejected job #{}", job_id)));
         self.refresh_jobs();
     }
 
@@ -1029,7 +1136,8 @@ impl KycoApp {
             let manager = match self.job_manager.lock() {
                 Ok(m) => m,
                 Err(_) => {
-                    self.logs.push(LogEvent::error("Failed to lock job manager"));
+                    self.logs
+                        .push(LogEvent::error("Failed to lock job manager"));
                     return;
                 }
             };
@@ -1037,7 +1145,8 @@ impl KycoApp {
             match manager.get(job_id) {
                 Some(job) => (job.agent_id.clone(), job.bridge_session_id.clone()),
                 None => {
-                    self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+                    self.logs
+                        .push(LogEvent::error(format!("Job #{} not found", job_id)));
                     return;
                 }
             }
@@ -1081,7 +1190,8 @@ impl KycoApp {
             let manager = match self.job_manager.lock() {
                 Ok(m) => m,
                 Err(_) => {
-                    self.logs.push(LogEvent::error("Failed to lock job manager"));
+                    self.logs
+                        .push(LogEvent::error("Failed to lock job manager"));
                     return;
                 }
             };
@@ -1122,7 +1232,10 @@ impl KycoApp {
             return;
         };
 
-        match self.bridge_client.set_claude_permission_mode(&session_id, mode) {
+        match self
+            .bridge_client
+            .set_claude_permission_mode(&session_id, mode)
+        {
             Ok(true) => {
                 self.permission_mode_overrides.insert(job_id, mode);
                 self.logs.push(LogEvent::system(format!(
@@ -1162,13 +1275,15 @@ impl KycoApp {
             let mut manager = match self.job_manager.lock() {
                 Ok(m) => m,
                 Err(_) => {
-                    self.logs.push(LogEvent::error("Failed to lock job manager"));
+                    self.logs
+                        .push(LogEvent::error("Failed to lock job manager"));
                     return;
                 }
             };
 
             let Some(original) = manager.get(job_id).cloned() else {
-                self.logs.push(LogEvent::error(format!("Job #{} not found", job_id)));
+                self.logs
+                    .push(LogEvent::error(format!("Job #{} not found", job_id)));
                 return;
             };
 
@@ -1193,16 +1308,17 @@ impl KycoApp {
                 job_id: None,
             };
 
-            let continuation_id = match manager.create_job_with_range(&tag, &original.agent_id, None) {
-                Ok(id) => id,
-                Err(e) => {
-                    self.logs.push(LogEvent::error(format!(
-                        "Failed to create continuation job: {}",
-                        e
-                    )));
-                    return;
-                }
-            };
+            let continuation_id =
+                match manager.create_job_with_range(&tag, &original.agent_id, None) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        self.logs.push(LogEvent::error(format!(
+                            "Failed to create continuation job: {}",
+                            e
+                        )));
+                        return;
+                    }
+                };
 
             if let Some(job) = manager.get_mut(continuation_id) {
                 job.raw_tag_line = None;
@@ -1303,12 +1419,21 @@ impl KycoApp {
     fn on_selection_received(&mut self, req: SelectionRequest, ctx: &egui::Context) {
         info!(
             "[kyco:gui] Received selection: file={:?}, lines={:?}-{:?}, deps={:?}, tests={:?}, project_root={:?}, git_root={:?}, workspace={:?}",
-            req.file_path, req.line_start, req.line_end, req.dependency_count, req.related_tests.as_ref().map(|t| t.len()), req.project_root, req.git_root, req.workspace
+            req.file_path,
+            req.line_start,
+            req.line_end,
+            req.dependency_count,
+            req.related_tests.as_ref().map(|t| t.len()),
+            req.project_root,
+            req.git_root,
+            req.workspace
         );
 
         // Auto-register workspace from IDE request
         // Priority: project_root (includes git detection) > workspace > active workspace
-        let effective_path = req.project_root.as_ref()
+        let effective_path = req
+            .project_root
+            .as_ref()
             .or(req.git_root.as_ref())
             .or(req.workspace.as_ref());
 
@@ -1321,7 +1446,10 @@ impl KycoApp {
                 self.active_workspace_id = Some(ws_id);
                 // Save registry to persist the new workspace
                 if let Err(e) = registry.save_default() {
-                    self.logs.push(LogEvent::error(format!("Failed to save workspace registry: {}", e)));
+                    self.logs.push(LogEvent::error(format!(
+                        "Failed to save workspace registry: {}",
+                        e
+                    )));
                 }
                 (Some(ws_id), Some(ws_path_buf))
             } else {
@@ -1329,10 +1457,15 @@ impl KycoApp {
             }
         } else {
             // Use currently active workspace if no workspace specified
-            (self.active_workspace_id, self.active_workspace_id.and_then(|id| {
-                self.workspace_registry.lock().ok()
-                    .and_then(|r| r.get(id).map(|w| w.path.clone()))
-            }))
+            (
+                self.active_workspace_id,
+                self.active_workspace_id.and_then(|id| {
+                    self.workspace_registry
+                        .lock()
+                        .ok()
+                        .and_then(|r| r.get(id).map(|w| w.path.clone()))
+                }),
+            )
         };
 
         self.selection = SelectionContext {
@@ -1363,13 +1496,11 @@ impl KycoApp {
 
     /// Handle incoming batch request from IDE extension
     fn on_batch_received(&mut self, req: BatchRequest, ctx: &egui::Context) {
-        info!(
-            "[kyco:gui] Received batch: {} files",
-            req.files.len(),
-        );
+        info!("[kyco:gui] Received batch: {} files", req.files.len(),);
 
         if req.files.is_empty() {
-            self.logs.push(LogEvent::error("Batch request has no files".to_string()));
+            self.logs
+                .push(LogEvent::error("Batch request has no files".to_string()));
             return;
         }
 
@@ -1396,7 +1527,10 @@ impl KycoApp {
         let (agents, mode, prompt) = parse_input_multi(&self.popup_input);
 
         if mode.is_empty() {
-            self.popup_status = Some(("Please enter a mode (e.g., 'refactor', 'fix')".to_string(), true));
+            self.popup_status = Some((
+                "Please enter a mode (e.g., 'refactor', 'fix')".to_string(),
+                true,
+            ));
             return;
         }
 
@@ -1413,7 +1547,11 @@ impl KycoApp {
                     .agent
                     .iter()
                     .find(|(name, cfg)| {
-                        name.eq_ignore_ascii_case(a) || cfg.aliases.iter().any(|alias| alias.eq_ignore_ascii_case(a))
+                        name.eq_ignore_ascii_case(a)
+                            || cfg
+                                .aliases
+                                .iter()
+                                .any(|alias| alias.eq_ignore_ascii_case(a))
                     })
                     .map(|(name, _)| name.clone())
                     .unwrap_or_else(|| a.clone())
@@ -1434,17 +1572,20 @@ impl KycoApp {
         for file in &self.batch_files {
             // Extract workspace from batch file
             // Priority: project_root (includes git detection) > git_root > workspace
-            let effective_path = file.project_root.as_ref()
+            let effective_path = file
+                .project_root
+                .as_ref()
                 .or(file.git_root.as_ref())
                 .map(|s| s.as_str())
                 .unwrap_or(&file.workspace);
             let ws_path_buf = PathBuf::from(effective_path);
-            let (workspace_id, workspace_path) = if let Ok(mut registry) = self.workspace_registry.lock() {
-                let ws_id = registry.get_or_create(ws_path_buf.clone());
-                (Some(ws_id), Some(ws_path_buf))
-            } else {
-                (None, Some(ws_path_buf))
-            };
+            let (workspace_id, workspace_path) =
+                if let Ok(mut registry) = self.workspace_registry.lock() {
+                    let ws_id = registry.get_or_create(ws_path_buf.clone());
+                    (Some(ws_id), Some(ws_path_buf))
+                } else {
+                    (None, Some(ws_path_buf))
+                };
 
             // Create SelectionContext for this file
             let selection = SelectionContext {
@@ -1502,7 +1643,8 @@ impl KycoApp {
 
     /// Update autocomplete suggestions based on input
     fn update_suggestions(&mut self) {
-        self.autocomplete.update_suggestions(&self.popup_input, &self.config);
+        self.autocomplete
+            .update_suggestions(&self.popup_input, &self.config);
     }
 
     /// Apply selected suggestion
@@ -1519,7 +1661,10 @@ impl KycoApp {
         let (agents, mode, prompt) = parse_input_multi(&self.popup_input);
 
         if mode.is_empty() {
-            self.popup_status = Some(("Please enter a mode (e.g., 'refactor', 'fix')".to_string(), true));
+            self.popup_status = Some((
+                "Please enter a mode (e.g., 'refactor', 'fix')".to_string(),
+                true,
+            ));
             return;
         }
 
@@ -1531,7 +1676,11 @@ impl KycoApp {
                     .agent
                     .iter()
                     .find(|(name, cfg)| {
-                        name.eq_ignore_ascii_case(a) || cfg.aliases.iter().any(|alias| alias.eq_ignore_ascii_case(a))
+                        name.eq_ignore_ascii_case(a)
+                            || cfg
+                                .aliases
+                                .iter()
+                                .any(|alias| alias.eq_ignore_ascii_case(a))
                     })
                     .map(|(name, _)| name.clone())
                     .unwrap_or_else(|| a.clone())
@@ -1577,7 +1726,10 @@ impl KycoApp {
                 // Single agent
                 let job_id = result.job_ids[0];
                 self.popup_status = Some((
-                    format!("Job #{} created: {}:{} ({})", job_id, resolved_agents[0], mode, selection_info),
+                    format!(
+                        "Job #{} created: {}:{} ({})",
+                        job_id, resolved_agents[0], mode, selection_info
+                    ),
                     false,
                 ));
                 self.selected_job_id = Some(job_id);
@@ -1623,7 +1775,7 @@ impl KycoApp {
 
     /// Render the detail panel
     fn render_detail_panel(&mut self, ui: &mut egui::Ui) {
-        use super::detail_panel::{render_detail_panel, DetailPanelAction, DetailPanelState};
+        use super::detail_panel::{DetailPanelAction, DetailPanelState, render_detail_panel};
 
         let mut state = DetailPanelState {
             selected_job_id: self.selected_job_id,
@@ -1631,6 +1783,7 @@ impl KycoApp {
             logs: &self.logs,
             config: &self.config,
             log_scroll_to_bottom: self.log_scroll_to_bottom,
+            activity_log_filters: &mut self.activity_log_filters,
             continuation_prompt: &mut self.continuation_prompt,
             commonmark_cache: &mut self.commonmark_cache,
             permission_mode_overrides: &self.permission_mode_overrides,
@@ -1646,7 +1799,9 @@ impl KycoApp {
                 DetailPanelAction::Continue(job_id, prompt) => {
                     self.continue_job_session(job_id, prompt);
                 }
-                DetailPanelAction::ViewDiff(job_id) => self.open_job_diff(job_id, ViewMode::JobList),
+                DetailPanelAction::ViewDiff(job_id) => {
+                    self.open_job_diff(job_id, ViewMode::JobList)
+                }
                 DetailPanelAction::Kill(job_id) => self.kill_job(job_id),
                 DetailPanelAction::MarkComplete(job_id) => self.mark_job_complete(job_id),
                 DetailPanelAction::SetPermissionMode(job_id, mode) => {
@@ -1658,7 +1813,7 @@ impl KycoApp {
 
     /// Render the selection popup
     fn render_selection_popup(&mut self, ctx: &egui::Context) {
-        use super::selection::{render_selection_popup, SelectionPopupAction, SelectionPopupState};
+        use super::selection::{SelectionPopupAction, SelectionPopupState, render_selection_popup};
 
         let mut state = SelectionPopupState {
             selection: &self.selection,
@@ -1687,7 +1842,8 @@ impl KycoApp {
                     // Auto-install voice dependencies if not available
                     if !self.voice_manager.is_available() && !self.voice_install_in_progress {
                         self.voice_install_in_progress = true;
-                        self.voice_install_status = Some(("Installing voice dependencies...".to_string(), false));
+                        self.voice_install_status =
+                            Some(("Installing voice dependencies...".to_string(), false));
 
                         let model_name = &self.voice_manager.config.whisper_model;
                         let result = crate::gui::voice::install::install_voice_dependencies(
@@ -1712,7 +1868,7 @@ impl KycoApp {
 
     /// Render the batch popup (similar to selection popup but for multiple files)
     fn render_batch_popup(&mut self, ctx: &egui::Context) {
-        use super::selection::{render_batch_popup, BatchPopupState, SelectionPopupAction};
+        use super::selection::{BatchPopupState, SelectionPopupAction, render_batch_popup};
 
         let mut state = BatchPopupState {
             batch_files: &self.batch_files,
@@ -1816,7 +1972,8 @@ impl KycoApp {
                 if let Some(job) = job {
                     let workspace_root = self.workspace_root_for_job(job);
                     description_lines.push(format!("Repo: {}", workspace_root.display()));
-                    description_lines.push(format!("Selected result: #{} ({})", job.id, job.agent_id));
+                    description_lines
+                        .push(format!("Selected result: #{} ({})", job.id, job.agent_id));
 
                     let subject = crate::git::CommitMessage::from_job(job).subject;
                     description_lines.push(format!("Commit: {}", subject));
@@ -2076,7 +2233,8 @@ impl KycoApp {
                             gm.select_result(group_id, job_id);
                         }
                     }
-                    self.logs.push(LogEvent::system(format!("Selected job #{}", job_id)));
+                    self.logs
+                        .push(LogEvent::system(format!("Selected job #{}", job_id)));
                 }
                 ComparisonAction::ViewDiff(job_id) => {
                     self.open_job_diff(job_id, ViewMode::ComparisonPopup);
@@ -2084,9 +2242,8 @@ impl KycoApp {
                 ComparisonAction::MergeAndClose => {
                     if let Some(group_id) = self.comparison_state.group_id() {
                         let Some(selected_job_id) = self.comparison_state.selected_job_id else {
-                            self.logs.push(LogEvent::error(
-                                "No job selected for merge".to_string(),
-                            ));
+                            self.logs
+                                .push(LogEvent::error("No job selected for merge".to_string()));
                             return;
                         };
 
@@ -2142,7 +2299,8 @@ impl KycoApp {
 fn run_apply_thread(input: ApplyThreadInput) -> Result<ApplyThreadOutcome, String> {
     match input {
         ApplyThreadInput::Single(input) => {
-            let git = crate::git::GitManager::new(&input.workspace_root).map_err(|e| e.to_string())?;
+            let git =
+                crate::git::GitManager::new(&input.workspace_root).map_err(|e| e.to_string())?;
 
             if let Some(worktree_path) = input.worktree_path {
                 let base_branch = input
@@ -2158,31 +2316,35 @@ fn run_apply_thread(input: ApplyThreadInput) -> Result<ApplyThreadOutcome, Strin
                 }
 
                 Ok(ApplyThreadOutcome {
-                    target: ApplyTarget::Single { job_id: input.job_id },
+                    target: ApplyTarget::Single {
+                        job_id: input.job_id,
+                    },
                     group_job_ids: Vec::new(),
                     message,
                 })
             } else {
                 match git.commit_root_changes(&input.commit_message) {
                     Ok(true) => Ok(ApplyThreadOutcome {
-                        target: ApplyTarget::Single { job_id: input.job_id },
+                        target: ApplyTarget::Single {
+                            job_id: input.job_id,
+                        },
                         group_job_ids: Vec::new(),
                         message: format!("Committed and applied job #{}", input.job_id),
                     }),
                     Ok(false) => Ok(ApplyThreadOutcome {
-                        target: ApplyTarget::Single { job_id: input.job_id },
+                        target: ApplyTarget::Single {
+                            job_id: input.job_id,
+                        },
                         group_job_ids: Vec::new(),
-                        message: format!(
-                            "Applied job #{} (no changes to commit)",
-                            input.job_id
-                        ),
+                        message: format!("Applied job #{} (no changes to commit)", input.job_id),
                     }),
                     Err(e) => Err(e.to_string()),
                 }
             }
         }
         ApplyThreadInput::Group(input) => {
-            let git = crate::git::GitManager::new(&input.workspace_root).map_err(|e| e.to_string())?;
+            let git =
+                crate::git::GitManager::new(&input.workspace_root).map_err(|e| e.to_string())?;
 
             git.apply_changes(
                 &input.selected_worktree_path,
@@ -2271,10 +2433,12 @@ impl eframe::App for KycoApp {
         while let Ok(event) = self.executor_rx.try_recv() {
             match event {
                 ExecutorEvent::JobStarted(job_id) => {
-                    self.logs.push(LogEvent::system(format!("Job #{} started", job_id)));
+                    self.logs
+                        .push(LogEvent::system(format!("Job #{} started", job_id)));
                 }
                 ExecutorEvent::JobCompleted(job_id) => {
-                    self.logs.push(LogEvent::system(format!("Job #{} completed", job_id)));
+                    self.logs
+                        .push(LogEvent::system(format!("Job #{} completed", job_id)));
                     // Check if this job is part of a group and update group status
                     self.check_group_completion(job_id);
                     // Reload diff if this is the currently selected job
@@ -2283,15 +2447,28 @@ impl eframe::App for KycoApp {
                     }
                 }
                 ExecutorEvent::JobFailed(job_id, error) => {
-                    self.logs.push(LogEvent::error(format!("Job #{} failed: {}", job_id, error)));
+                    self.logs.push(LogEvent::error(format!(
+                        "Job #{} failed: {}",
+                        job_id, error
+                    )));
                     // Check if this job is part of a group and update group status
                     self.check_group_completion(job_id);
                 }
-                ExecutorEvent::ChainStepCompleted { job_id, step_index, total_steps, mode, state, step_summary } => {
+                ExecutorEvent::ChainStepCompleted {
+                    job_id,
+                    step_index,
+                    total_steps,
+                    mode,
+                    state,
+                    step_summary,
+                } => {
                     let state_str = state.as_deref().unwrap_or("none");
                     self.logs.push(LogEvent::system(format!(
                         "Chain step {}/{} completed: {} (state: {})",
-                        step_index + 1, total_steps, mode, state_str
+                        step_index + 1,
+                        total_steps,
+                        mode,
+                        state_str
                     )));
                     // Update chain progress in the job for real-time display
                     if let Some(job) = self.job_manager.lock().unwrap().get_mut(job_id) {
@@ -2302,7 +2479,12 @@ impl eframe::App for KycoApp {
                         }
                     }
                 }
-                ExecutorEvent::ChainCompleted { job_id: _, chain_name, steps_executed, success } => {
+                ExecutorEvent::ChainCompleted {
+                    job_id: _,
+                    chain_name,
+                    steps_executed,
+                    success,
+                } => {
                     if success {
                         self.logs.push(LogEvent::system(format!(
                             "Chain '{}' completed: {} steps executed",
@@ -2318,7 +2500,13 @@ impl eframe::App for KycoApp {
                 ExecutorEvent::Log(log_event) => {
                     self.logs.push(log_event);
                 }
-                ExecutorEvent::PermissionNeeded { job_id, request_id, session_id, tool_name, tool_input } => {
+                ExecutorEvent::PermissionNeeded {
+                    job_id,
+                    request_id,
+                    session_id,
+                    tool_name,
+                    tool_input,
+                } => {
                     // Convert to PermissionRequest and add to popup queue
                     let request = PermissionRequest {
                         request_id,
@@ -2358,7 +2546,8 @@ impl eframe::App for KycoApp {
                             self.popup_input.push_str(&text);
                         }
                         self.update_suggestions();
-                        self.logs.push(LogEvent::system("Voice transcription complete".to_string()));
+                        self.logs
+                            .push(LogEvent::system("Voice transcription complete".to_string()));
 
                         // Auto-execute if Enter was pressed during recording
                         if self.voice_pending_execute {
@@ -2367,9 +2556,15 @@ impl eframe::App for KycoApp {
                         }
                     } else {
                         // Continuous listening - try wakeword detection
-                        if let Some(wakeword_match) = self.voice_manager.config.action_registry.match_text(&text) {
+                        if let Some(wakeword_match) =
+                            self.voice_manager.config.action_registry.match_text(&text)
+                        {
                             // Wakeword matched - use mode and prompt from the match
-                            self.popup_input = format!("{} {}", wakeword_match.mode, wakeword_match.get_final_prompt());
+                            self.popup_input = format!(
+                                "{} {}",
+                                wakeword_match.mode,
+                                wakeword_match.get_final_prompt()
+                            );
                             self.update_suggestions();
 
                             // Open selection popup if not already open
@@ -2402,11 +2597,16 @@ impl eframe::App for KycoApp {
                                 }
                             }
                             self.update_suggestions();
-                            self.logs.push(LogEvent::system("Voice transcription complete".to_string()));
+                            self.logs
+                                .push(LogEvent::system("Voice transcription complete".to_string()));
                         }
                     }
                 }
-                super::voice::VoiceEvent::WakewordMatched { wakeword, mode, prompt } => {
+                super::voice::VoiceEvent::WakewordMatched {
+                    wakeword,
+                    mode,
+                    prompt,
+                } => {
                     // Direct wakeword match from continuous listening
                     self.popup_input = format!("{} {}", mode, prompt);
                     self.update_suggestions();
@@ -2416,11 +2616,18 @@ impl eframe::App for KycoApp {
                         self.view_mode = ViewMode::SelectionPopup;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     }
-                    self.logs.push(LogEvent::system(format!("Voice wakeword: {} → {}", wakeword, mode)));
+                    self.logs.push(LogEvent::system(format!(
+                        "Voice wakeword: {} → {}",
+                        wakeword, mode
+                    )));
                 }
                 super::voice::VoiceEvent::KeywordDetected { keyword, full_text } => {
                     // In continuous mode: keyword detected, trigger hotkey and fill input
-                    self.popup_input = format!("{} {}", keyword, full_text.trim_start_matches(&keyword).trim());
+                    self.popup_input = format!(
+                        "{} {}",
+                        keyword,
+                        full_text.trim_start_matches(&keyword).trim()
+                    );
                     self.update_suggestions();
 
                     // Open selection popup if not already open
@@ -2428,23 +2635,33 @@ impl eframe::App for KycoApp {
                         self.view_mode = ViewMode::SelectionPopup;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     }
-                    self.logs.push(LogEvent::system(format!("Voice keyword detected: {}", keyword)));
+                    self.logs.push(LogEvent::system(format!(
+                        "Voice keyword detected: {}",
+                        keyword
+                    )));
                 }
                 super::voice::VoiceEvent::Error { message } => {
-                    self.logs.push(LogEvent::error(format!("Voice error: {}", message)));
+                    self.logs
+                        .push(LogEvent::error(format!("Voice error: {}", message)));
                     self.voice_pending_execute = false; // Cancel pending execution on error
                 }
                 super::voice::VoiceEvent::RecordingStarted => {
-                    self.logs.push(LogEvent::system("Voice recording started".to_string()));
+                    self.logs
+                        .push(LogEvent::system("Voice recording started".to_string()));
                 }
                 super::voice::VoiceEvent::RecordingStopped { duration_secs } => {
-                    self.logs.push(LogEvent::system(format!("Voice recording stopped ({:.1}s)", duration_secs)));
+                    self.logs.push(LogEvent::system(format!(
+                        "Voice recording stopped ({:.1}s)",
+                        duration_secs
+                    )));
                 }
                 super::voice::VoiceEvent::VadSpeechStarted => {
-                    self.logs.push(LogEvent::system("VAD: Speech detected".to_string()));
+                    self.logs
+                        .push(LogEvent::system("VAD: Speech detected".to_string()));
                 }
                 super::voice::VoiceEvent::VadSpeechEnded => {
-                    self.logs.push(LogEvent::system("VAD: Speech ended".to_string()));
+                    self.logs
+                        .push(LogEvent::system("VAD: Speech ended".to_string()));
                 }
                 _ => {}
             }
@@ -2463,7 +2680,10 @@ impl eframe::App for KycoApp {
                             self.view_mode = ViewMode::JobList;
                         }
                     }
-                    if i.key_pressed(Key::Tab) && self.autocomplete.show_suggestions && !self.autocomplete.suggestions.is_empty() {
+                    if i.key_pressed(Key::Tab)
+                        && self.autocomplete.show_suggestions
+                        && !self.autocomplete.suggestions.is_empty()
+                    {
                         self.apply_suggestion();
                         self.update_suggestions();
                     }
@@ -2492,7 +2712,10 @@ impl eframe::App for KycoApp {
                         self.batch_files.clear();
                         self.view_mode = ViewMode::JobList;
                     }
-                    if i.key_pressed(Key::Tab) && self.autocomplete.show_suggestions && !self.autocomplete.suggestions.is_empty() {
+                    if i.key_pressed(Key::Tab)
+                        && self.autocomplete.show_suggestions
+                        && !self.autocomplete.suggestions.is_empty()
+                    {
                         self.apply_suggestion();
                         self.update_suggestions();
                     }
@@ -2536,7 +2759,9 @@ impl eframe::App for KycoApp {
                     if i.key_pressed(Key::J) || i.key_pressed(Key::ArrowDown) {
                         // Select next job
                         if let Some(current_id) = self.selected_job_id {
-                            if let Some(idx) = self.cached_jobs.iter().position(|j| j.id == current_id) {
+                            if let Some(idx) =
+                                self.cached_jobs.iter().position(|j| j.id == current_id)
+                            {
                                 if idx + 1 < self.cached_jobs.len() {
                                     self.selected_job_id = Some(self.cached_jobs[idx + 1].id);
                                 }
@@ -2548,7 +2773,9 @@ impl eframe::App for KycoApp {
                     if i.key_pressed(Key::K) || i.key_pressed(Key::ArrowUp) {
                         // Select previous job
                         if let Some(current_id) = self.selected_job_id {
-                            if let Some(idx) = self.cached_jobs.iter().position(|j| j.id == current_id) {
+                            if let Some(idx) =
+                                self.cached_jobs.iter().position(|j| j.id == current_id)
+                            {
                                 if idx > 0 {
                                     self.selected_job_id = Some(self.cached_jobs[idx - 1].id);
                                 }
@@ -2607,7 +2834,8 @@ impl eframe::App for KycoApp {
                     // Auto-install voice dependencies if not available
                     if !self.voice_manager.is_available() && !self.voice_install_in_progress {
                         self.voice_install_in_progress = true;
-                        self.voice_install_status = Some(("Installing voice dependencies...".to_string(), false));
+                        self.voice_install_status =
+                            Some(("Installing voice dependencies...".to_string(), false));
 
                         let model_name = self.voice_manager.config.whisper_model.clone();
                         let result = crate::gui::voice::install::install_voice_dependencies(
@@ -2623,7 +2851,9 @@ impl eframe::App for KycoApp {
                             self.voice_manager.reset();
                         }
                     } else if !self.voice_install_in_progress {
-                        if self.voice_manager.state == VoiceState::Idle || self.voice_manager.state == VoiceState::Error {
+                        if self.voice_manager.state == VoiceState::Idle
+                            || self.voice_manager.state == VoiceState::Error
+                        {
                             // Start recording
                             self.voice_manager.start_recording();
                         } else if self.voice_manager.state == VoiceState::Recording {
@@ -2662,23 +2892,52 @@ impl eframe::App for KycoApp {
                 .frame(egui::Frame::NONE.fill(ACCENT_YELLOW).inner_margin(8.0))
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("⚠ No configuration found.").color(BG_PRIMARY).strong());
+                        ui.label(
+                            egui::RichText::new("⚠ No configuration found.")
+                                .color(BG_PRIMARY)
+                                .strong(),
+                        );
                         ui.add_space(8.0);
-                        if ui.button(egui::RichText::new("Initialize Project").color(BG_PRIMARY).strong()).clicked() {
+                        if ui
+                            .button(
+                                egui::RichText::new("Initialize Project")
+                                    .color(BG_PRIMARY)
+                                    .strong(),
+                            )
+                            .clicked()
+                        {
                             // Create .kyco directory and config.toml
                             let config_dir = self.work_dir.join(".kyco");
                             let config_path = config_dir.join("config.toml");
                             if let Err(e) = std::fs::create_dir_all(&config_dir) {
-                                self.logs.push(LogEvent::error(format!("Failed to create .kyco directory: {}", e)));
-                            } else if let Err(e) = std::fs::write(&config_path, DEFAULT_CONFIG_MINIMAL) {
-                                self.logs.push(LogEvent::error(format!("Failed to write config: {}", e)));
+                                self.logs.push(LogEvent::error(format!(
+                                    "Failed to create .kyco directory: {}",
+                                    e
+                                )));
+                            } else if let Err(e) =
+                                std::fs::write(&config_path, DEFAULT_CONFIG_MINIMAL)
+                            {
+                                self.logs.push(LogEvent::error(format!(
+                                    "Failed to write config: {}",
+                                    e
+                                )));
                             } else {
                                 self.config_exists = true;
-                                self.logs.push(LogEvent::system(format!("Created {}", config_path.display())));
+                                self.logs.push(LogEvent::system(format!(
+                                    "Created {}",
+                                    config_path.display()
+                                )));
                             }
                         }
                         ui.add_space(16.0);
-                        ui.label(egui::RichText::new(format!("Working directory: {}", self.work_dir.display())).color(BG_PRIMARY).small());
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Working directory: {}",
+                                self.work_dir.display()
+                            ))
+                            .color(BG_PRIMARY)
+                            .small(),
+                        );
                     });
                 });
         }
@@ -2690,7 +2949,10 @@ impl eframe::App for KycoApp {
         };
 
         // Handle install request
-        if matches!(self.update_install_status, super::status_bar::InstallStatus::InstallRequested) {
+        if matches!(
+            self.update_install_status,
+            super::status_bar::InstallStatus::InstallRequested
+        ) {
             if let Some(info) = &update_info {
                 self.update_install_status = super::status_bar::InstallStatus::Installing;
                 let (tx, rx) = std::sync::mpsc::channel();
@@ -2707,8 +2969,12 @@ impl eframe::App for KycoApp {
         if let Some(rx) = &self.update_install_rx {
             if let Ok(result) = rx.try_recv() {
                 match result {
-                    Ok(msg) => self.update_install_status = super::status_bar::InstallStatus::Success(msg),
-                    Err(err) => self.update_install_status = super::status_bar::InstallStatus::Error(err),
+                    Ok(msg) => {
+                        self.update_install_status = super::status_bar::InstallStatus::Success(msg)
+                    }
+                    Err(err) => {
+                        self.update_install_status = super::status_bar::InstallStatus::Error(err)
+                    }
                 }
                 self.update_install_rx = None;
             }
@@ -2791,8 +3057,17 @@ impl eframe::App for KycoApp {
                 install_status: &mut self.update_install_status,
                 workspace_registry: Some(&self.workspace_registry),
                 active_workspace_id: &mut self.active_workspace_id,
+                orchestrator_requested: &mut self.orchestrator_requested,
             },
         );
+
+        if self.orchestrator_requested {
+            self.orchestrator_requested = false;
+            if let Err(e) = self.launch_orchestrator() {
+                self.logs
+                    .push(LogEvent::error(format!("Failed to start orchestrator: {}", e)));
+            }
+        }
 
         // Render based on view mode
         match self.view_mode {

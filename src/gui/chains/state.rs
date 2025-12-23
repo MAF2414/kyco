@@ -65,7 +65,7 @@ pub struct ChainEditorState<'a> {
 pub struct StateDefinitionEdit {
     pub id: String,
     pub description: String,
-    pub patterns: String,  // Newline-separated patterns
+    pub patterns: String, // Newline-separated patterns
     pub is_regex: bool,
     pub case_insensitive: bool,
 }
@@ -102,9 +102,9 @@ impl StateDefinitionEdit {
 #[derive(Clone, Default)]
 pub struct ChainStepEdit {
     pub mode: String,
-    pub trigger_on: String,  // Comma-separated
-    pub skip_on: String,     // Comma-separated
-    pub agent: String,       // Optional override
+    pub trigger_on: String, // Comma-separated
+    pub skip_on: String,    // Comma-separated
+    pub agent: String,      // Optional override
     pub inject_context: String,
 }
 
@@ -112,10 +112,14 @@ impl From<&ChainStep> for ChainStepEdit {
     fn from(step: &ChainStep) -> Self {
         Self {
             mode: step.mode.clone(),
-            trigger_on: step.trigger_on.as_ref()
+            trigger_on: step
+                .trigger_on
+                .as_ref()
                 .map(|v| v.join(", "))
                 .unwrap_or_default(),
-            skip_on: step.skip_on.as_ref()
+            skip_on: step
+                .skip_on
+                .as_ref()
                 .map(|v| v.join(", "))
                 .unwrap_or_default(),
             agent: step.agent.clone().unwrap_or_default(),
@@ -130,8 +134,16 @@ impl ChainStepEdit {
             mode: self.mode.clone(),
             trigger_on: parse_state_list(&self.trigger_on),
             skip_on: parse_state_list(&self.skip_on),
-            agent: if self.agent.trim().is_empty() { None } else { Some(self.agent.trim().to_string()) },
-            inject_context: if self.inject_context.trim().is_empty() { None } else { Some(self.inject_context.trim().to_string()) },
+            agent: if self.agent.trim().is_empty() {
+                None
+            } else {
+                Some(self.agent.trim().to_string())
+            },
+            inject_context: if self.inject_context.trim().is_empty() {
+                None
+            } else {
+                Some(self.inject_context.trim().to_string())
+            },
         }
     }
 }

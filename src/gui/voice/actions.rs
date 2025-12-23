@@ -298,9 +298,7 @@ impl VoiceActionRegistry {
         let mut map: HashMap<String, Vec<&VoiceAction>> = HashMap::new();
 
         for action in &self.actions {
-            map.entry(action.mode.clone())
-                .or_default()
-                .push(action);
+            map.entry(action.mode.clone()).or_default().push(action);
         }
 
         map
@@ -313,8 +311,7 @@ mod tests {
 
     #[test]
     fn test_voice_action_match() {
-        let action = VoiceAction::new("refactor", "refactor")
-            .with_alias("r");
+        let action = VoiceAction::new("refactor", "refactor").with_alias("r");
 
         let m = action.matches("refactor this function").unwrap();
         assert_eq!(m.mode, "refactor");

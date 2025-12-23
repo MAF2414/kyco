@@ -6,7 +6,7 @@
 //! 3. Mode validation
 //! 4. Edit fields not cleared after chain deletion
 
-use kyco::config::{ChainStep, Config, ModeChain, StateDefinition};
+use kyco::config::{ChainStep, Config, ModeChain};
 
 // ============================================================================
 // ChainStep Tests
@@ -93,8 +93,7 @@ fn test_chain_step_serialization_roundtrip() {
     };
 
     let serialized = serde_json::to_string(&step).expect("Failed to serialize");
-    let deserialized: ChainStep =
-        serde_json::from_str(&serialized).expect("Failed to deserialize");
+    let deserialized: ChainStep = serde_json::from_str(&serialized).expect("Failed to deserialize");
 
     assert_eq!(deserialized.mode, step.mode);
     assert_eq!(deserialized.trigger_on, step.trigger_on);
@@ -236,8 +235,7 @@ fn test_mode_chain_serialization_roundtrip() {
     };
 
     let serialized = serde_json::to_string(&chain).expect("Failed to serialize");
-    let deserialized: ModeChain =
-        serde_json::from_str(&serialized).expect("Failed to deserialize");
+    let deserialized: ModeChain = serde_json::from_str(&serialized).expect("Failed to deserialize");
 
     assert_eq!(deserialized.description, chain.description);
     assert_eq!(deserialized.steps.len(), chain.steps.len());
@@ -377,7 +375,7 @@ fn test_chain_step_with_empty_string_in_triggers() {
         mode: "fix".to_string(),
         trigger_on: Some(vec![
             "issues_found".to_string(),
-            "".to_string(), // empty string
+            "".to_string(),   // empty string
             "  ".to_string(), // whitespace only
         ]),
         skip_on: None,
@@ -527,7 +525,10 @@ fn test_default_config_has_review_plus_fix_chain() {
     let config = Config::with_defaults();
 
     let chain = config.get_chain("review+fix");
-    assert!(chain.is_some(), "Default config should have review+fix chain");
+    assert!(
+        chain.is_some(),
+        "Default config should have review+fix chain"
+    );
 
     let chain = chain.unwrap();
     assert!(
@@ -556,10 +557,7 @@ fn test_default_review_plus_fix_chain_steps() {
         chain.steps[1].trigger_on,
         Some(vec!["issues_found".to_string()])
     );
-    assert_eq!(
-        chain.steps[1].skip_on,
-        Some(vec!["no_issues".to_string()])
-    );
+    assert_eq!(chain.steps[1].skip_on, Some(vec!["no_issues".to_string()]));
 }
 
 #[test]
@@ -671,11 +669,7 @@ fn test_chain_step_no_trigger_no_skip_always_runs() {
 
     // With both None, the step should always run
     let should_trigger = step.trigger_on.is_none();
-    let should_skip = step
-        .skip_on
-        .as_ref()
-        .map(|_| false)
-        .unwrap_or(false);
+    let should_skip = step.skip_on.as_ref().map(|_| false).unwrap_or(false);
 
     assert!(should_trigger);
     assert!(!should_skip);
@@ -835,11 +829,14 @@ fn test_chain_step_edit_whitespace_agent_becomes_none() {
     // BUG TEST: Agent field with only whitespace should become None
     let mut edit = ChainStepEdit::default();
     edit.mode = "review".to_string();
-    edit.agent = "   ".to_string();  // whitespace only
+    edit.agent = "   ".to_string(); // whitespace only
 
     let step = edit.to_chain_step();
 
-    assert!(step.agent.is_none(), "Agent with only whitespace should become None");
+    assert!(
+        step.agent.is_none(),
+        "Agent with only whitespace should become None"
+    );
 }
 
 #[test]
@@ -993,9 +990,18 @@ fn test_bug_step_index_removal() {
     // BUG TEST: Concurrent step modifications can corrupt indices
     // Simulating the scenario from editor.rs:157-166
     let mut steps: Vec<ChainStepEdit> = vec![
-        ChainStepEdit { mode: "step1".to_string(), ..Default::default() },
-        ChainStepEdit { mode: "step2".to_string(), ..Default::default() },
-        ChainStepEdit { mode: "step3".to_string(), ..Default::default() },
+        ChainStepEdit {
+            mode: "step1".to_string(),
+            ..Default::default()
+        },
+        ChainStepEdit {
+            mode: "step2".to_string(),
+            ..Default::default()
+        },
+        ChainStepEdit {
+            mode: "step3".to_string(),
+            ..Default::default()
+        },
     ];
 
     // Simulate removing middle step
@@ -1011,9 +1017,18 @@ fn test_bug_step_index_removal() {
 fn test_bug_step_swap_up() {
     // Test swapping step up
     let mut steps: Vec<ChainStepEdit> = vec![
-        ChainStepEdit { mode: "step1".to_string(), ..Default::default() },
-        ChainStepEdit { mode: "step2".to_string(), ..Default::default() },
-        ChainStepEdit { mode: "step3".to_string(), ..Default::default() },
+        ChainStepEdit {
+            mode: "step1".to_string(),
+            ..Default::default()
+        },
+        ChainStepEdit {
+            mode: "step2".to_string(),
+            ..Default::default()
+        },
+        ChainStepEdit {
+            mode: "step3".to_string(),
+            ..Default::default()
+        },
     ];
 
     // Swap step 2 up (i=2 -> swap with i-1=1)
@@ -1027,9 +1042,18 @@ fn test_bug_step_swap_up() {
 fn test_bug_step_swap_down() {
     // Test swapping step down
     let mut steps: Vec<ChainStepEdit> = vec![
-        ChainStepEdit { mode: "step1".to_string(), ..Default::default() },
-        ChainStepEdit { mode: "step2".to_string(), ..Default::default() },
-        ChainStepEdit { mode: "step3".to_string(), ..Default::default() },
+        ChainStepEdit {
+            mode: "step1".to_string(),
+            ..Default::default()
+        },
+        ChainStepEdit {
+            mode: "step2".to_string(),
+            ..Default::default()
+        },
+        ChainStepEdit {
+            mode: "step3".to_string(),
+            ..Default::default()
+        },
     ];
 
     // Swap step 0 down (i=0 -> swap with i+1=1)
@@ -1043,8 +1067,14 @@ fn test_bug_step_swap_down() {
 #[should_panic]
 fn test_bug_step_swap_out_of_bounds() {
     let mut steps: Vec<ChainStepEdit> = vec![
-        ChainStepEdit { mode: "step1".to_string(), ..Default::default() },
-        ChainStepEdit { mode: "step2".to_string(), ..Default::default() },
+        ChainStepEdit {
+            mode: "step1".to_string(),
+            ..Default::default()
+        },
+        ChainStepEdit {
+            mode: "step2".to_string(),
+            ..Default::default()
+        },
     ];
 
     // This would panic - trying to swap beyond bounds

@@ -1,6 +1,6 @@
 //! Init command implementation
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use std::path::Path;
 use std::path::PathBuf;
 use tracing::info;
@@ -917,7 +917,11 @@ pub fn ensure_config_exists(_workspace_path: &Path) -> bool {
 /// Initialize a new KYCo configuration
 /// By default creates the global config at ~/.kyco/config.toml
 /// Use --config to specify a custom path
-pub async fn init_command(_work_dir: &Path, config_path: Option<PathBuf>, force: bool) -> Result<()> {
+pub async fn init_command(
+    _work_dir: &Path,
+    config_path: Option<PathBuf>,
+    force: bool,
+) -> Result<()> {
     // Default to global config path
     let config_path = config_path.unwrap_or_else(|| {
         dirs::home_dir()

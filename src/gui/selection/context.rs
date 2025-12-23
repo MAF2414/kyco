@@ -93,8 +93,14 @@ impl SelectionContext {
         // Diagnostics (Errors/Warnings)
         if let Some(ref diagnostics) = self.diagnostics {
             if !diagnostics.is_empty() {
-                let errors: Vec<_> = diagnostics.iter().filter(|d| d.severity == "Error").collect();
-                let warnings: Vec<_> = diagnostics.iter().filter(|d| d.severity == "Warning").collect();
+                let errors: Vec<_> = diagnostics
+                    .iter()
+                    .filter(|d| d.severity == "Error")
+                    .collect();
+                let warnings: Vec<_> = diagnostics
+                    .iter()
+                    .filter(|d| d.severity == "Warning")
+                    .collect();
 
                 ctx.push_str("\n### Diagnostics:\n");
 
@@ -105,7 +111,10 @@ impl SelectionContext {
                             "- Line {}: {}{}\n",
                             diag.line,
                             diag.message,
-                            diag.code.as_ref().map(|c| format!(" [{}]", c)).unwrap_or_default()
+                            diag.code
+                                .as_ref()
+                                .map(|c| format!(" [{}]", c))
+                                .unwrap_or_default()
                         ));
                     }
                 }
@@ -117,7 +126,10 @@ impl SelectionContext {
                             "- Line {}: {}{}\n",
                             diag.line,
                             diag.message,
-                            diag.code.as_ref().map(|c| format!(" [{}]", c)).unwrap_or_default()
+                            diag.code
+                                .as_ref()
+                                .map(|c| format!(" [{}]", c))
+                                .unwrap_or_default()
                         ));
                     }
                 }

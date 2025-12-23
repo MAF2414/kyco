@@ -17,7 +17,7 @@ pub use state::ModeEditorState;
 use eframe::egui::{self, RichText};
 
 use super::animations::animated_button;
-use super::app::{ViewMode, BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY};
+use super::app::{BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY, ViewMode};
 
 /// Render the modes configuration view
 pub fn render_modes(ctx: &egui::Context, state: &mut ModeEditorState<'_>) {
@@ -39,7 +39,8 @@ pub fn render_modes(ctx: &egui::Context, state: &mut ModeEditorState<'_>) {
                         }
                         if state.selected_mode.is_some() {
                             ui.add_space(8.0);
-                            if animated_button(ui, "<- Back", TEXT_DIM, "modes_back_btn").clicked() {
+                            if animated_button(ui, "<- Back", TEXT_DIM, "modes_back_btn").clicked()
+                            {
                                 *state.selected_mode = None;
                                 *state.mode_edit_status = None;
                             }

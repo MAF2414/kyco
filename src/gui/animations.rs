@@ -9,10 +9,10 @@
 use eframe::egui::{self, Color32, Id, Pos2, Rect, Response, RichText, Sense, Ui, Vec2};
 
 // Animation timing constants
-pub const HOVER_ANIM_SPEED: f64 = 8.0;      // Speed for hover transitions
-pub const FADE_ANIM_SPEED: f64 = 6.0;       // Speed for fade in/out
-pub const PULSE_SPEED: f64 = 3.0;           // Speed for pulse animations
-pub const SLIDE_ANIM_SPEED: f64 = 10.0;     // Speed for slide transitions
+pub const HOVER_ANIM_SPEED: f64 = 8.0; // Speed for hover transitions
+pub const FADE_ANIM_SPEED: f64 = 6.0; // Speed for fade in/out
+pub const PULSE_SPEED: f64 = 3.0; // Speed for pulse animations
+pub const SLIDE_ANIM_SPEED: f64 = 10.0; // Speed for slide transitions
 
 /// Animated button with hover glow effect
 pub fn animated_button(
@@ -25,21 +25,19 @@ pub fn animated_button(
     let id = Id::new(id_salt);
 
     // Read previous hover state from memory (defaults to false)
-    let was_hovered = ui.ctx().memory(|mem| {
-        mem.data.get_temp::<bool>(id).unwrap_or(false)
-    });
+    let was_hovered = ui
+        .ctx()
+        .memory(|mem| mem.data.get_temp::<bool>(id).unwrap_or(false));
 
     // Get smooth animation progress toward the previous hover state
-    let hover_anim = ui.ctx().animate_bool_with_time(id.with("anim"), was_hovered, 0.15);
+    let hover_anim = ui
+        .ctx()
+        .animate_bool_with_time(id.with("anim"), was_hovered, 0.15);
 
     // Calculate animated colors
     let glow_alpha = (hover_anim * 40.0) as u8;
-    let fill_color = Color32::from_rgba_unmultiplied(
-        base_color.r(),
-        base_color.g(),
-        base_color.b(),
-        glow_alpha,
-    );
+    let fill_color =
+        Color32::from_rgba_unmultiplied(base_color.r(), base_color.g(), base_color.b(), glow_alpha);
     let stroke_alpha = (hover_anim * 0.6 * 255.0) as u8;
     let stroke_color = Color32::from_rgba_unmultiplied(
         base_color.r(),
@@ -80,12 +78,14 @@ pub fn animated_icon_button(
     let id = Id::new(id_salt);
 
     // Read previous hover state from memory
-    let was_hovered = ui.ctx().memory(|mem| {
-        mem.data.get_temp::<bool>(id).unwrap_or(false)
-    });
+    let was_hovered = ui
+        .ctx()
+        .memory(|mem| mem.data.get_temp::<bool>(id).unwrap_or(false));
 
     // Animate hover state
-    let hover_progress = ui.ctx().animate_bool_with_time(id.with("anim"), was_hovered, 0.12);
+    let hover_progress = ui
+        .ctx()
+        .animate_bool_with_time(id.with("anim"), was_hovered, 0.12);
     let current_color = lerp_color(base_color, hover_color, hover_progress);
 
     let response = ui.add(
@@ -116,30 +116,28 @@ pub fn pulse_indicator(ui: &mut Ui, color: Color32, size: f32) {
     let (rect, _response) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
 
     // Outer glow
-    let glow_color = Color32::from_rgba_unmultiplied(
-        color.r(),
-        color.g(),
-        color.b(),
-        (pulse * 80.0) as u8,
-    );
-    ui.painter().circle_filled(rect.center(), size * 0.8, glow_color);
+    let glow_color =
+        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), (pulse * 80.0) as u8);
+    ui.painter()
+        .circle_filled(rect.center(), size * 0.8, glow_color);
 
     // Inner solid
     let inner_alpha = 150 + (pulse * 105.0) as u8;
-    let inner_color = Color32::from_rgba_unmultiplied(
-        color.r(),
-        color.g(),
-        color.b(),
-        inner_alpha,
-    );
-    ui.painter().circle_filled(rect.center(), size * 0.4, inner_color);
+    let inner_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), inner_alpha);
+    ui.painter()
+        .circle_filled(rect.center(), size * 0.4, inner_color);
 
     // Request continuous repaint for animation
     ui.ctx().request_repaint();
 }
 
 /// Animated progress bar with smooth transitions
-pub fn animated_progress_bar(ui: &mut Ui, progress: f32, color: Color32, id_salt: impl std::hash::Hash) {
+pub fn animated_progress_bar(
+    ui: &mut Ui,
+    progress: f32,
+    color: Color32,
+    id_salt: impl std::hash::Hash,
+) {
     let id = Id::new(id_salt);
 
     // Smooth the progress value
@@ -149,11 +147,8 @@ pub fn animated_progress_bar(ui: &mut Ui, progress: f32, color: Color32, id_salt
     let (rect, _response) = ui.allocate_exact_size(desired_size, Sense::hover());
 
     // Background track
-    ui.painter().rect_filled(
-        rect,
-        2.0,
-        Color32::from_rgb(40, 45, 55),
-    );
+    ui.painter()
+        .rect_filled(rect, 2.0, Color32::from_rgb(40, 45, 55));
 
     // Progress fill
     let progress_rect = Rect::from_min_size(
@@ -208,16 +203,12 @@ pub fn list_item_background(
     let id = Id::new(id_salt);
 
     // Animate selection and hover separately
-    let select_anim = ui.ctx().animate_bool_with_time(
-        id.with("select"),
-        is_selected,
-        0.15,
-    );
-    let hover_anim = ui.ctx().animate_bool_with_time(
-        id.with("hover"),
-        is_hovered && !is_selected,
-        0.1,
-    );
+    let select_anim = ui
+        .ctx()
+        .animate_bool_with_time(id.with("select"), is_selected, 0.15);
+    let hover_anim =
+        ui.ctx()
+            .animate_bool_with_time(id.with("hover"), is_hovered && !is_selected, 0.1);
 
     // Blend colors based on animation state
     let bg_color = if select_anim > 0.01 {
@@ -278,12 +269,14 @@ pub fn animated_list_item<R>(
     let id = Id::new(id_salt);
 
     // Read previous hover state
-    let was_hovered = ui.ctx().memory(|mem| {
-        mem.data.get_temp::<bool>(id).unwrap_or(false)
-    });
+    let was_hovered = ui
+        .ctx()
+        .memory(|mem| mem.data.get_temp::<bool>(id).unwrap_or(false));
 
     // Get animation progress
-    let hover_anim = ui.ctx().animate_bool_with_time(id.with("hover"), was_hovered, 0.12);
+    let hover_anim = ui
+        .ctx()
+        .animate_bool_with_time(id.with("hover"), was_hovered, 0.12);
 
     // Calculate animated fill color
     let fill = lerp_color(base_fill, hover_fill, hover_anim);
@@ -297,9 +290,7 @@ pub fn animated_list_item<R>(
             1.0,
             Color32::from_rgba_unmultiplied(255, 255, 255, (hover_anim * 20.0) as u8),
         ))
-        .show(ui, |ui| {
-            add_contents(ui)
-        });
+        .show(ui, |ui| add_contents(ui));
 
     // Make the frame interactive
     let response = frame_response.response.interact(egui::Sense::click());
@@ -361,7 +352,8 @@ impl TypewriterState {
     }
 
     pub fn get_visible_text<'a>(&self, text: &'a str) -> &'a str {
-        let byte_index = text.char_indices()
+        let byte_index = text
+            .char_indices()
             .nth(self.visible_chars)
             .map(|(i, _)| i)
             .unwrap_or(text.len());
@@ -384,7 +376,10 @@ pub fn blocked_indicator(ui: &mut Ui, color: Color32, size: f32) {
     let animated_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
 
     // Allocate space and render the lock symbol
-    let text = RichText::new("[L]").monospace().color(animated_color).size(size);
+    let text = RichText::new("[L]")
+        .monospace()
+        .color(animated_color)
+        .size(size);
     ui.label(text);
 
     ui.ctx().request_repaint();
@@ -416,7 +411,10 @@ pub fn pending_indicator(ui: &mut Ui, color: Color32, size: f32) {
     let alpha = 100 + (pulse * 155.0) as u8;
     let animated_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
 
-    let text = RichText::new("[.]").monospace().color(animated_color).size(size);
+    let text = RichText::new("[.]")
+        .monospace()
+        .color(animated_color)
+        .size(size);
     ui.label(text);
 
     ui.ctx().request_repaint();

@@ -69,7 +69,10 @@ impl ClaudeBridgeAdapter {
                 let target = if job.target.starts_with(&ws_prefix) {
                     job.target.replacen(&ws_prefix, "", 1)
                 } else if job.target.starts_with(&ws_str) {
-                    job.target.replacen(&ws_str, "", 1).trim_start_matches('/').to_string()
+                    job.target
+                        .replacen(&ws_str, "", 1)
+                        .trim_start_matches('/')
+                        .to_string()
                 } else {
                     job.target.clone()
                 };
@@ -179,9 +182,7 @@ impl AgentRunner for ClaudeBridgeAdapter {
 
         // Log start
         let _ = event_tx
-            .send(
-                LogEvent::system(format!("Starting Claude SDK job #{}", job_id)).for_job(job_id),
-            )
+            .send(LogEvent::system(format!("Starting Claude SDK job #{}", job_id)).for_job(job_id))
             .await;
         let _ = event_tx
             .send(LogEvent::system(format!(">>> {}", prompt)).for_job(job_id))
@@ -221,11 +222,15 @@ impl AgentRunner for ClaudeBridgeAdapter {
                 Some(config.mcp_servers.clone())
             },
             system_prompt: self.build_system_prompt(job, config),
-            system_prompt_mode: Some(match config.system_prompt_mode {
-                crate::SystemPromptMode::Replace => "replace",
-                crate::SystemPromptMode::Append | crate::SystemPromptMode::ConfigOverride => "append",
-            }
-            .to_string()),
+            system_prompt_mode: Some(
+                match config.system_prompt_mode {
+                    crate::SystemPromptMode::Replace => "replace",
+                    crate::SystemPromptMode::Append | crate::SystemPromptMode::ConfigOverride => {
+                        "append"
+                    }
+                }
+                .to_string(),
+            ),
             // Load Claude Code settings (incl. CLAUDE.md) for parity with the CLI.
             setting_sources: Some(vec![
                 "user".to_string(),
@@ -244,7 +249,11 @@ impl AgentRunner for ClaudeBridgeAdapter {
                     })
                     .collect();
 
-                if plugins.is_empty() { None } else { Some(plugins) }
+                if plugins.is_empty() {
+                    None
+                } else {
+                    Some(plugins)
+                }
             },
             max_turns: if config.max_turns > 0 {
                 Some(config.max_turns)
@@ -337,9 +346,7 @@ impl AgentRunner for ClaudeBridgeAdapter {
                         output_text.push_str(&content);
                         output_text.push('\n');
                     }
-                    let _ = event_tx
-                        .send(LogEvent::text(content).for_job(job_id))
-                        .await;
+                    let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
                 }
 
                 BridgeEvent::ToolUse {
@@ -432,14 +439,16 @@ impl AgentRunner for ClaudeBridgeAdapter {
                     // Forward to GUI for user approval
                     // The executor converts this LogEvent into an ExecutorEvent::PermissionNeeded.
                     let _ = event_tx
-                        .send(LogEvent::permission(format!("Tool approval needed: {}", tool_name))
-                            .with_tool_args(serde_json::json!({
-                                "request_id": request_id,
-                                "session_id": session_id,
-                                "tool_name": tool_name,
-                                "tool_input": tool_input,
-                            }))
-                            .for_job(job_id))
+                        .send(
+                            LogEvent::permission(format!("Tool approval needed: {}", tool_name))
+                                .with_tool_args(serde_json::json!({
+                                    "request_id": request_id,
+                                    "session_id": session_id,
+                                    "tool_name": tool_name,
+                                    "tool_input": tool_input,
+                                }))
+                                .for_job(job_id),
+                        )
                         .await;
                 }
 
@@ -449,7 +458,10 @@ impl AgentRunner for ClaudeBridgeAdapter {
                     tool_use_id,
                     ..
                 } => {
-                    let summary = format!("[hook PreToolUse] {}", format_tool_call(&tool_name, &tool_input));
+                    let summary = format!(
+                        "[hook PreToolUse] {}",
+                        format_tool_call(&tool_name, &tool_input)
+                    );
                     let _ = event_tx
                         .send(
                             LogEvent::tool_call(tool_name, summary)
@@ -556,7 +568,10 @@ impl CodexBridgeAdapter {
                 let target = if job.target.starts_with(&ws_prefix) {
                     job.target.replacen(&ws_prefix, "", 1)
                 } else if job.target.starts_with(&ws_str) {
-                    job.target.replacen(&ws_str, "", 1).trim_start_matches('/').to_string()
+                    job.target
+                        .replacen(&ws_str, "", 1)
+                        .trim_start_matches('/')
+                        .to_string()
                 } else {
                     job.target.clone()
                 };
@@ -711,19 +726,17 @@ impl AgentRunner for CodexBridgeAdapter {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<BridgeEvent, String>>(100);
         let client = self.client.clone();
 
-        tokio::task::spawn_blocking(move || {
-            match client.codex_query(&request) {
-                Ok(events) => {
-                    for event_result in events {
-                        let msg = event_result.map_err(|e| e.to_string());
-                        if tx.blocking_send(msg).is_err() {
-                            break;
-                        }
+        tokio::task::spawn_blocking(move || match client.codex_query(&request) {
+            Ok(events) => {
+                for event_result in events {
+                    let msg = event_result.map_err(|e| e.to_string());
+                    if tx.blocking_send(msg).is_err() {
+                        break;
                     }
                 }
-                Err(e) => {
-                    let _ = tx.blocking_send(Err(e.to_string()));
-                }
+            }
+            Err(e) => {
+                let _ = tx.blocking_send(Err(e.to_string()));
             }
         });
 
@@ -757,9 +770,7 @@ impl AgentRunner for CodexBridgeAdapter {
                         output_text.push_str(&content);
                         output_text.push('\n');
                     }
-                    let _ = event_tx
-                        .send(LogEvent::text(content).for_job(job_id))
-                        .await;
+                    let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
                 }
 
                 BridgeEvent::ToolUse {
@@ -963,9 +974,5 @@ fn parse_json_schema(schema: Option<&str>) -> Option<serde_json::Value> {
     }
 
     let value: serde_json::Value = serde_json::from_str(schema).ok()?;
-    if value.is_object() {
-        Some(value)
-    } else {
-        None
-    }
+    if value.is_object() { Some(value) } else { None }
 }

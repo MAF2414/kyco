@@ -40,7 +40,9 @@ impl SdkType {
     /// Returns the permission mode options for this SDK type.
     pub fn permission_modes(&self) -> &'static [&'static str] {
         match self {
-            SdkType::Claude | SdkType::Gemini | SdkType::Custom => &["default", "acceptEdits", "bypassPermissions", "plan"],
+            SdkType::Claude | SdkType::Gemini | SdkType::Custom => {
+                &["default", "acceptEdits", "bypassPermissions", "plan"]
+            }
             SdkType::Codex => &["suggest", "auto-edit", "full-auto"],
         }
     }
@@ -378,8 +380,9 @@ impl AgentConfig {
         templates.insert(
             "fix".to_string(),
             ModeTemplate {
-                prompt_template: "Fix the issue in {scope_type} `{target}` in `{file}`. {description}"
-                    .to_string(),
+                prompt_template:
+                    "Fix the issue in {scope_type} `{target}` in `{file}`. {description}"
+                        .to_string(),
                 system_prompt: Some(
                     "You are running in KYCo 'fix' mode. You may read the entire repo. \
                      Analyze the code and fix the described issue. Make minimal changes necessary."
@@ -439,8 +442,8 @@ impl AgentConfig {
         templates.insert(
             "review".to_string(),
             ModeTemplate {
-                prompt_template:
-                    "Review {scope_type} `{target}` in `{file}`. {description}".to_string(),
+                prompt_template: "Review {scope_type} `{target}` in `{file}`. {description}"
+                    .to_string(),
                 system_prompt: Some(
                     "You are running in KYCo 'review' mode. You may read the entire repo. \
                      Analyze the code for bugs, performance issues, and code quality. \
@@ -479,9 +482,13 @@ impl AgentConfig {
 
     /// Get the mode template for a given mode, falling back to a generic template
     pub fn get_mode_template(&self, mode: &str) -> ModeTemplate {
-        self.mode_templates.get(mode).cloned().unwrap_or_else(|| {
-            ModeTemplate {
-                prompt_template: "Execute '{mode}' on {scope_type} `{target}` in `{file}`. {description}".to_string(),
+        self.mode_templates
+            .get(mode)
+            .cloned()
+            .unwrap_or_else(|| ModeTemplate {
+                prompt_template:
+                    "Execute '{mode}' on {scope_type} `{target}` in `{file}`. {description}"
+                        .to_string(),
                 system_prompt: Some(format!(
                     "You are running in KYCo '{mode}' mode. You may read the entire repo. \
                      Make changes only within the marked scope.",
@@ -493,8 +500,7 @@ impl AgentConfig {
                 allowed_tools: vec![],
                 output_states: vec![],
                 state_prompt: None,
-            }
-        })
+            })
     }
 
     /// Get the effective session mode for a given mode
@@ -509,7 +515,9 @@ impl AgentConfig {
 
     /// Legacy: Get the binary name (for CLI-based adapters)
     pub fn get_binary(&self) -> String {
-        self.binary.clone().unwrap_or_else(|| self.sdk_type.default_name().to_string())
+        self.binary
+            .clone()
+            .unwrap_or_else(|| self.sdk_type.default_name().to_string())
     }
 
     /// Legacy: Get run args for CLI-based adapters.

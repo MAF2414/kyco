@@ -139,10 +139,9 @@ impl AgentRunner for ClaudeAdapter {
         // Send start event with full prompt
         let job_id = job.id;
         let _ = event_tx
-            .send(LogEvent::system(format!(
-                "Starting job #{} with prompt:",
-                job_id
-            )).for_job(job_id))
+            .send(
+                LogEvent::system(format!("Starting job #{} with prompt:", job_id)).for_job(job_id),
+            )
             .await;
         let _ = event_tx
             .send(LogEvent::system(format!(">>> {}", prompt)).for_job(job_id))
@@ -192,9 +191,11 @@ impl AgentRunner for ClaudeAdapter {
         while let Ok(Some(line)) = reader.next_line().await {
             if let Some(event) = StreamEvent::parse(&line) {
                 let log_event = match &event {
-                    StreamEvent::System { subtype, message } => {
-                        LogEvent::system(format!("{}: {}", subtype, message.as_deref().unwrap_or("")))
-                    }
+                    StreamEvent::System { subtype, message } => LogEvent::system(format!(
+                        "{}: {}",
+                        subtype,
+                        message.as_deref().unwrap_or("")
+                    )),
                     StreamEvent::Assistant { message } => {
                         let mut events = Vec::new();
                         for block in &message.content {
@@ -216,12 +217,17 @@ impl AgentRunner for ClaudeAdapter {
                         for evt in events.drain(..events.len().saturating_sub(1)) {
                             let _ = event_tx.send(evt.for_job(job_id)).await;
                         }
-                        events.pop().unwrap_or_else(|| LogEvent::system("assistant message"))
+                        events
+                            .pop()
+                            .unwrap_or_else(|| LogEvent::system("assistant message"))
                     }
                     StreamEvent::User { message } => {
                         let mut summary = String::new();
                         for block in &message.content {
-                            if let ContentBlock::ToolResult { content, is_error, .. } = block {
+                            if let ContentBlock::ToolResult {
+                                content, is_error, ..
+                            } = block
+                            {
                                 summary = if *is_error {
                                     format!("Error: {}", content)
                                 } else {
@@ -370,9 +376,15 @@ mod tests {
         let prompt = adapter.build_prompt(&job, &config);
 
         // Must contain file:line reference
-        assert!(prompt.contains("src/main.rs:42"), "Prompt should contain file:line reference");
+        assert!(
+            prompt.contains("src/main.rs:42"),
+            "Prompt should contain file:line reference"
+        );
         // Must contain description
-        assert!(prompt.contains("fix the bug"), "Prompt should contain description");
+        assert!(
+            prompt.contains("fix the bug"),
+            "Prompt should contain description"
+        );
     }
 
     #[test]
@@ -384,9 +396,15 @@ mod tests {
         let prompt = adapter.build_prompt(&job, &config);
 
         // Must contain file:line reference
-        assert!(prompt.contains("lib/utils.py:10"), "Prompt should contain file:line reference");
+        assert!(
+            prompt.contains("lib/utils.py:10"),
+            "Prompt should contain file:line reference"
+        );
         // Must mention the mode (case-insensitive, template uses "Refactor")
-        assert!(prompt.to_lowercase().contains("refactor"), "Prompt should mention the mode");
+        assert!(
+            prompt.to_lowercase().contains("refactor"),
+            "Prompt should mention the mode"
+        );
     }
 
     #[test]
@@ -422,8 +440,14 @@ mod tests {
         let prompt = adapter.build_prompt(&job, &config);
 
         // Prompt should contain target (file:line) and description
-        assert!(prompt.contains("test.rs:5"), "Prompt should contain file:line reference");
-        assert!(prompt.contains("handle edge cases"), "Prompt should contain description");
+        assert!(
+            prompt.contains("test.rs:5"),
+            "Prompt should contain file:line reference"
+        );
+        assert!(
+            prompt.contains("handle edge cases"),
+            "Prompt should contain description"
+        );
     }
 
     #[test]
@@ -435,7 +459,10 @@ mod tests {
         let prompt = adapter.build_prompt(&job, &config);
 
         // Format should mention file:line and mode
-        assert!(prompt.contains("code.py:20"), "Prompt should contain file:line");
+        assert!(
+            prompt.contains("code.py:20"),
+            "Prompt should contain file:line"
+        );
         assert!(prompt.contains("code.py"), "Prompt should mention file");
         // "tests" mode has a template with "Write unit tests"
         assert!(prompt.contains("test"), "Prompt should mention tests");

@@ -118,7 +118,8 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         aliases,
         sdk,
         session_mode,
-        binary: (!state.agent_edit_binary.trim().is_empty()).then(|| state.agent_edit_binary.clone()),
+        binary: (!state.agent_edit_binary.trim().is_empty())
+            .then(|| state.agent_edit_binary.clone()),
         print_mode_args,
         output_format_args,
         repl_mode_args,

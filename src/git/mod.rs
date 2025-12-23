@@ -2,5 +2,5 @@
 
 mod manager;
 
-pub use manager::{GitManager, WorktreeInfo};
 pub use manager::CommitMessage;
+pub use manager::{GitManager, WorktreeInfo};

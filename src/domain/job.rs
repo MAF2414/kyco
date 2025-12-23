@@ -133,7 +133,10 @@ impl JobResult {
         let obj = value.as_object()?;
 
         let mut result = JobResult::default();
-        result.title = obj.get("title").and_then(|v| v.as_str()).map(|s| s.to_string());
+        result.title = obj
+            .get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         result.commit_subject = obj
             .get("commit_subject")
             .or_else(|| obj.get("commitSubject"))
@@ -144,9 +147,18 @@ impl JobResult {
             .or_else(|| obj.get("commitBody"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        result.details = obj.get("details").and_then(|v| v.as_str()).map(|s| s.to_string());
-        result.status = obj.get("status").and_then(|v| v.as_str()).map(|s| s.to_string());
-        result.state = obj.get("state").and_then(|v| v.as_str()).map(|s| s.to_string());
+        result.details = obj
+            .get("details")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        result.status = obj
+            .get("status")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        result.state = obj
+            .get("state")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
 
         result.next_context = obj
             .get("next_context")
@@ -167,11 +179,7 @@ impl JobResult {
             || result.state.is_some()
             || result.next_context.is_some();
 
-        if has_structured {
-            Some(result)
-        } else {
-            None
-        }
+        if has_structured { Some(result) } else { None }
     }
 
     /// Parse a YAML block with a specific start marker
@@ -614,7 +622,10 @@ impl Job {
             self.started_at = Some(Utc::now());
         }
 
-        if matches!(status, JobStatus::Done | JobStatus::Failed | JobStatus::Rejected) {
+        if matches!(
+            status,
+            JobStatus::Done | JobStatus::Failed | JobStatus::Rejected
+        ) {
             self.finished_at = Some(Utc::now());
             self.compute_duration();
         }
@@ -663,7 +674,12 @@ impl Job {
     }
 
     /// Update stats with file change information
-    pub fn set_file_stats(&mut self, files_changed: usize, lines_added: usize, lines_removed: usize) {
+    pub fn set_file_stats(
+        &mut self,
+        files_changed: usize,
+        lines_added: usize,
+        lines_removed: usize,
+    ) {
         if let Some(stats) = &mut self.stats {
             stats.files_changed = files_changed;
             stats.lines_added = lines_added;

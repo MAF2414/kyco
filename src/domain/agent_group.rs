@@ -88,12 +88,7 @@ pub struct AgentRunGroup {
 
 impl AgentRunGroup {
     /// Create a new agent run group
-    pub fn new(
-        id: AgentGroupId,
-        prompt: String,
-        mode: String,
-        target: String,
-    ) -> Self {
+    pub fn new(id: AgentGroupId, prompt: String, mode: String, target: String) -> Self {
         let now = Utc::now();
         Self {
             id,
@@ -144,7 +139,10 @@ impl AgentRunGroup {
     pub fn is_finished(&self) -> bool {
         matches!(
             self.status,
-            GroupStatus::Comparing | GroupStatus::Selected | GroupStatus::Merged | GroupStatus::Cancelled
+            GroupStatus::Comparing
+                | GroupStatus::Selected
+                | GroupStatus::Merged
+                | GroupStatus::Cancelled
         )
     }
 

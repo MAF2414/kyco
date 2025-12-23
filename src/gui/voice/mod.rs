@@ -24,12 +24,12 @@ pub mod vad;
 
 pub use actions::{VoiceAction, VoiceActionRegistry, WakewordMatch};
 pub use install::{
+    InstallHandle, InstallProgress, VoiceInstallResult, WHISPER_MODELS, WhisperModel,
     get_model_info, install_voice_dependencies, install_voice_dependencies_async,
-    is_model_installed, InstallHandle, InstallProgress, VoiceInstallResult, WhisperModel,
-    WHISPER_MODELS,
+    is_model_installed,
 };
-pub use settings::{render_voice_settings, VoiceSettingsState};
-pub use vad::{is_vad_available, start_vad_listener, VadConfig, VadEvent, VadHandle};
+pub use settings::{VoiceSettingsState, render_voice_settings};
+pub use vad::{VadConfig, VadEvent, VadHandle, is_vad_available, start_vad_listener};
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -143,11 +143,11 @@ impl Default for VoiceConfig {
             action_registry,
             whisper_model: "base".to_string(),
             language: "auto".to_string(),
-            silence_threshold: 0.1,  // 10% - less sensitive to background noise
-            silence_duration: 2.5,   // seconds - avoid cutting off mid-speech
-            max_duration: 300.0,     // 5 minutes - safety limit for manual recording
+            silence_threshold: 0.1, // 10% - less sensitive to background noise
+            silence_duration: 2.5,  // seconds - avoid cutting off mid-speech
+            max_duration: 300.0,    // 5 minutes - safety limit for manual recording
             vad_config: VadConfig::default(),
-            use_vad: false,  // VAD coming soon - disabled for now
+            use_vad: false, // VAD coming soon - disabled for now
         }
     }
 }
@@ -278,30 +278,35 @@ impl VoiceManager {
     /// Check availability and return detailed status
     fn check_availability(&self) -> (bool, String) {
         // Check for sox/rec
-        let sox_check = Command::new("which")
-            .arg("rec")
-            .output();
+        let sox_check = Command::new("which").arg("rec").output();
 
         if sox_check.is_err() || !sox_check.unwrap().status.success() {
-            return (false, "sox not found. Install with: brew install sox".to_string());
+            return (
+                false,
+                "sox not found. Install with: brew install sox".to_string(),
+            );
         }
 
         // Check for whisper (whisper-cli is the binary name from homebrew whisper-cpp)
-        let whisper_check = Command::new("which")
-            .arg("whisper-cli")
-            .output();
+        let whisper_check = Command::new("which").arg("whisper-cli").output();
 
         if whisper_check.is_err() || !whisper_check.unwrap().status.success() {
-            return (false, "whisper-cli not found. Install with: brew install whisper-cpp".to_string());
+            return (
+                false,
+                "whisper-cli not found. Install with: brew install whisper-cpp".to_string(),
+            );
         }
 
         // Check for whisper model
         let model_path = self.get_model_path();
         if !model_path.exists() {
-            return (false, format!(
-                "Whisper model not found at {}. Click 'Install Voice Dependencies' in Settings.",
-                model_path.display()
-            ));
+            return (
+                false,
+                format!(
+                    "Whisper model not found at {}. Click 'Install Voice Dependencies' in Settings.",
+                    model_path.display()
+                ),
+            );
         }
 
         (true, "Voice input ready".to_string())
@@ -320,7 +325,10 @@ impl VoiceManager {
     /// Get path to whisper model
     fn get_model_path(&self) -> PathBuf {
         let model_name = format!("ggml-{}.bin", self.config.whisper_model);
-        self.work_dir.join(".kyco").join("whisper-models").join(model_name)
+        self.work_dir
+            .join(".kyco")
+            .join("whisper-models")
+            .join(model_name)
     }
 
     /// Get path for temporary recording
@@ -358,11 +366,16 @@ impl VoiceManager {
 
         let result = Command::new("rec")
             .args([
-                "-r", "16000",           // 16kHz sample rate (whisper requirement)
-                "-c", "1",               // Mono
-                "-b", "16",              // 16-bit
+                "-r",
+                "16000", // 16kHz sample rate (whisper requirement)
+                "-c",
+                "1", // Mono
+                "-b",
+                "16", // 16-bit
                 recording_path.to_str().unwrap_or("recording.wav"),
-                "trim", "0", &format!("{}", max_duration),  // Max duration limit (safety)
+                "trim",
+                "0",
+                &format!("{}", max_duration), // Max duration limit (safety)
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -444,7 +457,11 @@ impl VoiceManager {
     }
 
     /// Run whisper-cpp on audio file
-    fn run_whisper(audio_path: &PathBuf, model_path: &PathBuf, language: &str) -> Result<String, String> {
+    fn run_whisper(
+        audio_path: &PathBuf,
+        model_path: &PathBuf,
+        language: &str,
+    ) -> Result<String, String> {
         let mut args = vec![
             "-m".to_string(),
             model_path.to_str().unwrap_or("model.bin").to_string(),

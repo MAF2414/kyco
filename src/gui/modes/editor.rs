@@ -116,11 +116,7 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
 
             ui.separator();
             ui.add_space(8.0);
-            ui.label(
-                RichText::new("SDK Options")
-                    .monospace()
-                    .color(TEXT_PRIMARY),
-            );
+            ui.label(RichText::new("SDK Options").monospace().color(TEXT_PRIMARY));
             ui.add_space(8.0);
 
             // Claude permission mode
@@ -218,7 +214,8 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             ui.horizontal(|ui| {
                 ui.checkbox(state.mode_edit_readonly, "");
                 ui.label(
-                    RichText::new("Read-only (auto-sets disallowed: Write, Edit)").color(TEXT_MUTED),
+                    RichText::new("Read-only (auto-sets disallowed: Write, Edit)")
+                        .color(TEXT_MUTED),
                 );
             });
             ui.add_space(16.0);

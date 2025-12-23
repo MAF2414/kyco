@@ -46,8 +46,8 @@
 //! }
 //! ```
 
-use std::path::Path;
 use regex::Regex;
+use std::path::Path;
 use tokio::sync::mpsc;
 
 use crate::config::{ChainStep, Config, ModeChain, StateDefinition};
@@ -166,11 +166,7 @@ impl<'a> ChainRunner<'a> {
     /// * `config` - Application configuration containing mode definitions
     /// * `agent_registry` - Registry for looking up agent adapters
     /// * `work_dir` - Working directory where agents will execute
-    pub fn new(
-        config: &'a Config,
-        agent_registry: &'a AgentRegistry,
-        work_dir: &'a Path,
-    ) -> Self {
+    pub fn new(config: &'a Config, agent_registry: &'a AgentRegistry, work_dir: &'a Path) -> Self {
         Self {
             config,
             agent_registry,
@@ -206,7 +202,7 @@ impl<'a> ChainRunner<'a> {
     ) -> ChainResult {
         let mut step_results = Vec::new();
         let mut last_state: Option<String> = None;
-        let mut last_output: Option<String> = None;  // Full response from previous step
+        let mut last_output: Option<String> = None; // Full response from previous step
         let mut last_summary: Option<String> = None;
         let mut accumulated_summaries = Vec::new();
         let mut chain_success = true;
@@ -368,19 +364,11 @@ impl<'a> ChainRunner<'a> {
                         last_state = jr.state.clone();
                         if let Some(ref summary) = jr.summary {
                             last_summary = Some(summary.clone());
-                            accumulated_summaries.push(format!(
-                                "[{}] {}",
-                                step.mode,
-                                summary
-                            ));
+                            accumulated_summaries.push(format!("[{}] {}", step.mode, summary));
                         } else if let Some(ref details) = jr.details {
                             // Fall back to details if no summary
                             last_summary = Some(details.clone());
-                            accumulated_summaries.push(format!(
-                                "[{}] {}",
-                                step.mode,
-                                details
-                            ));
+                            accumulated_summaries.push(format!("[{}] {}", step.mode, details));
                         }
                     }
 
@@ -683,7 +671,10 @@ impl<'a> ChainRunner<'a> {
         // For later steps, optionally include accumulated history
         if accumulated_summaries.len() > 1 {
             prompt.push_str("\n\n## Chain history:\n");
-            for summary in accumulated_summaries.iter().take(accumulated_summaries.len() - 1) {
+            for summary in accumulated_summaries
+                .iter()
+                .take(accumulated_summaries.len() - 1)
+            {
                 prompt.push_str("- ");
                 prompt.push_str(summary);
                 prompt.push('\n');

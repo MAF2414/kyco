@@ -12,7 +12,8 @@ use crate::gui::animations::animated_button;
 const VERSION_TEXT: &str = concat!("kyco v", env!("CARGO_PKG_VERSION"));
 
 use crate::gui::app::{
-    ViewMode, ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM,
+    TEXT_MUTED, TEXT_PRIMARY, ViewMode,
 };
 use crate::gui::update::UpdateInfo;
 use crate::workspace::{WorkspaceId, WorkspaceRegistry};
@@ -47,6 +48,8 @@ pub struct StatusBarState<'a> {
     pub workspace_registry: Option<&'a Arc<Mutex<WorkspaceRegistry>>>,
     /// Currently active workspace ID
     pub active_workspace_id: &'a mut Option<WorkspaceId>,
+    /// User requested to launch an external orchestrator session
+    pub orchestrator_requested: &'a mut bool,
 }
 
 /// Render the bottom status bar
@@ -86,7 +89,8 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         let workspaces = registry.list();
                         if workspaces.len() > 1 {
                             // Show workspace dropdown - borrow name directly, no allocation needed
-                            let current_name: &str = state.active_workspace_id
+                            let current_name: &str = state
+                                .active_workspace_id
                                 .and_then(|id| registry.get(id))
                                 .map(|ws| ws.name.as_str())
                                 .unwrap_or("No workspace");
@@ -94,11 +98,15 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                             ui.label(RichText::new("Workspace:").small().color(TEXT_DIM));
 
                             egui::ComboBox::from_id_salt("workspace_selector")
-                                .selected_text(RichText::new(current_name).small().color(TEXT_PRIMARY))
+                                .selected_text(
+                                    RichText::new(current_name).small().color(TEXT_PRIMARY),
+                                )
                                 .width(120.0)
                                 .show_ui(ui, |ui| {
                                     for ws in &workspaces {
-                                        let is_selected = state.active_workspace_id.map_or(false, |id| id == ws.id);
+                                        let is_selected = state
+                                            .active_workspace_id
+                                            .map_or(false, |id| id == ws.id);
                                         let text = RichText::new(ws.name.as_str()).small();
                                         if ui.selectable_label(is_selected, text).clicked() {
                                             *state.active_workspace_id = Some(ws.id);
@@ -108,7 +116,11 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         } else if !workspaces.is_empty() {
                             // Single workspace - just show the name with folder icon prefix
                             ui.label(RichText::new("📁 ").small().color(TEXT_DIM));
-                            ui.label(RichText::new(workspaces[0].name.as_str()).small().color(TEXT_DIM));
+                            ui.label(
+                                RichText::new(workspaces[0].name.as_str())
+                                    .small()
+                                    .color(TEXT_DIM),
+                            );
                         }
                     }
                 }
@@ -139,11 +151,20 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         }
                         InstallStatus::Success(msg) => {
                             ui.add_space(8.0);
-                            ui.label(RichText::new(format!("✓ {}", msg)).small().color(ACCENT_GREEN));
+                            ui.label(
+                                RichText::new(format!("✓ {}", msg))
+                                    .small()
+                                    .color(ACCENT_GREEN),
+                            );
                         }
                         InstallStatus::Error(err) => {
                             ui.add_space(8.0);
-                            if ui.label(RichText::new(format!("✗ {}", err)).small().color(ACCENT_RED))
+                            if ui
+                                .label(
+                                    RichText::new(format!("✗ {}", err))
+                                        .small()
+                                        .color(ACCENT_RED),
+                                )
                                 .on_hover_text("Update failed - click to retry")
                                 .clicked()
                             {
@@ -153,7 +174,8 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     }
 
                     ui.add_space(16.0);
-                    if animated_button(ui, "Settings", ACCENT_CYAN, "statusbar_settings").clicked() {
+                    if animated_button(ui, "Settings", ACCENT_CYAN, "statusbar_settings").clicked()
+                    {
                         *state.view_mode = ViewMode::Settings;
                     }
                     ui.add_space(8.0);
@@ -173,6 +195,17 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         *state.view_mode = ViewMode::Chains;
                         *state.selected_chain = None;
                         *state.chain_edit_status = None;
+                    }
+                    ui.add_space(8.0);
+                    if animated_button(
+                        ui,
+                        "Orchestrator",
+                        ACCENT_GREEN,
+                        "statusbar_orchestrator",
+                    )
+                    .clicked()
+                    {
+                        *state.orchestrator_requested = true;
                     }
                 });
             });

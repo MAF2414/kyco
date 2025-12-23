@@ -4,12 +4,12 @@ use eframe::egui;
 
 use crate::JobStatus;
 
+use crate::LogEventKind;
 use crate::gui::app::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, STATUS_BLOCKED, STATUS_DONE,
     STATUS_FAILED, STATUS_MERGED, STATUS_PENDING, STATUS_QUEUED, STATUS_REJECTED, STATUS_RUNNING,
     TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
-use crate::LogEventKind;
 
 /// Get status color for a job status
 pub fn status_color(status: JobStatus) -> egui::Color32 {

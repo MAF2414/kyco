@@ -43,9 +43,7 @@ pub struct VoiceSettingsState<'a> {
 pub fn render_voice_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
     ui.label(RichText::new("Voice Input").monospace().color(TEXT_PRIMARY));
     ui.add_space(8.0);
-    ui.label(
-        RichText::new("Configure voice input for hands-free operation.").color(TEXT_DIM),
-    );
+    ui.label(RichText::new("Configure voice input for hands-free operation.").color(TEXT_DIM));
     ui.add_space(12.0);
 
     render_section_frame(ui, |ui| {
@@ -297,9 +295,11 @@ fn render_vad_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
         .inner_margin(12.0)
         .show(ui, |ui| {
             ui.label(
-                RichText::new("VAD detects when you start/stop speaking for efficient continuous listening.")
-                    .small()
-                    .color(TEXT_MUTED),
+                RichText::new(
+                    "VAD detects when you start/stop speaking for efficient continuous listening.",
+                )
+                .small()
+                .color(TEXT_MUTED),
             );
             ui.add_space(8.0);
 

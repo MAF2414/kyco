@@ -250,8 +250,9 @@ impl WorkspaceRegistry {
             return Ok(Self::new());
         }
 
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read workspace registry from {}", path.display()))?;
+        let content = fs::read_to_string(path).with_context(|| {
+            format!("Failed to read workspace registry from {}", path.display())
+        })?;
 
         let mut registry: WorkspaceRegistry = serde_json::from_str(&content)
             .with_context(|| "Failed to parse workspace registry JSON")?;

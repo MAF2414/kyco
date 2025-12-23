@@ -82,7 +82,6 @@ pub struct ModeConfig {
     // ═══════════════════════════════════════════════════════════════
     // EXECUTION SETTINGS
     // ═══════════════════════════════════════════════════════════════
-
     /// Session mode: oneshot (default) or session (persistent conversation)
     #[serde(default)]
     pub session_mode: ModeSessionType,
@@ -98,7 +97,6 @@ pub struct ModeConfig {
     // ═══════════════════════════════════════════════════════════════
     // TOOL CONTROL (Blacklist only - simpler!)
     // ═══════════════════════════════════════════════════════════════
-
     /// Tools to disallow for this mode (blacklist)
     /// Examples: ["Write", "Edit", "Bash", "Bash(git push)"]
     #[serde(default)]
@@ -107,7 +105,6 @@ pub struct ModeConfig {
     // ═══════════════════════════════════════════════════════════════
     // SDK-SPECIFIC OPTIONS
     // ═══════════════════════════════════════════════════════════════
-
     /// Claude SDK specific options
     #[serde(default)]
     pub claude: Option<ClaudeModeOptions>,
@@ -119,7 +116,6 @@ pub struct ModeConfig {
     // ═══════════════════════════════════════════════════════════════
     // LEGACY / METADATA
     // ═══════════════════════════════════════════════════════════════
-
     /// Short aliases for this mode (e.g., ["r", "rev"] for review)
     #[serde(default)]
     pub aliases: Vec<String>,
@@ -149,13 +145,15 @@ impl ModeConfig {
         }
 
         // Auto-derive from disallowed_tools
-        let blocks_writes = self.disallowed_tools.iter()
+        let blocks_writes = self
+            .disallowed_tools
+            .iter()
             .any(|t| t == "Write" || t == "Edit");
 
         if blocks_writes {
-            "default".to_string()  // Read-only mode
+            "default".to_string() // Read-only mode
         } else {
-            "acceptEdits".to_string()  // Safe write mode
+            "acceptEdits".to_string() // Safe write mode
         }
     }
 
@@ -167,10 +165,11 @@ impl ModeConfig {
         }
 
         // Auto-derive from disallowed_tools
-        let blocks_writes = self.disallowed_tools.iter()
+        let blocks_writes = self
+            .disallowed_tools
+            .iter()
             .any(|t| t == "Write" || t == "Edit");
-        let blocks_bash = self.disallowed_tools.iter()
-            .any(|t| t == "Bash");
+        let blocks_bash = self.disallowed_tools.iter().any(|t| t == "Bash");
 
         if blocks_writes || blocks_bash {
             "read-only".to_string()

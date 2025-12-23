@@ -58,9 +58,7 @@ pub struct UserMessage {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     /// Text content
-    Text {
-        text: String,
-    },
+    Text { text: String },
 
     /// Tool use request
     ToolUse {
@@ -125,9 +123,7 @@ impl StreamEvent {
                 ..
             } => {
                 let cost = cost_usd.map(|c| format!("${:.4}", c)).unwrap_or_default();
-                let duration = duration_ms
-                    .map(|d| format!("{}ms", d))
-                    .unwrap_or_default();
+                let duration = duration_ms.map(|d| format!("{}ms", d)).unwrap_or_default();
                 format!("[result:{}] {} {}", subtype, cost, duration)
             }
         }

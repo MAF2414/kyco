@@ -5,7 +5,7 @@
 use eframe::egui::{self, RichText, ScrollArea};
 
 use crate::gui::animations::animated_button;
-use crate::gui::app::{ViewMode, BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY};
+use crate::gui::app::{BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY, ViewMode};
 
 use super::sections::{
     render_settings_general, render_settings_http_server, render_settings_ide_extensions,

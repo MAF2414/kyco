@@ -38,7 +38,8 @@ fn validate_states(states: &[StateDefinitionEdit]) -> Result<HashSet<String>, St
         }
 
         // Check patterns are non-empty
-        let patterns: Vec<&str> = state_def.patterns
+        let patterns: Vec<&str> = state_def
+            .patterns
             .lines()
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
@@ -52,7 +53,10 @@ fn validate_states(states: &[StateDefinitionEdit]) -> Result<HashSet<String>, St
         if state_def.is_regex {
             for pattern in &patterns {
                 if let Err(e) = Regex::new(pattern) {
-                    return Err(format!("State '{}': invalid regex '{}' - {}", id, pattern, e));
+                    return Err(format!(
+                        "State '{}': invalid regex '{}' - {}",
+                        id, pattern, e
+                    ));
                 }
             }
         }
@@ -73,25 +77,43 @@ fn validate_step_state_refs(
         }
 
         // Validate trigger_on references
-        for state_ref in step.trigger_on.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for state_ref in step
+            .trigger_on
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
             if !valid_state_ids.contains(state_ref) {
                 return Err(format!(
                     "Step {}: trigger_on references unknown state '{}'. Available: {}",
                     i + 1,
                     state_ref,
-                    valid_state_ids.iter().cloned().collect::<Vec<_>>().join(", ")
+                    valid_state_ids
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
         }
 
         // Validate skip_on references
-        for state_ref in step.skip_on.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        for state_ref in step
+            .skip_on
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
             if !valid_state_ids.contains(state_ref) {
                 return Err(format!(
                     "Step {}: skip_on references unknown state '{}'. Available: {}",
                     i + 1,
                     state_ref,
-                    valid_state_ids.iter().cloned().collect::<Vec<_>>().join(", ")
+                    valid_state_ids
+                        .iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
             }
         }
@@ -116,8 +138,11 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
     // Warn about overwriting existing chain when creating new
     if is_new && state.config.chain.contains_key(&name) {
         *state.chain_edit_status = Some((
-            format!("A chain named '{}' already exists. Choose a different name or edit the existing chain.", name),
-            true
+            format!(
+                "A chain named '{}' already exists. Choose a different name or edit the existing chain.",
+                name
+            ),
+            true,
         ));
         return;
     }
@@ -131,12 +156,16 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
     for (i, step) in state.chain_edit_steps.iter().enumerate() {
         let mode_name = step.mode.trim();
         if mode_name.is_empty() {
-            *state.chain_edit_status = Some((format!("Step {} must have a mode selected", i + 1), true));
+            *state.chain_edit_status =
+                Some((format!("Step {} must have a mode selected", i + 1), true));
             return;
         }
         // Validate that mode exists in config
         if !state.config.mode.contains_key(mode_name) {
-            *state.chain_edit_status = Some((format!("Step {}: mode '{}' does not exist", i + 1, mode_name), true));
+            *state.chain_edit_status = Some((
+                format!("Step {}: mode '{}' does not exist", i + 1, mode_name),
+                true,
+            ));
             return;
         }
     }
@@ -169,8 +198,16 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         } else {
             Some(state.chain_edit_description.clone())
         },
-        states: state.chain_edit_states.iter().map(|s| s.to_state_definition()).collect(),
-        steps: state.chain_edit_steps.iter().map(|s| s.to_chain_step()).collect(),
+        states: state
+            .chain_edit_states
+            .iter()
+            .map(|s| s.to_state_definition())
+            .collect(),
+        steps: state
+            .chain_edit_steps
+            .iter()
+            .map(|s| s.to_chain_step())
+            .collect(),
         stop_on_failure: *state.chain_edit_stop_on_failure,
         pass_full_response: *state.chain_edit_pass_full_response,
     };

@@ -14,8 +14,10 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
     let max_concurrent = match state.settings_max_concurrent.trim().parse::<usize>() {
         Ok(n) if n > 0 => n,
         _ => {
-            *state.settings_status =
-                Some(("Invalid max concurrent jobs (must be > 0)".to_string(), true));
+            *state.settings_status = Some((
+                "Invalid max concurrent jobs (must be > 0)".to_string(),
+                true,
+            ));
             return;
         }
     };
@@ -65,7 +67,9 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
         state.settings_structured_output_schema.clone();
 
     // Update the shared atomic value so executor picks up the change immediately
-    state.max_concurrent_jobs_shared.store(max_concurrent, Ordering::Relaxed);
+    state
+        .max_concurrent_jobs_shared
+        .store(max_concurrent, Ordering::Relaxed);
 
     // Update voice settings
     state.config.settings.gui.voice.mode = state.voice_settings_mode.clone();

@@ -29,20 +29,20 @@
 //! let result: AgentResult = adapter.run(&job, &worktree, &agent_config, event_tx).await?;
 //! ```
 
-mod runner;
-mod registry;
-mod chain;
 pub mod bridge;
+mod chain;
+mod registry;
+mod runner;
 
 // Legacy modules - kept for backwards compatibility but deprecated
 mod claude;
 mod codex;
 mod terminal;
 
-pub use runner::{AgentRunner, AgentResult};
-pub use registry::{AgentRegistry, DEFAULT_TERMINAL_SUFFIX};
-pub use chain::{ChainRunner, ChainResult, ChainStepResult, ChainProgressEvent};
 pub use bridge::{BridgeClient, BridgeProcess, ClaudeBridgeAdapter, CodexBridgeAdapter};
+pub use chain::{ChainProgressEvent, ChainResult, ChainRunner, ChainStepResult};
+pub use registry::{AgentRegistry, DEFAULT_TERMINAL_SUFFIX};
+pub use runner::{AgentResult, AgentRunner};
 
 // Legacy exports - deprecated, use bridge adapters instead
 #[deprecated(note = "Use ClaudeBridgeAdapter instead")]
@@ -50,4 +50,4 @@ pub use claude::{ClaudeAdapter, StreamEvent};
 #[deprecated(note = "Use CodexBridgeAdapter instead")]
 pub use codex::CodexAdapter;
 #[deprecated(note = "Sessions are now handled by SDK adapters")]
-pub use terminal::{get_session as get_terminal_session, TerminalAdapter, TerminalSession};
+pub use terminal::{TerminalAdapter, TerminalSession, get_session as get_terminal_session};

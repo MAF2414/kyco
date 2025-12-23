@@ -22,11 +22,7 @@ pub struct ScopeDefinition {
 
 impl ScopeDefinition {
     /// Create a function scope definition
-    pub fn function(
-        file_path: PathBuf,
-        function_name: String,
-        line_range: (usize, usize),
-    ) -> Self {
+    pub fn function(file_path: PathBuf, function_name: String, line_range: (usize, usize)) -> Self {
         Self {
             file_path,
             function_name: Some(function_name),

@@ -5,7 +5,7 @@
 
 use semver::Version;
 use std::io::Read;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -145,7 +145,10 @@ fn update_checker_loop(tx: Sender<UpdateStatus>, rx: Receiver<()>) {
 /// Execute the update check
 fn do_check() -> UpdateStatus {
     // Fetch latest release from GitHub API
-    let url = format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO);
+    let url = format!(
+        "https://api.github.com/repos/{}/releases/latest",
+        GITHUB_REPO
+    );
 
     let response = match ureq::get(&url)
         .set("User-Agent", "kyco-update-checker")
@@ -213,7 +216,10 @@ fn do_check() -> UpdateStatus {
 
 /// Get the download URL for the current platform
 fn get_platform_download_url(version: &str) -> String {
-    let base = format!("https://github.com/{}/releases/download/v{}", GITHUB_REPO, version);
+    let base = format!(
+        "https://github.com/{}/releases/download/v{}",
+        GITHUB_REPO, version
+    );
 
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
@@ -277,7 +283,10 @@ pub fn install_update(info: &UpdateInfo) -> Result<String, String> {
 }
 
 /// Install update directly (when we have write permissions)
-fn install_update_direct(info: &UpdateInfo, current_exe: &std::path::Path) -> Result<String, String> {
+fn install_update_direct(
+    info: &UpdateInfo,
+    current_exe: &std::path::Path,
+) -> Result<String, String> {
     // Download the new binary
     let response = ureq::get(&info.download_url)
         .set("User-Agent", "kyco-update-installer")
@@ -301,12 +310,11 @@ fn install_update_direct(info: &UpdateInfo, current_exe: &std::path::Path) -> Re
         .map_err(|e| format!("Failed to backup current binary: {}", e))?;
 
     // Write new binary
-    std::fs::write(current_exe, &binary_data)
-        .map_err(|e| {
-            // Try to restore backup on failure
-            let _ = std::fs::rename(&backup_path, current_exe);
-            format!("Failed to write new binary: {}", e)
-        })?;
+    std::fs::write(current_exe, &binary_data).map_err(|e| {
+        // Try to restore backup on failure
+        let _ = std::fs::rename(&backup_path, current_exe);
+        format!("Failed to write new binary: {}", e)
+    })?;
 
     // Set executable permissions (Unix)
     #[cfg(unix)]
@@ -323,12 +331,18 @@ fn install_update_direct(info: &UpdateInfo, current_exe: &std::path::Path) -> Re
     // Clean up backup
     let _ = std::fs::remove_file(&backup_path);
 
-    Ok(format!("Updated to v{}! Please restart kyco.", info.version))
+    Ok(format!(
+        "Updated to v{}! Please restart kyco.",
+        info.version
+    ))
 }
 
 /// Install update using macOS admin privileges via osascript
 #[cfg(target_os = "macos")]
-fn install_update_with_admin_macos(info: &UpdateInfo, current_exe: &std::path::Path) -> Result<String, String> {
+fn install_update_with_admin_macos(
+    info: &UpdateInfo,
+    current_exe: &std::path::Path,
+) -> Result<String, String> {
     use std::process::Command;
 
     let exe_path = current_exe.to_string_lossy();
@@ -357,13 +371,19 @@ fn install_update_with_admin_macos(info: &UpdateInfo, current_exe: &std::path::P
         .arg("-e")
         .arg(format!(
             r#"do shell script "{}" with administrator privileges"#,
-            script.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " ")
+            script
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace('\n', " ")
         ))
         .output()
         .map_err(|e| format!("Failed to request admin privileges: {}", e))?;
 
     if output.status.success() {
-        Ok(format!("Updated to v{}! Please restart kyco.", info.version))
+        Ok(format!(
+            "Updated to v{}! Please restart kyco.",
+            info.version
+        ))
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if stderr.contains("User canceled") || stderr.contains("(-128)") {

@@ -4,18 +4,26 @@ use eframe::egui::{self, RichText, ScrollArea};
 
 use super::persistence::load_chain_for_editing;
 use super::state::{ChainEditorState, StateDefinitionEdit};
-use crate::gui::app::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::app::{
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 /// Color for state definitions
 const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(200, 150, 255);
 
 /// Render the list of available chains
 pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
-    ui.label(RichText::new("Available Chains").monospace().color(TEXT_PRIMARY));
+    ui.label(
+        RichText::new("Available Chains")
+            .monospace()
+            .color(TEXT_PRIMARY),
+    );
     ui.add_space(8.0);
     ui.label(
-        RichText::new("Chains execute multiple modes in sequence. Select code, then type the chain name.")
-            .color(TEXT_DIM),
+        RichText::new(
+            "Chains execute multiple modes in sequence. Select code, then type the chain name.",
+        )
+        .color(TEXT_DIM),
     );
     ui.add_space(12.0);
 
@@ -68,32 +76,34 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                                 );
                             }
 
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                // Duplicate button
-                                if ui.button(RichText::new("⧉").color(TEXT_DIM))
-                                    .on_hover_text("Duplicate chain")
-                                    .clicked()
-                                {
-                                    duplicate_clicked = true;
-                                    chain_to_duplicate = Some(name.clone());
-                                }
-                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    // Duplicate button
+                                    if ui
+                                        .button(RichText::new("⧉").color(TEXT_DIM))
+                                        .on_hover_text("Duplicate chain")
+                                        .clicked()
+                                    {
+                                        duplicate_clicked = true;
+                                        chain_to_duplicate = Some(name.clone());
+                                    }
+                                },
+                            );
                         });
 
                         // Description
                         if !description.is_empty() {
-                            ui.label(
-                                RichText::new(description)
-                                    .small()
-                                    .color(TEXT_DIM),
-                            );
+                            ui.label(RichText::new(description).small().color(TEXT_DIM));
                         }
 
                         // Flow preview
                         ui.add_space(4.0);
                         ui.horizontal_wrapped(|ui| {
                             for (i, mode) in step_modes.iter().enumerate() {
-                                ui.label(RichText::new(mode).monospace().small().color(ACCENT_CYAN));
+                                ui.label(
+                                    RichText::new(mode).monospace().small().color(ACCENT_CYAN),
+                                );
                                 if i < step_modes.len() - 1 {
                                     ui.label(RichText::new("→").small().color(TEXT_DIM));
                                 }
@@ -104,12 +114,7 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Use:").small().color(TEXT_DIM));
-                            ui.label(
-                                RichText::new(name)
-                                    .monospace()
-                                    .small()
-                                    .color(ACCENT_GREEN),
-                            );
+                            ui.label(RichText::new(name).monospace().small().color(ACCENT_GREEN));
                             ui.label(RichText::new("or").small().color(TEXT_DIM));
                             ui.label(
                                 RichText::new(format!("claude:{}", name))
@@ -122,7 +127,8 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
 
                 // Make the whole card clickable (unless duplicate was clicked)
                 let card_rect = card_response.response.rect;
-                let card_interact = ui.interact(card_rect, ui.id().with(name), egui::Sense::click());
+                let card_interact =
+                    ui.interact(card_rect, ui.id().with(name), egui::Sense::click());
 
                 if card_interact.clicked() && !duplicate_clicked {
                     *state.selected_chain = Some(name.clone());
@@ -168,15 +174,20 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
             *state.selected_chain = Some("__new__".to_string());
             *state.chain_edit_name = new_name;
             *state.chain_edit_description = source_chain.description.clone().unwrap_or_default();
-            *state.chain_edit_states = source_chain.states.iter()
+            *state.chain_edit_states = source_chain
+                .states
+                .iter()
                 .map(StateDefinitionEdit::from)
                 .collect();
-            *state.chain_edit_steps = source_chain.steps.iter()
+            *state.chain_edit_steps = source_chain
+                .steps
+                .iter()
                 .map(super::state::ChainStepEdit::from)
                 .collect();
             *state.chain_edit_stop_on_failure = source_chain.stop_on_failure;
             *state.chain_edit_pass_full_response = source_chain.pass_full_response;
-            *state.chain_edit_status = Some(("Duplicated chain - edit name and save".to_string(), false));
+            *state.chain_edit_status =
+                Some(("Duplicated chain - edit name and save".to_string(), false));
         }
     }
 }

@@ -9,11 +9,7 @@ use crate::{Job, JobStatus};
 use eframe::egui::{self, Color32, RichText, ScrollArea};
 
 /// Render the job list panel
-pub fn render_job_list(
-    ui: &mut egui::Ui,
-    cached_jobs: &[Job],
-    selected_job_id: &mut Option<u64>,
-) {
+pub fn render_job_list(ui: &mut egui::Ui, cached_jobs: &[Job], selected_job_id: &mut Option<u64>) {
     // Request repaint for animation if any job has an animated status indicator
     let has_animated_job = cached_jobs.iter().any(|j| {
         matches!(
@@ -101,19 +97,27 @@ pub fn render_job_list(
                                     }
                                     JobStatus::Done => {
                                         // Checkmark for success
-                                        ui.label(RichText::new("[+]").monospace().color(status_col));
+                                        ui.label(
+                                            RichText::new("[+]").monospace().color(status_col),
+                                        );
                                     }
                                     JobStatus::Failed => {
                                         // X for failure
-                                        ui.label(RichText::new("[x]").monospace().color(status_col));
+                                        ui.label(
+                                            RichText::new("[x]").monospace().color(status_col),
+                                        );
                                     }
                                     JobStatus::Rejected => {
                                         // Minus for rejected
-                                        ui.label(RichText::new("[-]").monospace().color(status_col));
+                                        ui.label(
+                                            RichText::new("[-]").monospace().color(status_col),
+                                        );
                                     }
                                     JobStatus::Merged => {
                                         // Arrow/merge symbol
-                                        ui.label(RichText::new("[>]").monospace().color(status_col));
+                                        ui.label(
+                                            RichText::new("[>]").monospace().color(status_col),
+                                        );
                                     }
                                 }
 
@@ -129,17 +133,13 @@ pub fn render_job_list(
 
                                 // Agent
                                 ui.label(
-                                    RichText::new(format!("[{}]", job.agent_id))
-                                        .color(TEXT_MUTED),
+                                    RichText::new(format!("[{}]", job.agent_id)).color(TEXT_MUTED),
                                 );
 
                                 // Group indicator (if job is part of a multi-agent group)
                                 if job.group_id.is_some() {
-                                    ui.label(
-                                        RichText::new("||")
-                                            .color(ACCENT_PURPLE)
-                                            .small(),
-                                    ).on_hover_text("Part of multi-agent group");
+                                    ui.label(RichText::new("||").color(ACCENT_PURPLE).small())
+                                        .on_hover_text("Part of multi-agent group");
                                 }
 
                                 // Blocked indicator (shows which job is blocking this one)
@@ -160,7 +160,8 @@ pub fn render_job_list(
                                             RichText::new(format!("-> #{}", blocked_by))
                                                 .small()
                                                 .color(status_color(JobStatus::Blocked)),
-                                        ).on_hover_text(hover_text);
+                                        )
+                                        .on_hover_text(hover_text);
                                     }
                                 }
                             });

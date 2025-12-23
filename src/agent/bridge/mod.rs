@@ -33,10 +33,10 @@
 //! let result = adapter.run(&job, &worktree, &config, event_tx).await?;
 //! ```
 
-mod types;
-mod client;
 mod adapter;
+mod client;
+mod types;
 
-pub use types::*;
-pub use client::{BridgeClient, BridgeProcess};
 pub use adapter::{ClaudeBridgeAdapter, CodexBridgeAdapter};
+pub use client::{BridgeClient, BridgeProcess};
+pub use types::*;

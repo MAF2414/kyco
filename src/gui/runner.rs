@@ -11,11 +11,11 @@ use std::sync::{Arc, Mutex};
 use tracing::{info, warn};
 
 use super::app::KycoApp;
-use super::executor::{start_executor, ExecutorEvent};
-use super::http_server::{start_http_server, BatchRequest, SelectionRequest};
+use super::executor::{ExecutorEvent, start_executor};
+use super::http_server::{BatchRequest, ControlApiState, SelectionRequest, start_http_server};
 use crate::agent::BridgeProcess;
 use crate::config::Config;
-use crate::job::JobManager;
+use crate::job::{GroupManager, JobManager};
 
 /// Load the KYCo app icon from embedded PNG
 fn load_kyco_icon() -> IconData {
@@ -45,9 +45,11 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
         work_dir
     };
 
-    let config_override_path = config_override.map(|p| if p.is_absolute() { p } else { work_dir.join(p) });
+    let config_override_path =
+        config_override.map(|p| if p.is_absolute() { p } else { work_dir.join(p) });
     let config_override_provided = config_override_path.is_some();
-    let config_path = config_override_path.unwrap_or_else(|| work_dir.join(".kyco").join("config.toml"));
+    let config_path =
+        config_override_path.unwrap_or_else(|| work_dir.join(".kyco").join("config.toml"));
 
     // Load config
     let config_was_present = config_path.exists();
@@ -121,7 +123,10 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
     }
 
     // Load job manager
-    let job_manager = Arc::new(Mutex::new(JobManager::load(&work_dir).unwrap_or_else(|_| JobManager::new(&work_dir))));
+    let job_manager = Arc::new(Mutex::new(
+        JobManager::load(&work_dir).unwrap_or_else(|_| JobManager::new(&work_dir)),
+    ));
+    let group_manager = Arc::new(Mutex::new(GroupManager::new()));
 
     // Start SDK Bridge server (Node.js sidecar)
     // This provides Claude Agent SDK and Codex SDK functionality
@@ -134,13 +139,18 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
     );
 
     // Create channel for HTTP server -> GUI communication (single selection)
-    let (http_tx, http_rx): (mpsc::Sender<SelectionRequest>, mpsc::Receiver<SelectionRequest>) = mpsc::channel();
+    let (http_tx, http_rx): (
+        mpsc::Sender<SelectionRequest>,
+        mpsc::Receiver<SelectionRequest>,
+    ) = mpsc::channel();
 
     // Create channel for batch requests from IDE
-    let (batch_tx, batch_rx): (mpsc::Sender<BatchRequest>, mpsc::Receiver<BatchRequest>) = mpsc::channel();
+    let (batch_tx, batch_rx): (mpsc::Sender<BatchRequest>, mpsc::Receiver<BatchRequest>) =
+        mpsc::channel();
 
     // Create channel for executor -> GUI communication
-    let (executor_tx, executor_rx): (mpsc::Sender<ExecutorEvent>, mpsc::Receiver<ExecutorEvent>) = mpsc::channel();
+    let (executor_tx, executor_rx): (mpsc::Sender<ExecutorEvent>, mpsc::Receiver<ExecutorEvent>) =
+        mpsc::channel();
 
     // Start HTTP server in background (handles both /selection and /batch)
     start_http_server(
@@ -148,6 +158,12 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
         batch_tx,
         config.settings.gui.http_port,
         Some(config.settings.gui.http_token.clone()).filter(|t| !t.trim().is_empty()),
+        ControlApiState {
+            work_dir: work_dir.clone(),
+            job_manager: Arc::clone(&job_manager),
+            group_manager: Arc::clone(&group_manager),
+            executor_tx: executor_tx.clone(),
+        },
     );
 
     // Create shared max_concurrent_jobs so GUI can update it at runtime
@@ -177,13 +193,27 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
         ..Default::default()
     };
 
-    let app = KycoApp::new(work_dir, config, config_exists, job_manager, http_rx, batch_rx, executor_rx, max_concurrent_jobs);
+    let app = KycoApp::new(
+        work_dir,
+        config,
+        config_exists,
+        job_manager,
+        group_manager,
+        http_rx,
+        batch_rx,
+        executor_rx,
+        max_concurrent_jobs,
+    );
 
-    eframe::run_native("kyco", options, Box::new(|cc| {
-        configure_fonts(&cc.egui_ctx);
-        Ok(Box::new(app))
-    }))
-        .map_err(|e| anyhow::anyhow!("Failed to run GUI: {}", e))?;
+    eframe::run_native(
+        "kyco",
+        options,
+        Box::new(|cc| {
+            configure_fonts(&cc.egui_ctx);
+            Ok(Box::new(app))
+        }),
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to run GUI: {}", e))?;
 
     Ok(())
 }
@@ -197,7 +227,10 @@ fn configure_fonts(ctx: &egui::Context) {
     #[cfg(target_os = "macos")]
     let font_fallbacks: &[(&str, &str)] = &[
         ("symbols", "/System/Library/Fonts/Apple Symbols.ttf"),
-        ("arial_unicode", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"),
+        (
+            "arial_unicode",
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+        ),
     ];
 
     #[cfg(target_os = "windows")]
@@ -208,18 +241,23 @@ fn configure_fonts(ctx: &egui::Context) {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let font_fallbacks: &[(&str, &str)] = &[
-        ("symbols", "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf"),
-        ("symbols_alt", "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf"),
+        (
+            "symbols",
+            "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+        ),
+        (
+            "symbols_alt",
+            "/usr/share/fonts/truetype/noto/NotoSansSymbols-Regular.ttf",
+        ),
         ("dejavu", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
     ];
 
     // Load all available fallback fonts
     for (name, path) in font_fallbacks {
         if let Ok(font_data) = std::fs::read(path) {
-            fonts.font_data.insert(
-                (*name).to_owned(),
-                FontData::from_owned(font_data).into(),
-            );
+            fonts
+                .font_data
+                .insert((*name).to_owned(), FontData::from_owned(font_data).into());
 
             // Add as fallback for both font families
             if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {

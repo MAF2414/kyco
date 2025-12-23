@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 
 use super::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
-use parser::{parse_codex_event, CodexEventResult};
+use parser::{CodexEventResult, parse_codex_event};
 
 /// Codex CLI agent adapter
 ///
@@ -190,7 +190,9 @@ impl AgentRunner for CodexAdapter {
         } else {
             result.error = Some(format!("Process exited with status: {}", status));
             let _ = event_tx
-                .send(LogEvent::error(format!("Job #{} failed: {}", job_id, status)).for_job(job_id))
+                .send(
+                    LogEvent::error(format!("Job #{} failed: {}", job_id, status)).for_job(job_id),
+                )
                 .await;
         }
 

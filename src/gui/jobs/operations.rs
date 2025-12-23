@@ -75,11 +75,7 @@ pub fn create_job_from_selection(
 }
 
 /// Queue a job for execution
-pub fn queue_job(
-    job_manager: &Arc<Mutex<JobManager>>,
-    job_id: JobId,
-    logs: &mut Vec<LogEvent>,
-) {
+pub fn queue_job(job_manager: &Arc<Mutex<JobManager>>, job_id: JobId, logs: &mut Vec<LogEvent>) {
     if let Ok(mut manager) = job_manager.lock() {
         manager.set_status(job_id, JobStatus::Queued);
         logs.push(LogEvent::system(format!("Queued job #{}", job_id)));
@@ -87,11 +83,7 @@ pub fn queue_job(
 }
 
 /// Apply job changes (merge worktree to main)
-pub fn apply_job(
-    job_manager: &Arc<Mutex<JobManager>>,
-    job_id: JobId,
-    logs: &mut Vec<LogEvent>,
-) {
+pub fn apply_job(job_manager: &Arc<Mutex<JobManager>>, job_id: JobId, logs: &mut Vec<LogEvent>) {
     if let Ok(mut manager) = job_manager.lock() {
         manager.set_status(job_id, JobStatus::Merged);
         logs.push(LogEvent::system(format!("Applied job #{}", job_id)));
@@ -99,11 +91,7 @@ pub fn apply_job(
 }
 
 /// Reject job changes
-pub fn reject_job(
-    job_manager: &Arc<Mutex<JobManager>>,
-    job_id: JobId,
-    logs: &mut Vec<LogEvent>,
-) {
+pub fn reject_job(job_manager: &Arc<Mutex<JobManager>>, job_id: JobId, logs: &mut Vec<LogEvent>) {
     if let Ok(mut manager) = job_manager.lock() {
         manager.set_status(job_id, JobStatus::Rejected);
         logs.push(LogEvent::system(format!("Rejected job #{}", job_id)));
@@ -114,11 +102,7 @@ pub fn reject_job(
 ///
 /// For print-mode jobs, this signals the executor to cancel the job.
 /// The actual process termination happens in the executor via cancellation tokens.
-pub fn kill_job(
-    job_manager: &Arc<Mutex<JobManager>>,
-    job_id: JobId,
-    logs: &mut Vec<LogEvent>,
-) {
+pub fn kill_job(job_manager: &Arc<Mutex<JobManager>>, job_id: JobId, logs: &mut Vec<LogEvent>) {
     if let Ok(mut manager) = job_manager.lock() {
         if let Some(job) = manager.get_mut(job_id) {
             if job.status == JobStatus::Running {
@@ -236,7 +220,9 @@ pub fn create_jobs_from_selection_multi(
     let group_id = if let Ok(mut gm) = group_manager.lock() {
         gm.create_group(prompt.to_string(), mode.to_string(), target.clone())
     } else {
-        logs.push(LogEvent::error("Failed to acquire group manager lock".to_string()));
+        logs.push(LogEvent::error(
+            "Failed to acquire group manager lock".to_string(),
+        ));
         return None;
     };
 

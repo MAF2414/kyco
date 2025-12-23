@@ -4,9 +4,7 @@
 
 use eframe::egui::{self, Color32, RichText};
 
-use crate::gui::app::{
-    ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
-};
+use crate::gui::app::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 
 use super::helpers::{
     render_checkbox_field, render_section_frame, render_status_message, render_text_field,
@@ -17,7 +15,11 @@ use super::state::{SettingsState, VoiceTestStatus};
 
 /// Render General Settings section (includes config management)
 pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
-    ui.label(RichText::new("General Settings").monospace().color(TEXT_PRIMARY));
+    ui.label(
+        RichText::new("General Settings")
+            .monospace()
+            .color(TEXT_PRIMARY),
+    );
     ui.add_space(8.0);
 
     // Config file info
@@ -49,7 +51,11 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
                     } else {
                         format!("{} hours ago", duration.as_secs() / 3600)
                     };
-                    ui.label(RichText::new(format!("Last modified: {}", ago)).small().color(TEXT_DIM));
+                    ui.label(
+                        RichText::new(format!("Last modified: {}", ago))
+                            .small()
+                            .color(TEXT_DIM),
+                    );
                 }
             }
         }
@@ -88,7 +94,10 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
     ui.add_space(12.0);
     ui.horizontal(|ui| {
         // Save Settings
-        if ui.button(RichText::new("Save Settings").color(ACCENT_GREEN)).clicked() {
+        if ui
+            .button(RichText::new("Save Settings").color(ACCENT_GREEN))
+            .clicked()
+        {
             save_settings_to_config(state);
         }
 
@@ -101,9 +110,11 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
                 Ok(_) => {
                     if let Ok(new_config) = crate::config::Config::load() {
                         *state.config = new_config;
-                        *state.settings_status = Some(("Config reset to defaults and reloaded.".to_string(), false));
+                        *state.settings_status =
+                            Some(("Config reset to defaults and reloaded.".to_string(), false));
                     } else {
-                        *state.settings_status = Some(("Config reset but reload failed.".to_string(), false));
+                        *state.settings_status =
+                            Some(("Config reset but reload failed.".to_string(), false));
                     }
                 }
                 Err(e) => {
@@ -116,14 +127,16 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
         ui.add_space(8.0);
 
         // Export to Clipboard
-        if ui.button(RichText::new("Export").color(TEXT_PRIMARY))
+        if ui
+            .button(RichText::new("Export").color(TEXT_PRIMARY))
             .on_hover_text("Copy config to clipboard")
             .clicked()
         {
             match export_config_to_string(state.work_dir) {
                 Ok(content) => {
                     ui.ctx().copy_text(content);
-                    *state.settings_status = Some(("Config copied to clipboard".to_string(), false));
+                    *state.settings_status =
+                        Some(("Config copied to clipboard".to_string(), false));
                 }
                 Err(e) => {
                     *state.settings_status = Some((format!("Export failed: {}", e), true));
@@ -134,16 +147,28 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
         ui.add_space(8.0);
 
         // Open in Editor
-        if ui.button(RichText::new("Open").color(TEXT_PRIMARY))
+        if ui
+            .button(RichText::new("Open").color(TEXT_PRIMARY))
             .on_hover_text("Open config in editor")
-            .clicked() && config_exists
+            .clicked()
+            && config_exists
         {
             #[cfg(target_os = "macos")]
-            { let _ = std::process::Command::new("open").arg(&config_path).spawn(); }
+            {
+                let _ = std::process::Command::new("open").arg(&config_path).spawn();
+            }
             #[cfg(target_os = "linux")]
-            { let _ = std::process::Command::new("xdg-open").arg(&config_path).spawn(); }
+            {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(&config_path)
+                    .spawn();
+            }
             #[cfg(target_os = "windows")]
-            { let _ = std::process::Command::new("cmd").args(["/C", "start", "", &config_path.display().to_string()]).spawn(); }
+            {
+                let _ = std::process::Command::new("cmd")
+                    .args(["/C", "start", "", &config_path.display().to_string()])
+                    .spawn();
+            }
         }
     });
 
@@ -223,7 +248,11 @@ pub fn render_settings_output_schema(ui: &mut egui::Ui, state: &mut SettingsStat
 
 /// Render IDE Extensions section
 pub fn render_settings_ide_extensions(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
-    ui.label(RichText::new("IDE Extensions").monospace().color(TEXT_PRIMARY));
+    ui.label(
+        RichText::new("IDE Extensions")
+            .monospace()
+            .color(TEXT_PRIMARY),
+    );
     ui.add_space(8.0);
     ui.label(
         RichText::new("Install extensions to send code selections to kyco with a hotkey.")
@@ -258,7 +287,11 @@ pub fn render_settings_ide_extensions(ui: &mut egui::Ui, state: &mut SettingsSta
     // JetBrains
     render_section_frame(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("JetBrains IDEs").monospace().color(ACCENT_CYAN));
+            ui.label(
+                RichText::new("JetBrains IDEs")
+                    .monospace()
+                    .color(ACCENT_CYAN),
+            );
             ui.label(RichText::new("Ctrl+Alt+Y").small().color(TEXT_MUTED));
         });
         ui.add_space(4.0);
@@ -303,9 +336,7 @@ pub fn render_settings_ide_extensions(ui: &mut egui::Ui, state: &mut SettingsSta
 pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.label(RichText::new("Voice Input").monospace().color(TEXT_PRIMARY));
     ui.add_space(8.0);
-    ui.label(
-        RichText::new("Configure voice input for hands-free operation.").color(TEXT_DIM),
-    );
+    ui.label(RichText::new("Configure voice input for hands-free operation.").color(TEXT_DIM));
     ui.add_space(12.0);
 
     render_section_frame(ui, |ui| {
@@ -412,23 +443,11 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
                         "auto".to_string(),
                         "Auto-detect",
                     );
-                    ui.selectable_value(
-                        state.voice_settings_language,
-                        "en".to_string(),
-                        "English",
-                    );
+                    ui.selectable_value(state.voice_settings_language, "en".to_string(), "English");
                     ui.selectable_value(state.voice_settings_language, "de".to_string(), "German");
                     ui.selectable_value(state.voice_settings_language, "fr".to_string(), "French");
-                    ui.selectable_value(
-                        state.voice_settings_language,
-                        "es".to_string(),
-                        "Spanish",
-                    );
-                    ui.selectable_value(
-                        state.voice_settings_language,
-                        "it".to_string(),
-                        "Italian",
-                    );
+                    ui.selectable_value(state.voice_settings_language, "es".to_string(), "Spanish");
+                    ui.selectable_value(state.voice_settings_language, "it".to_string(), "Italian");
                     ui.selectable_value(
                         state.voice_settings_language,
                         "pt".to_string(),
@@ -441,11 +460,7 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
                         "ja".to_string(),
                         "Japanese",
                     );
-                    ui.selectable_value(
-                        state.voice_settings_language,
-                        "zh".to_string(),
-                        "Chinese",
-                    );
+                    ui.selectable_value(state.voice_settings_language, "zh".to_string(), "Chinese");
                 });
         });
         ui.add_space(12.0);
@@ -625,8 +640,10 @@ fn render_voice_actions(ui: &mut egui::Ui, state: &SettingsState<'_>) {
         .inner_margin(12.0)
         .show(ui, |ui| {
             ui.label(
-                RichText::new("Speak a wakeword to trigger the corresponding mode (loaded from config):")
-                    .color(TEXT_MUTED),
+                RichText::new(
+                    "Speak a wakeword to trigger the corresponding mode (loaded from config):",
+                )
+                .color(TEXT_MUTED),
             );
 
             // Show global prefix if set
@@ -660,11 +677,21 @@ fn render_voice_actions(ui: &mut egui::Ui, state: &SettingsState<'_>) {
                         ui.end_row();
 
                         for action in &state.voice_action_registry.actions {
-                            let primary = action.wakewords.first().map(|s| s.as_str()).unwrap_or(&action.mode);
+                            let primary = action
+                                .wakewords
+                                .first()
+                                .map(|s| s.as_str())
+                                .unwrap_or(&action.mode);
                             ui.label(RichText::new(primary).monospace().color(ACCENT_CYAN));
-                            ui.label(RichText::new(format!("→ {}", action.mode)).color(TEXT_PRIMARY));
+                            ui.label(
+                                RichText::new(format!("→ {}", action.mode)).color(TEXT_PRIMARY),
+                            );
 
-                            let aliases: Vec<&str> = action.wakewords.iter().skip(1).map(|s| s.as_str())
+                            let aliases: Vec<&str> = action
+                                .wakewords
+                                .iter()
+                                .skip(1)
+                                .map(|s| s.as_str())
                                 .chain(action.aliases.iter().map(|s| s.as_str()))
                                 .collect();
                             let aliases_str = if aliases.is_empty() {
@@ -767,8 +794,7 @@ fn install_voice_dependencies(state: &mut SettingsState<'_>) {
         state.voice_settings_model.as_str()
     };
 
-    let result =
-        crate::gui::voice::install::install_voice_dependencies(state.work_dir, model_name);
+    let result = crate::gui::voice::install::install_voice_dependencies(state.work_dir, model_name);
 
     *state.voice_install_status = Some((result.message, result.is_error));
     *state.voice_install_in_progress = result.in_progress;
@@ -776,10 +802,7 @@ fn install_voice_dependencies(state: &mut SettingsState<'_>) {
 
 /// Render voice test section with microphone test button and status
 fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
-    ui.label(
-        RichText::new("Test Microphone")
-            .color(TEXT_PRIMARY),
-    );
+    ui.label(RichText::new("Test Microphone").color(TEXT_PRIMARY));
     ui.add_space(4.0);
     ui.label(
         RichText::new("Test recording and transcription. This will also request microphone permission if needed.")
@@ -872,13 +895,11 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.horizontal(|ui| {
         let button = ui.add_enabled(
             button_enabled,
-            egui::Button::new(
-                RichText::new(button_text).color(if button_enabled {
-                    ACCENT_CYAN
-                } else {
-                    TEXT_MUTED
-                }),
-            ),
+            egui::Button::new(RichText::new(button_text).color(if button_enabled {
+                ACCENT_CYAN
+            } else {
+                TEXT_MUTED
+            })),
         );
 
         if button.clicked() {
@@ -1078,15 +1099,13 @@ fn reset_config_to_defaults(_work_dir: &std::path::Path) -> Result<(), String> {
 
     // Preserve the HTTP token if it exists
     let http_token = if config_path.exists() {
-        Config::from_file(&config_path)
-            .ok()
-            .and_then(|c| {
-                if c.settings.gui.http_token.is_empty() {
-                    None
-                } else {
-                    Some(c.settings.gui.http_token)
-                }
-            })
+        Config::from_file(&config_path).ok().and_then(|c| {
+            if c.settings.gui.http_token.is_empty() {
+                None
+            } else {
+                Some(c.settings.gui.http_token)
+            }
+        })
     } else {
         None
     };
@@ -1103,8 +1122,7 @@ fn reset_config_to_defaults(_work_dir: &std::path::Path) -> Result<(), String> {
         content = content.replace("http_token = \"\"", &format!("http_token = \"{}\"", token));
     }
 
-    std::fs::write(&config_path, content)
-        .map_err(|e| format!("Failed to write config: {}", e))?;
+    std::fs::write(&config_path, content).map_err(|e| format!("Failed to write config: {}", e))?;
 
     Ok(())
 }
@@ -1117,8 +1135,7 @@ fn export_config_to_string(_work_dir: &std::path::Path) -> Result<String, String
         return Err("No config file found".to_string());
     }
 
-    std::fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))
+    std::fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config: {}", e))
 }
 
 // Import from Workspace feature removed - config is now global at ~/.kyco/config.toml

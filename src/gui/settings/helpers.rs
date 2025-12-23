@@ -65,7 +65,10 @@ pub fn render_status_message(ui: &mut egui::Ui, status: &Option<(String, bool)>)
 }
 
 /// Render a section frame with secondary background
-pub fn render_section_frame<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+pub fn render_section_frame<R>(
+    ui: &mut egui::Ui,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
     egui::Frame::NONE
         .fill(BG_SECONDARY)
         .corner_radius(4.0)

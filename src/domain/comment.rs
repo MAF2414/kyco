@@ -148,7 +148,10 @@ impl CommentTag {
         mode: String,
         target: Target,
     ) -> Self {
-        let agent = agents.first().cloned().unwrap_or_else(|| "claude".to_string());
+        let agent = agents
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "claude".to_string());
         Self {
             file_path,
             line_number,
@@ -196,36 +199,23 @@ impl CommentTag {
 
     /// Get the job ID from either the explicit field or the status marker
     pub fn get_job_id(&self) -> Option<JobId> {
-        self.job_id.or(self.status_marker.as_ref().map(|m| m.job_id))
+        self.job_id
+            .or(self.status_marker.as_ref().map(|m| m.job_id))
     }
 
     /// Generate the updated comment line with a status marker
     pub fn with_status(&self, status: JobStatus, job_id: JobId) -> String {
         let marker = StatusMarker { status, job_id };
-        format!(
-            "// @{}:{} {}",
-            self.agent,
-            self.mode,
-            marker
-        )
+        format!("// @{}:{} {}", self.agent, self.mode, marker)
     }
 
     /// Generate the marker string without status
     pub fn to_marker_string(&self) -> String {
         let desc = self.description.as_deref().unwrap_or("");
         if desc.is_empty() {
-            format!(
-                "@{}:{}",
-                self.agent,
-                self.mode,
-            )
+            format!("@{}:{}", self.agent, self.mode,)
         } else {
-            format!(
-                "@{}:{} {}",
-                self.agent,
-                self.mode,
-                desc
-            )
+            format!("@{}:{} {}", self.agent, self.mode, desc)
         }
     }
 }

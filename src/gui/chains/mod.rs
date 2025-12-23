@@ -16,7 +16,10 @@ pub use state::{ChainEditorState, ChainStepEdit, PendingConfirmation, StateDefin
 use eframe::egui::{self, RichText, Vec2};
 
 use super::animations::animated_button;
-use super::app::{ViewMode, ACCENT_RED, ACCENT_YELLOW, BG_PRIMARY, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use super::app::{
+    ACCENT_RED, ACCENT_YELLOW, BG_PRIMARY, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+    ViewMode,
+};
 
 /// Render the chains configuration view
 pub fn render_chains(ctx: &egui::Context, state: &mut ChainEditorState<'_>) {
@@ -41,7 +44,8 @@ pub fn render_chains(ctx: &egui::Context, state: &mut ChainEditorState<'_>) {
                         }
                         if state.selected_chain.is_some() {
                             ui.add_space(8.0);
-                            if animated_button(ui, "<- Back", TEXT_DIM, "chains_back_btn").clicked() {
+                            if animated_button(ui, "<- Back", TEXT_DIM, "chains_back_btn").clicked()
+                            {
                                 *state.selected_chain = None;
                                 *state.chain_edit_status = None;
                                 *state.pending_confirmation = PendingConfirmation::None;
@@ -88,10 +92,13 @@ fn render_confirmation_dialog(ctx: &egui::Context, state: &mut ChainEditorState<
                         .corner_radius(4.0)
                         .inner_margin(12.0)
                         .show(ui, |ui| {
-                            ui.label(RichText::new(format!(
-                                "Are you sure you want to delete the chain \"{}\"?",
-                                chain_name
-                            )).color(TEXT_PRIMARY));
+                            ui.label(
+                                RichText::new(format!(
+                                    "Are you sure you want to delete the chain \"{}\"?",
+                                    chain_name
+                                ))
+                                .color(TEXT_PRIMARY),
+                            );
                             ui.add_space(4.0);
                             ui.label(
                                 RichText::new("This action cannot be undone.")
@@ -107,7 +114,8 @@ fn render_confirmation_dialog(ctx: &egui::Context, state: &mut ChainEditorState<
                             *state.pending_confirmation = PendingConfirmation::None;
                         }
                         ui.add_space(8.0);
-                        if animated_button(ui, "Delete", ACCENT_RED, "confirm_delete_btn").clicked() {
+                        if animated_button(ui, "Delete", ACCENT_RED, "confirm_delete_btn").clicked()
+                        {
                             persistence::delete_chain_from_config(state);
                             *state.pending_confirmation = PendingConfirmation::None;
                         }
@@ -134,15 +142,20 @@ fn render_confirmation_dialog(ctx: &egui::Context, state: &mut ChainEditorState<
                         .corner_radius(4.0)
                         .inner_margin(12.0)
                         .show(ui, |ui| {
-                            ui.label(RichText::new(
-                                "You have unsaved changes. Do you want to discard them?"
-                            ).color(TEXT_PRIMARY));
+                            ui.label(
+                                RichText::new(
+                                    "You have unsaved changes. Do you want to discard them?",
+                                )
+                                .color(TEXT_PRIMARY),
+                            );
                         });
 
                     ui.add_space(16.0);
 
                     ui.horizontal(|ui| {
-                        if animated_button(ui, "Keep Editing", TEXT_DIM, "keep_editing_btn").clicked() {
+                        if animated_button(ui, "Keep Editing", TEXT_DIM, "keep_editing_btn")
+                            .clicked()
+                        {
                             *state.pending_confirmation = PendingConfirmation::None;
                         }
                         ui.add_space(8.0);

@@ -87,7 +87,8 @@ pub fn render_comparison_popup(
     let num_agents = group.job_ids.len();
     let card_width = 180.0;
     let card_spacing = 16.0;
-    let popup_width = (num_agents as f32 * card_width) + ((num_agents - 1) as f32 * card_spacing) + 48.0;
+    let popup_width =
+        (num_agents as f32 * card_width) + ((num_agents - 1) as f32 * card_spacing) + 48.0;
     let popup_width = popup_width.max(400.0).min(900.0);
 
     egui::Window::new("Compare Agent Results")
@@ -106,9 +107,12 @@ pub fn render_comparison_popup(
             // Header
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new(format!("Compare Results: \"{}\"", truncate(&group.prompt, 40)))
-                        .color(TEXT_PRIMARY)
-                        .size(16.0),
+                    RichText::new(format!(
+                        "Compare Results: \"{}\"",
+                        truncate(&group.prompt, 40)
+                    ))
+                    .color(TEXT_PRIMARY)
+                    .size(16.0),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
@@ -123,7 +127,10 @@ pub fn render_comparison_popup(
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("Mode: {}", group.mode)).color(TEXT_DIM));
-                ui.label(RichText::new(format!("Target: {}", truncate(&group.target, 30))).color(TEXT_MUTED));
+                ui.label(
+                    RichText::new(format!("Target: {}", truncate(&group.target, 30)))
+                        .color(TEXT_MUTED),
+                );
             });
 
             ui.add_space(8.0);
@@ -136,11 +143,17 @@ pub fn render_comparison_popup(
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         for (idx, &job_id) in group.job_ids.iter().enumerate() {
-                            let agent_name = group.agent_names.get(idx).map(|s| s.as_str()).unwrap_or("unknown");
+                            let agent_name = group
+                                .agent_names
+                                .get(idx)
+                                .map(|s| s.as_str())
+                                .unwrap_or("unknown");
                             let job = state.jobs.iter().find(|j| j.id == job_id);
                             let is_selected = state.selected_job_id == Some(job_id);
 
-                            if let Some(card_action) = render_agent_card(ui, agent_name, job, is_selected) {
+                            if let Some(card_action) =
+                                render_agent_card(ui, agent_name, job, is_selected)
+                            {
                                 match card_action {
                                     CardAction::Select => {
                                         state.selected_job_id = Some(job_id);
@@ -180,11 +193,17 @@ pub fn render_comparison_popup(
                     let can_merge = state.selected_job_id.is_some()
                         && matches!(group.status, GroupStatus::Comparing | GroupStatus::Selected);
 
-                    let merge_btn = egui::Button::new(
-                        RichText::new("Merge & Close")
-                            .color(if can_merge { BG_PRIMARY } else { TEXT_MUTED }),
-                    )
-                    .fill(if can_merge { ACCENT_GREEN } else { BG_SECONDARY });
+                    let merge_btn =
+                        egui::Button::new(RichText::new("Merge & Close").color(if can_merge {
+                            BG_PRIMARY
+                        } else {
+                            TEXT_MUTED
+                        }))
+                        .fill(if can_merge {
+                            ACCENT_GREEN
+                        } else {
+                            BG_SECONDARY
+                        });
 
                     if ui.add_enabled(can_merge, merge_btn).clicked() {
                         action = Some(ComparisonAction::MergeAndClose);
@@ -221,8 +240,16 @@ fn render_agent_card(
 ) -> Option<CardAction> {
     let mut action = None;
 
-    let bg_color = if is_selected { BG_SELECTED } else { BG_SECONDARY };
-    let border_color = if is_selected { ACCENT_CYAN } else { BG_HIGHLIGHT };
+    let bg_color = if is_selected {
+        BG_SELECTED
+    } else {
+        BG_SECONDARY
+    };
+    let border_color = if is_selected {
+        ACCENT_CYAN
+    } else {
+        BG_HIGHLIGHT
+    };
 
     egui::Frame::default()
         .fill(bg_color)
@@ -289,22 +316,14 @@ fn render_agent_card(
                 // Result summary (if available)
                 if let Some(result) = &job.result {
                     if let Some(title) = &result.title {
-                        ui.label(
-                            RichText::new(truncate(title, 25))
-                                .color(TEXT_DIM)
-                                .small(),
-                        );
+                        ui.label(RichText::new(truncate(title, 25)).color(TEXT_DIM).small());
                     }
                 }
 
                 // Error message (if failed)
                 if job.status == JobStatus::Failed {
                     if let Some(error) = &job.error_message {
-                        ui.label(
-                            RichText::new(truncate(error, 30))
-                                .color(ACCENT_RED)
-                                .small(),
-                        );
+                        ui.label(RichText::new(truncate(error, 30)).color(ACCENT_RED).small());
                     }
                 }
 
@@ -315,8 +334,10 @@ fn render_agent_card(
                     ui.horizontal(|ui| {
                         if ui
                             .add(
-                                egui::Button::new(RichText::new("View Diff").color(TEXT_DIM).small())
-                                    .small(),
+                                egui::Button::new(
+                                    RichText::new("View Diff").color(TEXT_DIM).small(),
+                                )
+                                .small(),
                             )
                             .clicked()
                         {
@@ -328,9 +349,7 @@ fn render_agent_card(
                         if ui
                             .add(
                                 egui::Button::new(
-                                    RichText::new("Select")
-                                        .color(BG_PRIMARY)
-                                        .small(),
+                                    RichText::new("Select").color(BG_PRIMARY).small(),
                                 )
                                 .fill(ACCENT_CYAN)
                                 .small(),

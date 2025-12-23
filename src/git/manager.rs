@@ -1,6 +1,6 @@
 //! Git manager implementation
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -41,15 +41,30 @@ impl CommitMessage {
             .result
             .as_ref()
             .and_then(|r| {
-                if let Some(body) = r.commit_body.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                if let Some(body) = r
+                    .commit_body
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
                     return Some(body.to_string());
                 }
 
                 let mut paragraphs = Vec::new();
-                if let Some(details) = r.details.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                if let Some(details) = r
+                    .details
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
                     paragraphs.push(details.to_string());
                 }
-                if let Some(summary) = r.summary.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                if let Some(summary) = r
+                    .summary
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
                     paragraphs.push(summary.to_string());
                 }
 
@@ -72,7 +87,10 @@ impl CommitMessage {
 fn sanitize_commit_subject(raw: &str) -> String {
     // Keep the subject single-line and reasonably short.
     let first_line = raw.lines().next().unwrap_or("").trim();
-    let mut out: String = first_line.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+    let mut out: String = first_line
+        .chars()
+        .filter(|c| *c != '\r' && *c != '\n')
+        .collect();
     if out.is_empty() {
         out = "kyco: update".to_string();
     }
@@ -107,7 +125,10 @@ impl GitManager {
 
         let worktrees_dir = root.join(".kyco").join("worktrees");
 
-        Ok(Self { root, worktrees_dir })
+        Ok(Self {
+            root,
+            worktrees_dir,
+        })
     }
 
     /// Get the current HEAD commit SHA
@@ -167,7 +188,11 @@ impl GitManager {
     }
 
     /// Create a worktree for a job with configurable retry count
-    fn create_worktree_with_retries(&self, job_id: JobId, max_retries: u32) -> Result<WorktreeInfo> {
+    fn create_worktree_with_retries(
+        &self,
+        job_id: JobId,
+        max_retries: u32,
+    ) -> Result<WorktreeInfo> {
         // Check if the repository has commits - worktrees require at least one commit
         if !self.has_commits() {
             bail!(
@@ -226,7 +251,11 @@ impl GitManager {
 
         let mut existing_branch_names = HashSet::new();
         if let Ok(output) = Command::new("git")
-            .args(["for-each-ref", "--format=%(refname:short)", "refs/heads/kyco"])
+            .args([
+                "for-each-ref",
+                "--format=%(refname:short)",
+                "refs/heads/kyco",
+            ])
             .current_dir(&self.root)
             .output()
         {
@@ -290,12 +319,7 @@ impl GitManager {
 
             // Try to create the worktree
             let output = Command::new("git")
-                .args([
-                    "worktree",
-                    "add",
-                    worktree_path_str,
-                    &branch_name,
-                ])
+                .args(["worktree", "add", worktree_path_str, &branch_name])
                 .current_dir(&self.root)
                 .output()
                 .context("Failed to create worktree")?;
@@ -351,8 +375,11 @@ impl GitManager {
     }
 
     /// Remove a worktree by path and branch name (internal implementation)
-    fn remove_worktree_by_path_and_branch(&self, worktree_path: &Path, branch_name: &str) -> Result<()> {
-
+    fn remove_worktree_by_path_and_branch(
+        &self,
+        worktree_path: &Path,
+        branch_name: &str,
+    ) -> Result<()> {
         // Remove the worktree
         if worktree_path.exists() {
             let worktree_path_str = worktree_path
@@ -611,7 +638,9 @@ impl GitManager {
             .context("Failed to merge branch")?;
 
         if !merge_output.status.success() {
-            let stderr = String::from_utf8_lossy(&merge_output.stderr).trim().to_string();
+            let stderr = String::from_utf8_lossy(&merge_output.stderr)
+                .trim()
+                .to_string();
 
             // Try to abort merge so we don't leave the user's repo in a conflicted "merge in progress" state.
             let aborted = Command::new("git")
@@ -691,8 +720,16 @@ impl GitManager {
         }
 
         let mut commit_cmd = Command::new("git");
-        commit_cmd.arg("commit").arg("-m").arg(&commit_message.subject);
-        if let Some(body) = commit_message.body.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        commit_cmd
+            .arg("commit")
+            .arg("-m")
+            .arg(&commit_message.subject);
+        if let Some(body) = commit_message
+            .body
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             commit_cmd.arg("-m").arg(body);
         }
 

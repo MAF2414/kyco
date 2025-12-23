@@ -8,5 +8,5 @@
 mod comparison;
 mod operations;
 
-pub use comparison::{render_comparison_popup, ComparisonAction, ComparisonState};
-pub use operations::{merge_and_cleanup, GroupOperationResult};
+pub use comparison::{ComparisonAction, ComparisonState, render_comparison_popup};
+pub use operations::{GroupOperationResult, merge_and_cleanup};

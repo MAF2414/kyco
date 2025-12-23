@@ -157,8 +157,38 @@ sdk = "codex"
 kyco                    # Launch GUI (default)
 kyco init               # Create config file
 kyco status             # Show job status
+kyco job --help         # Start/inspect jobs via the running GUI (/ctl API)
+kyco agent --help       # List/show configured agents
+kyco chain --help       # List/show configured chains
+kyco mode --help        # CRUD modes in .kyco/config.toml
 kyco --help             # Show all options
 ```
+
+## Orchestrator (External Agent)
+
+KYCo can be used with an external orchestrator agent (Claude Code or Codex) that controls jobs via CLI commands.
+
+1. Start KYCo GUI (so the user sees all jobs/results):
+   ```bash
+   kyco
+   ```
+
+   You can also use the **Orchestrator** button in the KYCo status bar to launch an external Claude/Codex session in Terminal.app (uses `settings.gui.default_agent`).
+
+2. In a second terminal (same workspace), start your agent and let it call `kyco job ...`:
+   - Create and queue a job:
+     ```bash
+     kyco job start --file src/foo.rs --mode refactor --prompt "Clean this up"
+     ```
+   - Wait for completion (event-like):
+     ```bash
+     kyco job wait 1
+     ```
+   - Get the last response/output and pass it into a follow-up job:
+     ```bash
+     out="$(kyco job output 1)"
+     kyco job start --file src/foo.rs --mode fix --prompt "$out"
+     ```
 
 ## License
 

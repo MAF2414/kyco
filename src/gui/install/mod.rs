@@ -29,9 +29,9 @@ fn download_file(url: &str, dest: &Path) -> Result<(), String> {
 
     let output = Command::new("curl")
         .args([
-            "-L",  // Follow redirects
-            "-f",  // Fail on HTTP errors
-            "-s",  // Silent
+            "-L", // Follow redirects
+            "-f", // Fail on HTTP errors
+            "-s", // Silent
             "-o",
             dest.to_str().unwrap_or(""),
             url,

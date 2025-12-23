@@ -6,11 +6,11 @@
 use eframe::egui::{self, Color32, Id, RichText, Stroke, Vec2};
 use std::path::PathBuf;
 
-use super::context::SelectionContext;
 use super::autocomplete::Suggestion;
+use super::context::SelectionContext;
 use crate::gui::app::{
-    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_HIGHLIGHT, BG_SECONDARY,
-    STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_HIGHLIGHT,
+    BG_SECONDARY, STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
 use crate::gui::voice::{VoiceInputMode, VoiceState};
 
@@ -50,13 +50,21 @@ pub fn render_selection_popup(
     let fade_alpha = ctx.animate_bool_with_time(
         Id::new("selection_popup_fade"),
         true,
-        0.2,  // 200ms fade duration
+        0.2, // 200ms fade duration
     );
 
     // Apply fade to the window frame
     let frame = egui::Frame::window(&ctx.style())
-        .fill(Color32::from_rgba_unmultiplied(30, 34, 42, (fade_alpha * 250.0) as u8))
-        .stroke(Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 176, 0, (fade_alpha * 100.0) as u8)));
+        .fill(Color32::from_rgba_unmultiplied(
+            30,
+            34,
+            42,
+            (fade_alpha * 250.0) as u8,
+        ))
+        .stroke(Stroke::new(
+            1.0,
+            Color32::from_rgba_unmultiplied(255, 176, 0, (fade_alpha * 100.0) as u8),
+        ));
 
     egui::Window::new("kyco")
         .collapsible(false)
@@ -109,7 +117,12 @@ pub fn render_selection_popup(
 /// Render the popup header with title and filename
 fn render_header(ui: &mut egui::Ui, selection: &SelectionContext) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("▶ kyco").monospace().size(18.0).color(TEXT_PRIMARY));
+        ui.label(
+            RichText::new("▶ kyco")
+                .monospace()
+                .size(18.0)
+                .color(TEXT_PRIMARY),
+        );
         ui.label(RichText::new("█").monospace().color(TEXT_PRIMARY));
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -118,7 +131,11 @@ fn render_header(ui: &mut egui::Ui, selection: &SelectionContext) {
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| file.clone());
-                ui.label(RichText::new(format!("← {}", filename)).small().color(TEXT_MUTED));
+                ui.label(
+                    RichText::new(format!("← {}", filename))
+                        .small()
+                        .color(TEXT_MUTED),
+                );
             }
         });
     });
@@ -156,14 +173,23 @@ fn render_selection_preview(ui: &mut egui::Ui, text: &str, start_line: Option<us
             };
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new("SEL").small().monospace().color(ACCENT_PURPLE));
+                ui.label(
+                    RichText::new("SEL")
+                        .small()
+                        .monospace()
+                        .color(ACCENT_PURPLE),
+                );
                 ui.label(
                     RichText::new(&line_info)
                         .small()
                         .monospace()
                         .color(ACCENT_PURPLE.linear_multiply(0.7)),
                 );
-                ui.label(RichText::new(format!("({}c)", char_count)).small().color(TEXT_MUTED));
+                ui.label(
+                    RichText::new(format!("({}c)", char_count))
+                        .small()
+                        .color(TEXT_MUTED),
+                );
             });
             ui.label(RichText::new(&preview).small().monospace().color(TEXT_DIM));
         });
@@ -192,7 +218,12 @@ fn render_input_field(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) ->
         .inner_margin(egui::vec2(12.0, 10.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("❯").monospace().size(16.0).color(TEXT_PRIMARY));
+                ui.label(
+                    RichText::new("❯")
+                        .monospace()
+                        .size(16.0)
+                        .color(TEXT_PRIMARY),
+                );
                 ui.add_space(4.0);
 
                 let text_edit = egui::TextEdit::singleline(state.popup_input)
@@ -241,7 +272,11 @@ fn render_microphone_button(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) 
 
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let (mic_icon, mic_color, mic_tooltip) = match state.voice_state {
-            VoiceState::Recording => ("⏺", ACCENT_RED, "Recording... Press Enter to run or ⌘D to stop"),
+            VoiceState::Recording => (
+                "⏺",
+                ACCENT_RED,
+                "Recording... Press Enter to run or ⌘D to stop",
+            ),
             VoiceState::Transcribing => ("◌", STATUS_RUNNING, "Transcribing..."),
             VoiceState::Listening => ("◉", ACCENT_GREEN, "Listening for keywords..."),
             VoiceState::Error => ("!", ACCENT_RED, "Voice error - click to retry"),
@@ -460,7 +495,12 @@ pub fn render_batch_popup(
 /// Render the batch popup header
 fn render_batch_header(ui: &mut egui::Ui, file_count: usize) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new("▶ kyco batch").monospace().size(18.0).color(TEXT_PRIMARY));
+        ui.label(
+            RichText::new("▶ kyco batch")
+                .monospace()
+                .size(18.0)
+                .color(TEXT_PRIMARY),
+        );
         ui.label(RichText::new("█").monospace().color(TEXT_PRIMARY));
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -483,7 +523,12 @@ fn render_batch_files_preview(ui: &mut egui::Ui, files: &[BatchFile]) {
         .inner_margin(8.0)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("FILES").small().monospace().color(ACCENT_CYAN));
+                ui.label(
+                    RichText::new("FILES")
+                        .small()
+                        .monospace()
+                        .color(ACCENT_CYAN),
+                );
                 ui.label(
                     RichText::new(format!("({} total)", files.len()))
                         .small()
@@ -546,7 +591,12 @@ fn render_batch_input_field(ui: &mut egui::Ui, state: &mut BatchPopupState<'_>) 
         .inner_margin(egui::vec2(12.0, 10.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("❯").monospace().size(16.0).color(TEXT_PRIMARY));
+                ui.label(
+                    RichText::new("❯")
+                        .monospace()
+                        .size(16.0)
+                        .color(TEXT_PRIMARY),
+                );
                 ui.add_space(4.0);
 
                 let text_edit = egui::TextEdit::singleline(state.popup_input)

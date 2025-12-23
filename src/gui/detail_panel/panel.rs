@@ -35,6 +35,78 @@ pub enum DetailPanelAction {
     SetPermissionMode(JobId, PermissionMode),
 }
 
+/// UI filters for activity log display.
+///
+/// Defaults to showing only text events to keep the log readable.
+#[derive(Debug, Clone)]
+pub struct ActivityLogFilters {
+    pub show_thought: bool,
+    pub show_tool_call: bool,
+    pub show_tool_output: bool,
+    pub show_text: bool,
+    pub show_error: bool,
+    pub show_system: bool,
+    pub show_permission: bool,
+}
+
+impl Default for ActivityLogFilters {
+    fn default() -> Self {
+        Self {
+            show_thought: false,
+            show_tool_call: false,
+            show_tool_output: false,
+            show_text: true,
+            show_error: false,
+            show_system: false,
+            show_permission: false,
+        }
+    }
+}
+
+impl ActivityLogFilters {
+    fn is_enabled(&self, kind: &crate::LogEventKind) -> bool {
+        use crate::LogEventKind;
+        match kind {
+            LogEventKind::Thought => self.show_thought,
+            LogEventKind::ToolCall => self.show_tool_call,
+            LogEventKind::ToolOutput => self.show_tool_output,
+            LogEventKind::Text => self.show_text,
+            LogEventKind::Error => self.show_error,
+            LogEventKind::System => self.show_system,
+            LogEventKind::Permission => self.show_permission,
+        }
+    }
+
+    fn selected_summary(&self) -> String {
+        let mut selected = 0usize;
+        let mut label: Option<&'static str> = None;
+
+        let mut consider = |enabled: bool, name: &'static str| {
+            if enabled {
+                selected += 1;
+                if label.is_none() {
+                    label = Some(name);
+                }
+            }
+        };
+
+        consider(self.show_text, "Text");
+        consider(self.show_tool_call, "Tool calls");
+        consider(self.show_tool_output, "Tool output");
+        consider(self.show_thought, "Thought");
+        consider(self.show_system, "System");
+        consider(self.show_error, "Error");
+        consider(self.show_permission, "Permission");
+
+        match (selected, label) {
+            (0, _) => "None".to_string(),
+            (1, Some(name)) => name.to_string(),
+            (n, Some(name)) => format!("{name} +{}", n.saturating_sub(1)),
+            _ => "Selected".to_string(),
+        }
+    }
+}
+
 /// State required for rendering the detail panel
 pub struct DetailPanelState<'a> {
     pub selected_job_id: Option<u64>,
@@ -42,6 +114,7 @@ pub struct DetailPanelState<'a> {
     pub logs: &'a [LogEvent],
     pub config: &'a Config,
     pub log_scroll_to_bottom: bool,
+    pub activity_log_filters: &'a mut ActivityLogFilters,
     /// Input buffer for session continuation prompt
     pub continuation_prompt: &'a mut String,
     /// Markdown cache for rendering agent responses
@@ -125,7 +198,15 @@ pub fn render_detail_panel(
                     ui.add_space(4.0);
 
                     // Activity Log Section (collapsed by default)
-                    render_activity_log_inline(ui, job, state.logs, state.log_scroll_to_bottom, available_width);
+                    render_activity_log_inline(
+                        ui,
+                        job,
+                        state.logs,
+                        state.log_scroll_to_bottom,
+                        available_width,
+                        state.commonmark_cache,
+                        state.activity_log_filters,
+                    );
                 });
         } else {
             ui.label(RichText::new("Job not found").color(TEXT_MUTED));
@@ -195,6 +276,24 @@ fn apply_markdown_theme(ui: &mut egui::Ui) {
     visuals.widgets.hovered.fg_stroke.color = TEXT_PRIMARY;
 }
 
+#[inline]
+fn apply_markdown_theme_with_text_color(ui: &mut egui::Ui, text_color: egui::Color32) {
+    apply_markdown_theme(ui);
+    ui.style_mut().visuals.override_text_color = Some(text_color);
+}
+
+fn render_markdown_inline_colored(
+    ui: &mut egui::Ui,
+    text: &str,
+    commonmark_cache: &mut egui_commonmark::CommonMarkCache,
+    text_color: egui::Color32,
+) {
+    ui.scope(|ui| {
+        apply_markdown_theme_with_text_color(ui, text_color);
+        egui_commonmark::CommonMarkViewer::new().show(ui, commonmark_cache, text);
+    });
+}
+
 /// Render markdown content with themed scroll area
 fn render_markdown_scroll(
     ui: &mut egui::Ui,
@@ -231,7 +330,8 @@ fn render_result_section(
             .inner_margin(8.0)
             .show(ui, |ui| {
                 // Check if this is structured YAML or raw text fallback
-                let has_structured = result.title.is_some() || result.status.is_some() || result.details.is_some();
+                let has_structured =
+                    result.title.is_some() || result.status.is_some() || result.details.is_some();
 
                 if has_structured {
                     // Structured YAML result
@@ -396,10 +496,7 @@ fn render_action_buttons(
                     }
                 }
 
-                let base_branch = job
-                    .base_branch
-                    .as_deref()
-                    .unwrap_or("current branch");
+                let base_branch = job.base_branch.as_deref().unwrap_or("current branch");
                 let merge_hover = if job.group_id.is_some() {
                     format!(
                         "Merge this result into '{}' and clean up all group worktrees",
@@ -424,10 +521,7 @@ fn render_action_buttons(
                 {
                     action = Some(DetailPanelAction::Reject(current_job_id));
                 }
-                if ui
-                    .button(RichText::new("Δ Diff").color(TEXT_DIM))
-                    .clicked()
-                {
+                if ui.button(RichText::new("Δ Diff").color(TEXT_DIM)).clicked() {
                     action = Some(DetailPanelAction::ViewDiff(current_job_id));
                 }
             }
@@ -473,30 +567,30 @@ fn render_action_buttons(
                     ui.add_enabled_ui(can_change, |ui| {
                         // Use tuple-based ID to avoid format! allocation every frame
                         egui::ComboBox::from_id_salt(("permission_mode", current_job_id))
-                        .selected_text(permission_mode_display(current_mode))
-                        .width(170.0)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut desired_mode,
-                                PermissionMode::Default,
-                                "Default (ask)",
-                            );
-                            ui.selectable_value(
-                                &mut desired_mode,
-                                PermissionMode::AcceptEdits,
-                                "Accept edits",
-                            );
-                            ui.selectable_value(
-                                &mut desired_mode,
-                                PermissionMode::Plan,
-                                "Plan",
-                            );
-                            ui.selectable_value(
-                                &mut desired_mode,
-                                PermissionMode::BypassPermissions,
-                                "Bypass permissions",
-                            );
-                        });
+                            .selected_text(permission_mode_display(current_mode))
+                            .width(170.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut desired_mode,
+                                    PermissionMode::Default,
+                                    "Default (ask)",
+                                );
+                                ui.selectable_value(
+                                    &mut desired_mode,
+                                    PermissionMode::AcceptEdits,
+                                    "Accept edits",
+                                );
+                                ui.selectable_value(
+                                    &mut desired_mode,
+                                    PermissionMode::Plan,
+                                    "Plan",
+                                );
+                                ui.selectable_value(
+                                    &mut desired_mode,
+                                    PermissionMode::BypassPermissions,
+                                    "Bypass permissions",
+                                );
+                            });
                     });
 
                     if can_change && desired_mode != current_mode {
@@ -520,7 +614,11 @@ fn render_action_buttons(
         ui.separator();
         ui.add_space(8.0);
 
-        ui.label(RichText::new("Continue Session").monospace().color(ACCENT_CYAN));
+        ui.label(
+            RichText::new("Continue Session")
+                .monospace()
+                .color(ACCENT_CYAN),
+        );
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
@@ -584,7 +682,6 @@ fn permission_mode_display(mode: PermissionMode) -> &'static str {
     }
 }
 
-
 /// Get static string label for log event kind (avoids format! allocation per frame)
 #[inline]
 fn log_kind_label(kind: &crate::LogEventKind) -> &'static str {
@@ -610,7 +707,10 @@ fn render_prompt_section_collapsible(ui: &mut egui::Ui, job: &Job, config: &Conf
 
     let (prompt_text, prompt_label): (Cow<'_, str>, &str) = match &job.sent_prompt {
         Some(prompt) => (Cow::Borrowed(prompt.as_str()), "SENT PROMPT"),
-        None => (Cow::Owned(build_prompt_preview(job, config)), "PROMPT PREVIEW"),
+        None => (
+            Cow::Owned(build_prompt_preview(job, config)),
+            "PROMPT PREVIEW",
+        ),
     };
 
     // Count lines for display
@@ -619,7 +719,7 @@ fn render_prompt_section_collapsible(ui: &mut egui::Ui, job: &Job, config: &Conf
     egui::CollapsingHeader::new(
         RichText::new(format!("{} ({} lines)", prompt_label, line_count))
             .monospace()
-            .color(TEXT_MUTED)
+            .color(TEXT_MUTED),
     )
     .default_open(false)
     .show(ui, |ui| {
@@ -642,79 +742,189 @@ fn render_prompt_section_collapsible(ui: &mut egui::Ui, job: &Job, config: &Conf
 /// Render diff section inline (no inner scroll - parent handles scrolling)
 fn render_diff_section_inline(ui: &mut egui::Ui, diff_content: &str, available_width: f32) {
     // Count changes for header
-    let added = diff_content.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
-    let removed = diff_content.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+    let added = diff_content
+        .lines()
+        .filter(|l| l.starts_with('+') && !l.starts_with("+++"))
+        .count();
+    let removed = diff_content
+        .lines()
+        .filter(|l| l.starts_with('-') && !l.starts_with("---"))
+        .count();
 
-    egui::CollapsingHeader::new(
-        RichText::new("DIFF").monospace().color(TEXT_PRIMARY)
-    )
-    .id_salt("diff_section")
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.horizontal(|ui| {
-            if added > 0 {
-                ui.label(RichText::new(format!("+{}", added)).color(ACCENT_GREEN).small());
-            }
-            if removed > 0 {
-                ui.label(RichText::new(format!("-{}", removed)).color(ACCENT_RED).small());
-            }
-        });
-        ui.add_space(4.0);
-
-        egui::Frame::NONE
-            .fill(BG_SECONDARY)
-            .corner_radius(4.0)
-            .inner_margin(4.0)
-            .show(ui, |ui| {
-                ui.set_min_width(available_width - 24.0);
-                render_diff_content(ui, diff_content);
+    egui::CollapsingHeader::new(RichText::new("DIFF").monospace().color(TEXT_PRIMARY))
+        .id_salt("diff_section")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if added > 0 {
+                    ui.label(
+                        RichText::new(format!("+{}", added))
+                            .color(ACCENT_GREEN)
+                            .small(),
+                    );
+                }
+                if removed > 0 {
+                    ui.label(
+                        RichText::new(format!("-{}", removed))
+                            .color(ACCENT_RED)
+                            .small(),
+                    );
+                }
             });
-    });
+            ui.add_space(4.0);
+
+            egui::Frame::NONE
+                .fill(BG_SECONDARY)
+                .corner_radius(4.0)
+                .inner_margin(4.0)
+                .show(ui, |ui| {
+                    ui.set_min_width(available_width - 24.0);
+                    render_diff_content(ui, diff_content);
+                });
+        });
 }
 
 /// Render activity log section inline (no inner scroll - parent handles scrolling)
-fn render_activity_log_inline(ui: &mut egui::Ui, job: &Job, logs: &[LogEvent], _scroll_to_bottom: bool, available_width: f32) {
-    let log_count = job.log_events.len() + logs.iter().filter(|e| e.job_id.is_none() || e.job_id == Some(job.id)).count();
+fn render_activity_log_inline(
+    ui: &mut egui::Ui,
+    job: &Job,
+    logs: &[LogEvent],
+    _scroll_to_bottom: bool,
+    available_width: f32,
+    commonmark_cache: &mut egui_commonmark::CommonMarkCache,
+    filters: &mut ActivityLogFilters,
+) {
+    let total_log_count = job.log_events.len()
+        + logs
+            .iter()
+            .filter(|e| e.job_id.is_none() || e.job_id == Some(job.id))
+            .count();
+
+    let shown_log_count = job
+        .log_events
+        .iter()
+        .filter(|e| filters.is_enabled(&e.kind))
+        .count()
+        + logs
+            .iter()
+            .filter(|e| {
+                (e.job_id.is_none() || e.job_id == Some(job.id)) && filters.is_enabled(&e.kind)
+            })
+            .count();
 
     // Use stable id_salt based on job ID to prevent state reset when log count changes
     egui::CollapsingHeader::new(
-        RichText::new(format!("ACTIVITY LOG ({})", log_count))
-            .monospace()
-            .color(TEXT_MUTED)
+        RichText::new(format!(
+            "ACTIVITY LOG ({}/{})",
+            shown_log_count, total_log_count
+        ))
+        .monospace()
+        .color(TEXT_MUTED),
     )
     .id_salt(("activity_log", job.id))
     .default_open(false)
     .show(ui, |ui| {
         ui.set_min_width(available_width - 16.0);
 
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Show:").small().color(TEXT_MUTED));
+            egui::ComboBox::from_id_salt(("activity_log_filters", job.id))
+                .selected_text(
+                    RichText::new(filters.selected_summary())
+                        .small()
+                        .color(TEXT_PRIMARY),
+                )
+                .width(140.0)
+                .show_ui(ui, |ui| {
+                    ui.checkbox(&mut filters.show_text, "Text");
+                    ui.checkbox(&mut filters.show_tool_call, "Tool calls");
+                    ui.checkbox(&mut filters.show_tool_output, "Tool output");
+                    ui.checkbox(&mut filters.show_thought, "Thought");
+                    ui.checkbox(&mut filters.show_system, "System");
+                    ui.checkbox(&mut filters.show_error, "Error");
+                    ui.checkbox(&mut filters.show_permission, "Permission");
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("Only text").clicked() {
+                            *filters = ActivityLogFilters::default();
+                        }
+                        if ui.button("All").clicked() {
+                            filters.show_text = true;
+                            filters.show_tool_call = true;
+                            filters.show_tool_output = true;
+                            filters.show_thought = true;
+                            filters.show_system = true;
+                            filters.show_error = true;
+                            filters.show_permission = true;
+                        }
+                    });
+                });
+        });
+
+        ui.add_space(6.0);
+
         // Show job-specific logs first
         for event in &job.log_events {
+            if !filters.is_enabled(&event.kind) {
+                continue;
+            }
+
             let color = log_color(&event.kind);
+            render_activity_log_event(ui, event, commonmark_cache, color);
+        }
+
+        // Then show global logs filtered by job_id
+        for event in logs {
+            if (event.job_id.is_none() || event.job_id == Some(job.id))
+                && filters.is_enabled(&event.kind)
+            {
+                let color = log_color(&event.kind);
+                render_activity_log_event(ui, event, commonmark_cache, color);
+            }
+        }
+    });
+}
+
+fn render_activity_log_event(
+    ui: &mut egui::Ui,
+    event: &LogEvent,
+    commonmark_cache: &mut egui_commonmark::CommonMarkCache,
+    color: egui::Color32,
+) {
+    let text = event.content.as_deref().unwrap_or(event.summary.as_str());
+    let render_markdown = matches!(event.kind, crate::LogEventKind::Text);
+
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .corner_radius(4.0)
+        .inner_margin(6.0)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(log_kind_label(&event.kind))
                         .monospace()
                         .color(TEXT_MUTED),
                 );
-                ui.label(RichText::new(&event.summary).color(color));
+                if let Some(tool) = event.tool_name.as_deref() {
+                    ui.label(RichText::new(tool).monospace().small().color(TEXT_MUTED));
+                }
             });
-        }
 
-        // Then show global logs filtered by job_id
-        for event in logs {
-            if event.job_id.is_none() || event.job_id == Some(job.id) {
-                let color = log_color(&event.kind);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(log_kind_label(&event.kind))
-                            .monospace()
-                            .color(TEXT_MUTED),
-                    );
-                    ui.label(RichText::new(&event.summary).color(color));
-                });
+            ui.add_space(2.0);
+
+            if render_markdown {
+                render_markdown_inline_colored(ui, text, commonmark_cache, color);
+            } else {
+                ui.label(RichText::new(text).color(color));
             }
-        }
-    });
+        });
+
+    ui.add_space(4.0);
+    ui.separator();
+    ui.add_space(2.0);
 }
 
 // ============================================================================
@@ -729,14 +939,24 @@ fn render_chain_progress_section_with_height(
     available_width: f32,
 ) {
     let chain_name = job.chain_name.as_deref().unwrap_or("Chain");
-    let total_steps = job.chain_total_steps.unwrap_or(job.chain_step_history.len());
+    let total_steps = job
+        .chain_total_steps
+        .unwrap_or(job.chain_step_history.len());
     let current_step = job.chain_current_step.unwrap_or(0);
-    let completed_steps = job.chain_step_history.iter().filter(|s| !s.skipped && s.success).count();
+    let completed_steps = job
+        .chain_step_history
+        .iter()
+        .filter(|s| !s.skipped && s.success)
+        .count();
     let is_running = job.status == JobStatus::Running;
 
     // Header with chain name and progress
     ui.horizontal(|ui| {
-        ui.label(RichText::new(format!("⛓ {}", chain_name)).monospace().color(ACCENT_CYAN));
+        ui.label(
+            RichText::new(format!("⛓ {}", chain_name))
+                .monospace()
+                .color(ACCENT_CYAN),
+        );
         ui.add_space(8.0);
 
         // Progress text
@@ -773,7 +993,13 @@ fn render_chain_progress_section_with_height(
         };
 
         let progress_bar = egui::ProgressBar::new(progress)
-            .fill(if is_running { STATUS_RUNNING } else if job.status == JobStatus::Done { ACCENT_GREEN } else { ACCENT_RED })
+            .fill(if is_running {
+                STATUS_RUNNING
+            } else if job.status == JobStatus::Done {
+                ACCENT_GREEN
+            } else {
+                ACCENT_RED
+            })
             .animate(is_running);
         ui.add_sized([available_width - 16.0, 8.0], progress_bar);
     }
@@ -792,7 +1018,13 @@ fn render_chain_progress_section_with_height(
         .show(ui, |ui| {
             ui.set_min_width(available_width - 16.0);
             for step in &job.chain_step_history {
-                render_chain_step_full_width(ui, step, job.id, commonmark_cache, available_width - 24.0);
+                render_chain_step_full_width(
+                    ui,
+                    step,
+                    job.id,
+                    commonmark_cache,
+                    available_width - 24.0,
+                );
                 ui.add_space(4.0);
             }
         });
@@ -848,7 +1080,11 @@ fn render_chain_step_full_width(
 
             // Error if failed
             if let Some(error) = &step.error {
-                ui.label(RichText::new(format!("Error: {}", error)).color(ACCENT_RED).small());
+                ui.label(
+                    RichText::new(format!("Error: {}", error))
+                        .color(ACCENT_RED)
+                        .small(),
+                );
             }
 
             // Summary (short version)
@@ -876,8 +1112,11 @@ fn render_chain_step_full_width(
                     ui.set_min_width(width - 16.0);
                     ui.scope(|ui| {
                         apply_markdown_theme(ui);
-                        egui_commonmark::CommonMarkViewer::new()
-                            .show(ui, commonmark_cache, response);
+                        egui_commonmark::CommonMarkViewer::new().show(
+                            ui,
+                            commonmark_cache,
+                            response,
+                        );
                     });
                 });
             }

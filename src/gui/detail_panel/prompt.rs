@@ -1,7 +1,7 @@
 //! Prompt building utilities for the detail panel
 
-use crate::config::Config;
 use crate::Job;
+use crate::config::Config;
 
 /// Build prompt preview for a job (before it runs)
 pub fn build_prompt_preview(job: &Job, config: &Config) -> String {

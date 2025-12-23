@@ -6,8 +6,8 @@ use anyhow::{Context, Result};
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::types::*;
@@ -109,7 +109,13 @@ impl BridgeClient {
         }
 
         Err(last_error
-            .map(|e| anyhow::anyhow!("Failed to start Claude query after {} attempts: {}", MAX_RETRIES, e))
+            .map(|e| {
+                anyhow::anyhow!(
+                    "Failed to start Claude query after {} attempts: {}",
+                    MAX_RETRIES,
+                    e
+                )
+            })
             .unwrap_or_else(|| anyhow::anyhow!("Failed to start Claude query")))
     }
 
@@ -479,8 +485,7 @@ impl BridgeProcess {
     /// Download and install the bridge from GitHub Releases
     fn download_and_install_bridge(kyco_dir: &PathBuf) -> Result<()> {
         // Create ~/.kyco directory if needed
-        std::fs::create_dir_all(kyco_dir)
-            .context("Failed to create ~/.kyco directory")?;
+        std::fs::create_dir_all(kyco_dir).context("Failed to create ~/.kyco directory")?;
 
         let download_url = format!(
             "https://github.com/{}/releases/latest/download/kyco-bridge.tar.gz",
@@ -492,9 +497,9 @@ impl BridgeProcess {
         tracing::info!("Downloading bridge from {}...", download_url);
         let output = Command::new("curl")
             .args([
-                "-L",  // Follow redirects
-                "-f",  // Fail on HTTP errors
-                "-#",  // Progress bar
+                "-L", // Follow redirects
+                "-f", // Fail on HTTP errors
+                "-#", // Progress bar
                 "-o",
                 tarball_path.to_str().unwrap_or("kyco-bridge.tar.gz"),
                 &download_url,
@@ -527,7 +532,10 @@ impl BridgeProcess {
         // Clean up the tarball
         let _ = std::fs::remove_file(&tarball_path);
 
-        tracing::info!("SDK Bridge installed to {}", kyco_dir.join("bridge").display());
+        tracing::info!(
+            "SDK Bridge installed to {}",
+            kyco_dir.join("bridge").display()
+        );
         Ok(())
     }
 

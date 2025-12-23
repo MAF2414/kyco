@@ -112,7 +112,11 @@ impl VoiceInstallResult {
 #[derive(Debug, Clone)]
 pub enum InstallProgress {
     /// Installation step started
-    Step { step: u8, total: u8, message: String },
+    Step {
+        step: u8,
+        total: u8,
+        message: String,
+    },
     /// Installation completed successfully
     Complete(VoiceInstallResult),
     /// Installation failed
@@ -142,7 +146,11 @@ pub fn install_voice_dependencies_async(work_dir: &Path, model_name: &str) -> In
 }
 
 /// Inner installation function that runs in a background thread
-fn install_voice_dependencies_inner(work_dir: &Path, model_name: &str, tx: Sender<InstallProgress>) {
+fn install_voice_dependencies_inner(
+    work_dir: &Path,
+    model_name: &str,
+    tx: Sender<InstallProgress>,
+) {
     let total_steps = 4;
 
     // Step 1: Check Homebrew
@@ -196,7 +204,10 @@ fn install_voice_dependencies_inner(work_dir: &Path, model_name: &str, tx: Sende
     let _ = tx.send(InstallProgress::Step {
         step: 4,
         total: total_steps,
-        message: format!("Downloading {} model (this may take a while)...", model_name),
+        message: format!(
+            "Downloading {} model (this may take a while)...",
+            model_name
+        ),
     });
 
     if let Err(e) = download_whisper_model(work_dir, model_name) {
@@ -267,8 +278,12 @@ fn install_brew_package(package: &str) -> Result<(), String> {
 
 /// Download a Whisper model to the models directory with checksum validation
 fn download_whisper_model(work_dir: &Path, model_name: &str) -> Result<(), String> {
-    let model_info = get_model_info(model_name)
-        .ok_or_else(|| format!("Unknown model: {}. Valid models: tiny, base, small, medium, large", model_name))?;
+    let model_info = get_model_info(model_name).ok_or_else(|| {
+        format!(
+            "Unknown model: {}. Valid models: tiny, base, small, medium, large",
+            model_name
+        )
+    })?;
 
     // Create models directory in .kyco
     let models_dir = work_dir.join(".kyco").join("whisper-models");
@@ -319,8 +334,7 @@ fn download_whisper_model(work_dir: &Path, model_name: &str) -> Result<(), Strin
     }
 
     // Move temp file to final location
-    std::fs::rename(&temp_path, &model_path)
-        .map_err(|e| format!("Failed to save model: {}", e))?;
+    std::fs::rename(&temp_path, &model_path).map_err(|e| format!("Failed to save model: {}", e))?;
 
     Ok(())
 }

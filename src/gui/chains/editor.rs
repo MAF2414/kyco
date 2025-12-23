@@ -5,7 +5,10 @@ use eframe::egui::{self, RichText, ScrollArea};
 use super::persistence::save_chain_to_config;
 use super::state::{ChainEditorState, ChainStepEdit, PendingConfirmation, StateDefinitionEdit};
 use crate::gui::animations::animated_button;
-use crate::gui::app::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::app::{
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED,
+    TEXT_PRIMARY,
+};
 
 /// Color for state definitions
 const ACCENT_PURPLE: egui::Color32 = egui::Color32::from_rgb(200, 150, 255);
@@ -27,7 +30,9 @@ pub fn render_chain_editor(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>, 
     available_modes.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
 
     // Get available state IDs for trigger_on/skip_on hints
-    let available_state_ids: Vec<String> = state.chain_edit_states.iter()
+    let available_state_ids: Vec<String> = state
+        .chain_edit_states
+        .iter()
         .map(|s| s.id.clone())
         .filter(|id| !id.is_empty())
         .collect();

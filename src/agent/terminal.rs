@@ -149,8 +149,7 @@ impl TerminalSession {
             pid_file_str.replace('\'', "'\\''"),
         );
 
-        std::fs::write(&script_file, &script_content)
-            .context("Failed to write shell script")?;
+        std::fs::write(&script_file, &script_content).context("Failed to write shell script")?;
 
         #[cfg(unix)]
         {
@@ -562,13 +561,7 @@ impl AgentRunner for TerminalAdapter {
 
         // Spawn in terminal
         let binary = config.get_binary();
-        let session = TerminalSession::spawn(
-            job_id,
-            &binary,
-            &repl_args,
-            &prompt,
-            worktree,
-        )?;
+        let session = TerminalSession::spawn(job_id, &binary, &repl_args, &prompt, worktree)?;
 
         let session = Arc::new(session);
         register_session(session.clone());

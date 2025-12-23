@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{AgentConfig, SessionMode, SdkType, SystemPromptMode};
+use crate::{AgentConfig, SdkType, SessionMode, SystemPromptMode};
 
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,8 +121,12 @@ impl Config {
 
         // Create ~/.kyco directory
         if !config_dir.exists() {
-            std::fs::create_dir_all(&config_dir)
-                .with_context(|| format!("Failed to create config directory: {}", config_dir.display()))?;
+            std::fs::create_dir_all(&config_dir).with_context(|| {
+                format!(
+                    "Failed to create config directory: {}",
+                    config_dir.display()
+                )
+            })?;
         }
 
         // Generate default config as TOML
@@ -407,11 +411,12 @@ impl Config {
                 None
             };
 
-            let structured_output_schema = if !self.settings.gui.structured_output_schema.trim().is_empty() {
-                Some(self.settings.gui.structured_output_schema.clone())
-            } else {
-                None
-            };
+            let structured_output_schema =
+                if !self.settings.gui.structured_output_schema.trim().is_empty() {
+                    Some(self.settings.gui.structured_output_schema.clone())
+                } else {
+                    None
+                };
 
             // SDK type
             let sdk_type = toml.sdk;
@@ -530,7 +535,9 @@ impl Config {
                             .codex
                             .as_ref()
                             .map(|c| c.sandbox.clone())
-                            .unwrap_or_else(|| derive_codex_sandbox(&agent_config.disallowed_tools)),
+                            .unwrap_or_else(|| {
+                                derive_codex_sandbox(&agent_config.disallowed_tools)
+                            }),
                     );
                 }
                 _ => {
@@ -539,7 +546,9 @@ impl Config {
                         .claude
                         .as_ref()
                         .map(|c| c.permission_mode.clone())
-                        .unwrap_or_else(|| derive_claude_permission(&agent_config.disallowed_tools));
+                        .unwrap_or_else(|| {
+                            derive_claude_permission(&agent_config.disallowed_tools)
+                        });
                 }
             }
         }

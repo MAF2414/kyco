@@ -3,8 +3,8 @@
 //! This module handles the workflow of merging the selected result and
 //! cleaning up all worktrees from the group.
 
-use crate::git::GitManager;
 use crate::git::CommitMessage;
+use crate::git::GitManager;
 use crate::job::{GroupManager, JobManager};
 use crate::{AgentGroupId, JobStatus};
 

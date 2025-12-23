@@ -36,11 +36,13 @@ pub mod update;
 pub mod voice;
 
 pub use app::{KycoApp, Mode};
-pub use selection::SelectionContext;
-pub use executor::{start_executor, ExecutorEvent};
+pub use executor::{ExecutorEvent, start_executor};
 pub use groups::{ComparisonAction, ComparisonState};
 pub use http_server::{BatchFile, BatchRequest, SelectionRequest};
-pub use permission::{PermissionAction, PermissionPopupState, PermissionRequest, render_permission_popup};
+pub use permission::{
+    PermissionAction, PermissionPopupState, PermissionRequest, render_permission_popup,
+};
 pub use runner::run_gui;
+pub use selection::SelectionContext;
 pub use update::{UpdateChecker, UpdateInfo, UpdateStatus};
 pub use voice::{VoiceConfig, VoiceEvent, VoiceInputMode, VoiceManager, VoiceState};

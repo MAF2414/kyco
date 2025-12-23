@@ -27,12 +27,7 @@ impl GroupManager {
     }
 
     /// Create a new agent run group
-    pub fn create_group(
-        &mut self,
-        prompt: String,
-        mode: String,
-        target: String,
-    ) -> AgentGroupId {
+    pub fn create_group(&mut self, prompt: String, mode: String, target: String) -> AgentGroupId {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let group = AgentRunGroup::new(id, prompt, mode, target);
         self.groups.insert(id, group);
@@ -40,12 +35,7 @@ impl GroupManager {
     }
 
     /// Add a job to a group
-    pub fn add_job_to_group(
-        &mut self,
-        group_id: AgentGroupId,
-        job_id: JobId,
-        agent_name: String,
-    ) {
+    pub fn add_job_to_group(&mut self, group_id: AgentGroupId, job_id: JobId, agent_name: String) {
         if let Some(group) = self.groups.get_mut(&group_id) {
             group.add_job(job_id, agent_name);
         }
@@ -105,9 +95,7 @@ impl GroupManager {
 
         // Check if all jobs are finished
         let all_finished = group_jobs.iter().all(|j| j.is_finished());
-        let any_succeeded = group_jobs
-            .iter()
-            .any(|j| j.status == JobStatus::Done);
+        let any_succeeded = group_jobs.iter().any(|j| j.status == JobStatus::Done);
 
         if all_finished {
             if any_succeeded {

@@ -84,11 +84,7 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         _ => ModeSessionType::Oneshot,
     };
 
-    let max_turns = state
-        .mode_edit_max_turns
-        .trim()
-        .parse::<u32>()
-        .unwrap_or(0);
+    let max_turns = state.mode_edit_max_turns.trim().parse::<u32>().unwrap_or(0);
 
     let model = if state.mode_edit_model.trim().is_empty() {
         None

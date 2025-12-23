@@ -52,11 +52,7 @@ impl AutocompleteState {
                     .binary
                     .as_deref()
                     .unwrap_or(agent_config.sdk.default_name());
-                let desc = format!(
-                    "{} ({})",
-                    backend,
-                    agent_config.aliases.join(", ")
-                );
+                let desc = format!("{} ({})", backend, agent_config.aliases.join(", "));
                 self.suggestions.push(Suggestion {
                     text: format!("{}:", agent_name),
                     description: desc,
@@ -78,9 +74,10 @@ impl AutocompleteState {
             }
             // Show chains
             for (chain_name, chain_config) in &config.chain {
-                let desc = chain_config.description.clone().unwrap_or_else(|| {
-                    format!("{} steps", chain_config.steps.len())
-                });
+                let desc = chain_config
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| format!("{} steps", chain_config.steps.len()));
                 self.suggestions.push(Suggestion {
                     text: chain_name.to_string(),
                     description: format!("[chain] {}", desc),
@@ -100,14 +97,14 @@ impl AutocompleteState {
 
             for (agent_name, _agent_config) in &config.agent {
                 // Don't suggest agents already in the list
-                if existing_agents.iter().any(|a| a.eq_ignore_ascii_case(agent_name)) {
+                if existing_agents
+                    .iter()
+                    .any(|a| a.eq_ignore_ascii_case(agent_name))
+                {
                     continue;
                 }
 
-                let desc = format!(
-                    "Add {} to parallel execution",
-                    agent_name
-                );
+                let desc = format!("Add {} to parallel execution", agent_name);
                 self.suggestions.push(Suggestion {
                     text: format!("{}+{}:", input_trimmed.trim_end_matches('+'), agent_name),
                     description: desc,
@@ -161,9 +158,10 @@ impl AutocompleteState {
                 let matches_chain = chain_lower.starts_with(mode_part) || mode_part.is_empty();
 
                 if matches_chain {
-                    let desc = chain_config.description.clone().unwrap_or_else(|| {
-                        format!("{} steps", chain_config.steps.len())
-                    });
+                    let desc = chain_config
+                        .description
+                        .clone()
+                        .unwrap_or_else(|| format!("{} steps", chain_config.steps.len()));
                     self.suggestions.push(Suggestion {
                         text: format!("{}:{}", agent_part, chain_name),
                         description: format!("[chain] {}", desc),
@@ -187,11 +185,7 @@ impl AutocompleteState {
                         .binary
                         .as_deref()
                         .unwrap_or(agent_config.sdk.default_name());
-                    let desc = format!(
-                        "{} ({})",
-                        backend,
-                        agent_config.aliases.join(", ")
-                    );
+                    let desc = format!("{} ({})", backend, agent_config.aliases.join(", "));
                     self.suggestions.push(Suggestion {
                         text: format!("{}:", agent_name),
                         description: desc,
@@ -228,9 +222,10 @@ impl AutocompleteState {
             for (chain_name, chain_config) in &config.chain {
                 let chain_lower = chain_name.to_lowercase();
                 if chain_lower.starts_with(input_trimmed) || chain_lower.contains(input_trimmed) {
-                    let desc = chain_config.description.clone().unwrap_or_else(|| {
-                        format!("{} steps", chain_config.steps.len())
-                    });
+                    let desc = chain_config
+                        .description
+                        .clone()
+                        .unwrap_or_else(|| format!("{} steps", chain_config.steps.len()));
                     self.suggestions.push(Suggestion {
                         text: chain_name.to_string(),
                         description: format!("[chain] {}", desc),

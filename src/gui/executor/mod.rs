@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crate::agent::{AgentRegistry, ChainRunner, ChainProgressEvent};
+use crate::agent::{AgentRegistry, ChainProgressEvent, ChainRunner};
 use crate::config::Config;
 use crate::git::GitManager;
 use crate::job::JobManager;
@@ -108,7 +108,10 @@ async fn executor_loop(
             for (job_id, blocked_by, source_file) in blocked_jobs {
                 // Check if the blocking job still holds the lock
                 if let Some(blocking_id) = blocked_by {
-                    if manager.get_blocking_job(&source_file, Some(job_id)).is_none() {
+                    if manager
+                        .get_blocking_job(&source_file, Some(job_id))
+                        .is_none()
+                    {
                         // Lock is free, unblock this job
                         if let Some(j) = manager.get_mut(job_id) {
                             j.status = JobStatus::Queued;
@@ -138,13 +141,16 @@ async fn executor_loop(
             if let Some(job) = next_queued {
                 // Check file lock (only when not using worktrees)
                 let is_multi_agent = job.group_id.is_some();
-                let needs_lock_check = !should_use_worktree && !is_multi_agent && !job.force_worktree;
+                let needs_lock_check =
+                    !should_use_worktree && !is_multi_agent && !job.force_worktree;
 
                 if needs_lock_check {
                     let mut manager = job_manager.lock().unwrap();
 
                     // Check if the source file is locked by another job
-                    if let Some(blocking_job_id) = manager.get_blocking_job(&job.source_file, Some(job.id)) {
+                    if let Some(blocking_job_id) =
+                        manager.get_blocking_job(&job.source_file, Some(job.id))
+                    {
                         // File is locked - mark job as blocked
                         if let Some(j) = manager.get_mut(job.id) {
                             j.status = JobStatus::Blocked;
@@ -155,7 +161,8 @@ async fn executor_loop(
                             "Job #{} blocked by Job #{} (file: {})",
                             job.id,
                             blocking_job_id,
-                            job.source_file.file_name()
+                            job.source_file
+                                .file_name()
                                 .map(|f| f.to_string_lossy().to_string())
                                 .unwrap_or_else(|| job.source_file.display().to_string())
                         ))));
@@ -239,19 +246,24 @@ async fn run_job(
     // regardless of the use_worktree config setting.
     // Jobs with force_worktree=true (submitted with Shift+Enter) also use worktrees.
     let is_multi_agent_job = job.group_id.is_some();
-    let should_use_worktree = config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
+    let should_use_worktree =
+        config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
 
     // Get the effective working directory from job's workspace_path, falling back to work_dir
     // This is crucial for multi-workspace support where jobs may target different repositories
-    let job_work_dir = job.workspace_path.clone().unwrap_or_else(|| work_dir.clone());
+    let job_work_dir = job
+        .workspace_path
+        .clone()
+        .unwrap_or_else(|| work_dir.clone());
 
     // Create GitManager for the job's workspace (may be different from global work_dir)
-    let job_git_manager = if job.workspace_path.is_some() && job.workspace_path.as_ref() != Some(work_dir) {
-        // Job has a different workspace, create a new GitManager for it
-        GitManager::new(&job_work_dir).ok()
-    } else {
-        None
-    };
+    let job_git_manager =
+        if job.workspace_path.is_some() && job.workspace_path.as_ref() != Some(work_dir) {
+            // Job has a different workspace, create a new GitManager for it
+            GitManager::new(&job_work_dir).ok()
+        } else {
+            None
+        };
     let effective_git_manager = job_git_manager.as_ref().or(git_manager);
 
     // Reuse existing worktree when present (e.g., session continuation)
@@ -367,10 +379,7 @@ async fn run_job(
     let adapter = match agent_registry.get_for_config(&agent_config) {
         Some(a) => a,
         None => {
-            let error = format!(
-                "No adapter found for agent '{}'",
-                job.agent_id
-            );
+            let error = format!("No adapter found for agent '{}'", job.agent_id);
             let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(error.clone())));
             {
                 let mut manager = job_manager.lock().unwrap();
@@ -454,7 +463,10 @@ async fn run_job(
     });
 
     // Run the adapter
-    match adapter.run(&job, &worktree_path, &agent_config, log_tx).await {
+    match adapter
+        .run(&job, &worktree_path, &agent_config, log_tx)
+        .await
+    {
         Ok(result) => {
             let mut manager = job_manager.lock().unwrap();
             if let Some(j) = manager.get_mut(job_id) {
@@ -536,7 +548,9 @@ fn calculate_git_numstat(worktree: &Path, base_branch: Option<&str>) -> (usize, 
         for line in output.lines() {
             let mut parts = line.split('\t');
             let Some(added) = parts.next() else { continue };
-            let Some(removed) = parts.next() else { continue };
+            let Some(removed) = parts.next() else {
+                continue;
+            };
 
             if added != "-" {
                 lines_added = lines_added.saturating_add(added.parse::<usize>().unwrap_or(0));
@@ -568,7 +582,8 @@ fn calculate_git_numstat(worktree: &Path, base_branch: Option<&str>) -> (usize, 
     // Count committed changes on the worktree branch.
     if let Some(base_branch) = base_branch {
         let range = format!("{}...HEAD", base_branch);
-        if let Some((added, removed)) = run_git_numstat(worktree, &["diff", "--numstat", "--no-color", &range])
+        if let Some((added, removed)) =
+            run_git_numstat(worktree, &["diff", "--numstat", "--no-color", &range])
         {
             total.0 = total.0.saturating_add(added);
             total.1 = total.1.saturating_add(removed);
@@ -576,7 +591,8 @@ fn calculate_git_numstat(worktree: &Path, base_branch: Option<&str>) -> (usize, 
     }
 
     // Count uncommitted changes.
-    if let Some((added, removed)) = run_git_numstat(worktree, &["diff", "--numstat", "--no-color"]) {
+    if let Some((added, removed)) = run_git_numstat(worktree, &["diff", "--numstat", "--no-color"])
+    {
         total.0 = total.0.saturating_add(added);
         total.1 = total.1.saturating_add(removed);
     }
@@ -636,17 +652,22 @@ async fn run_chain_job(
     // Determine working directory
     // Multi-agent jobs (jobs with group_id) ALWAYS require worktrees for isolation
     let is_multi_agent_job = job.group_id.is_some();
-    let should_use_worktree = config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
+    let should_use_worktree =
+        config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
 
     // Get the effective working directory from job's workspace_path, falling back to work_dir
-    let job_work_dir = job.workspace_path.clone().unwrap_or_else(|| work_dir.clone());
+    let job_work_dir = job
+        .workspace_path
+        .clone()
+        .unwrap_or_else(|| work_dir.clone());
 
     // Create GitManager for the job's workspace (may be different from global work_dir)
-    let job_git_manager = if job.workspace_path.is_some() && job.workspace_path.as_ref() != Some(work_dir) {
-        GitManager::new(&job_work_dir).ok()
-    } else {
-        None
-    };
+    let job_git_manager =
+        if job.workspace_path.is_some() && job.workspace_path.as_ref() != Some(work_dir) {
+            GitManager::new(&job_work_dir).ok()
+        } else {
+            None
+        };
     let effective_git_manager = job_git_manager.as_ref().or(git_manager);
 
     // Reuse existing worktree when present (e.g., session continuation)
@@ -717,12 +738,10 @@ async fn run_chain_job(
                 } else {
                     "Shift+Enter submission"
                 };
-                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
-                    format!(
-                        "Worktree required for {} but no git repository available",
-                        reason
-                    ),
-                )));
+                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                    "Worktree required for {} but no git repository available",
+                    reason
+                ))));
                 let _ = event_tx.send(ExecutorEvent::JobFailed(
                     job_id,
                     format!("Git repository required for {}", reason),
@@ -838,12 +857,29 @@ async fn run_chain_job(
                                 step_index: step_result.step_index,
                                 mode: step_result.mode.clone(),
                                 skipped: step_result.skipped,
-                                success: step_result.agent_result.as_ref().map(|ar| ar.success).unwrap_or(false),
-                                title: step_result.job_result.as_ref().and_then(|jr| jr.title.clone()),
-                                summary: step_result.job_result.as_ref().and_then(|jr| jr.summary.clone()),
+                                success: step_result
+                                    .agent_result
+                                    .as_ref()
+                                    .map(|ar| ar.success)
+                                    .unwrap_or(false),
+                                title: step_result
+                                    .job_result
+                                    .as_ref()
+                                    .and_then(|jr| jr.title.clone()),
+                                summary: step_result
+                                    .job_result
+                                    .as_ref()
+                                    .and_then(|jr| jr.summary.clone()),
                                 full_response: step_result.full_response.clone(),
-                                error: step_result.agent_result.as_ref().and_then(|ar| ar.error.clone()),
-                                files_changed: step_result.agent_result.as_ref().map(|ar| ar.files_changed).unwrap_or(0),
+                                error: step_result
+                                    .agent_result
+                                    .as_ref()
+                                    .and_then(|ar| ar.error.clone()),
+                                files_changed: step_result
+                                    .agent_result
+                                    .as_ref()
+                                    .map(|ar| ar.files_changed)
+                                    .unwrap_or(0),
                             };
                             // Only add if not already present
                             if j.chain_step_history.len() <= step_result.step_index {
@@ -855,7 +891,10 @@ async fn run_chain_job(
                                 step_index: step_result.step_index,
                                 total_steps: total_steps_for_progress,
                                 mode: step_result.mode.clone(),
-                                state: step_result.job_result.as_ref().and_then(|jr| jr.state.clone()),
+                                state: step_result
+                                    .job_result
+                                    .as_ref()
+                                    .and_then(|jr| jr.state.clone()),
                                 step_summary: summary,
                             });
                         }
@@ -891,12 +930,29 @@ async fn run_chain_job(
                     step_index: step_result.step_index,
                     mode: step_result.mode.clone(),
                     skipped: step_result.skipped,
-                    success: step_result.agent_result.as_ref().map(|ar| ar.success).unwrap_or(false),
-                    title: step_result.job_result.as_ref().and_then(|jr| jr.title.clone()),
-                    summary: step_result.job_result.as_ref().and_then(|jr| jr.summary.clone()),
+                    success: step_result
+                        .agent_result
+                        .as_ref()
+                        .map(|ar| ar.success)
+                        .unwrap_or(false),
+                    title: step_result
+                        .job_result
+                        .as_ref()
+                        .and_then(|jr| jr.title.clone()),
+                    summary: step_result
+                        .job_result
+                        .as_ref()
+                        .and_then(|jr| jr.summary.clone()),
                     full_response: step_result.full_response.clone(),
-                    error: step_result.agent_result.as_ref().and_then(|ar| ar.error.clone()),
-                    files_changed: step_result.agent_result.as_ref().map(|ar| ar.files_changed).unwrap_or(0),
+                    error: step_result
+                        .agent_result
+                        .as_ref()
+                        .and_then(|ar| ar.error.clone()),
+                    files_changed: step_result
+                        .agent_result
+                        .as_ref()
+                        .map(|ar| ar.files_changed)
+                        .unwrap_or(0),
                 };
                 step_history.push(summary);
 
@@ -924,7 +980,14 @@ async fn run_chain_job(
                 commit_subject: None,
                 commit_body: None,
                 details: Some(combined_details.join("\n")),
-                status: Some(if chain_result.success { "success" } else { "partial" }.to_string()),
+                status: Some(
+                    if chain_result.success {
+                        "success"
+                    } else {
+                        "partial"
+                    }
+                    .to_string(),
+                ),
                 summary: Some(chain_result.accumulated_summaries.join("\n\n")),
                 state: chain_result.final_state.clone(),
                 next_context: None,
@@ -951,7 +1014,11 @@ async fn run_chain_job(
     let _ = event_tx.send(ExecutorEvent::ChainCompleted {
         job_id,
         chain_name: chain_name.clone(),
-        steps_executed: chain_result.step_results.iter().filter(|r| !r.skipped).count(),
+        steps_executed: chain_result
+            .step_results
+            .iter()
+            .filter(|r| !r.skipped)
+            .count(),
         success: chain_result.success,
     });
 

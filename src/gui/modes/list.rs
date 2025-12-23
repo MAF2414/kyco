@@ -4,11 +4,17 @@ use eframe::egui::{self, RichText, ScrollArea};
 
 use super::persistence::load_mode_for_editing;
 use super::state::ModeEditorState;
-use crate::gui::app::{ACCENT_CYAN, ACCENT_GREEN, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::app::{
+    ACCENT_CYAN, ACCENT_GREEN, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 /// Render the list of available modes
 pub fn render_modes_list(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>) {
-    ui.label(RichText::new("Available Modes").monospace().color(TEXT_PRIMARY));
+    ui.label(
+        RichText::new("Available Modes")
+            .monospace()
+            .color(TEXT_PRIMARY),
+    );
     ui.add_space(8.0);
     ui.label(
         RichText::new("Modes define prompt templates for different task types. Click to edit.")

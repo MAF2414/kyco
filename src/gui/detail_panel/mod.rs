@@ -10,4 +10,4 @@ mod panel;
 mod prompt;
 
 pub use colors::status_color;
-pub use panel::{render_detail_panel, DetailPanelAction, DetailPanelState};
+pub use panel::{ActivityLogFilters, DetailPanelAction, DetailPanelState, render_detail_panel};

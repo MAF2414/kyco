@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::gui::app::{
-    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, BG_SECONDARY,
-    TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MUTED,
+    TEXT_PRIMARY,
 };
 
 /// A pending permission request from the Bridge
@@ -113,16 +113,20 @@ pub fn render_permission_popup(
     let mut action: Option<PermissionAction> = None;
 
     // Animate popup fade-in
-    let fade_alpha = ctx.animate_bool_with_time(
-        Id::new("permission_popup_fade"),
-        true,
-        0.15,
-    );
+    let fade_alpha = ctx.animate_bool_with_time(Id::new("permission_popup_fade"), true, 0.15);
 
     // Orange/warning themed frame
     let frame = egui::Frame::window(&ctx.style())
-        .fill(Color32::from_rgba_unmultiplied(42, 36, 30, (fade_alpha * 250.0) as u8))
-        .stroke(Stroke::new(2.0, Color32::from_rgba_unmultiplied(255, 160, 0, (fade_alpha * 200.0) as u8)));
+        .fill(Color32::from_rgba_unmultiplied(
+            42,
+            36,
+            30,
+            (fade_alpha * 250.0) as u8,
+        ))
+        .stroke(Stroke::new(
+            2.0,
+            Color32::from_rgba_unmultiplied(255, 160, 0, (fade_alpha * 200.0) as u8),
+        ));
 
     egui::Window::new("🔐 Permission Required")
         .collapsible(false)
@@ -139,8 +143,17 @@ pub fn render_permission_popup(
                 ui.add_space(8.0);
                 ui.label(RichText::new("⚠️").size(24.0));
                 ui.vertical(|ui| {
-                    ui.label(RichText::new("Tool Permission Request").size(18.0).strong().color(Color32::from_rgb(255, 200, 100)));
-                    ui.label(RichText::new(format!("Session: {}", truncate_id(&request.session_id))).size(12.0).color(TEXT_DIM));
+                    ui.label(
+                        RichText::new("Tool Permission Request")
+                            .size(18.0)
+                            .strong()
+                            .color(Color32::from_rgb(255, 200, 100)),
+                    );
+                    ui.label(
+                        RichText::new(format!("Session: {}", truncate_id(&request.session_id)))
+                            .size(12.0)
+                            .color(TEXT_DIM),
+                    );
                 });
             });
 
@@ -156,7 +169,12 @@ pub fn render_permission_popup(
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new("Tool:").color(TEXT_MUTED));
-                        ui.label(RichText::new(&request.tool_name).size(16.0).strong().color(get_tool_color(&request.tool_name)));
+                        ui.label(
+                            RichText::new(&request.tool_name)
+                                .size(16.0)
+                                .strong()
+                                .color(get_tool_color(&request.tool_name)),
+                        );
                     });
 
                     ui.add_space(8.0);
@@ -176,7 +194,14 @@ pub fn render_permission_popup(
             // Pending count indicator
             if state.pending_requests.len() > 0 {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("📋 {} more request(s) pending", state.pending_requests.len())).size(12.0).color(TEXT_DIM));
+                    ui.label(
+                        RichText::new(format!(
+                            "📋 {} more request(s) pending",
+                            state.pending_requests.len()
+                        ))
+                        .size(12.0)
+                        .color(TEXT_DIM),
+                    );
                 });
             }
 
@@ -186,11 +211,14 @@ pub fn render_permission_popup(
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Deny button (red)
-                    if ui.add(
-                        egui::Button::new(RichText::new("✗ Deny").color(Color32::WHITE))
-                            .fill(ACCENT_RED)
-                            .min_size(Vec2::new(100.0, 36.0))
-                    ).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new("✗ Deny").color(Color32::WHITE))
+                                .fill(ACCENT_RED)
+                                .min_size(Vec2::new(100.0, 36.0)),
+                        )
+                        .clicked()
+                    {
                         action = Some(PermissionAction::Deny(
                             request.request_id.clone(),
                             "User denied permission".to_string(),
@@ -200,11 +228,14 @@ pub fn render_permission_popup(
                     ui.add_space(12.0);
 
                     // Allow button (green)
-                    if ui.add(
-                        egui::Button::new(RichText::new("✓ Allow").color(Color32::WHITE))
-                            .fill(ACCENT_GREEN)
-                            .min_size(Vec2::new(100.0, 36.0))
-                    ).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new("✓ Allow").color(Color32::WHITE))
+                                .fill(ACCENT_GREEN)
+                                .min_size(Vec2::new(100.0, 36.0)),
+                        )
+                        .clicked()
+                    {
                         action = Some(PermissionAction::Approve(request.request_id.clone()));
                     }
 
@@ -212,18 +243,22 @@ pub fn render_permission_popup(
 
                     // Allow All button (for remaining requests)
                     if state.pending_requests.len() > 0 {
-                        if ui.add(
-                            egui::Button::new(RichText::new("✓✓ Allow All").color(Color32::WHITE))
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new("✓✓ Allow All").color(Color32::WHITE),
+                                )
                                 .fill(ACCENT_CYAN)
-                                .min_size(Vec2::new(100.0, 36.0))
-                        ).on_hover_text("Allow this and all pending requests").clicked() {
-                            let mut request_ids = Vec::with_capacity(1 + state.pending_requests.len());
+                                .min_size(Vec2::new(100.0, 36.0)),
+                            )
+                            .on_hover_text("Allow this and all pending requests")
+                            .clicked()
+                        {
+                            let mut request_ids =
+                                Vec::with_capacity(1 + state.pending_requests.len());
                             request_ids.push(request.request_id.clone());
                             request_ids.extend(
-                                state
-                                    .pending_requests
-                                    .iter()
-                                    .map(|r| r.request_id.clone()),
+                                state.pending_requests.iter().map(|r| r.request_id.clone()),
                             );
                             action = Some(PermissionAction::ApproveAll(request_ids));
                         }
@@ -245,18 +280,22 @@ pub fn render_permission_popup(
 /// Get color for tool name
 fn get_tool_color(tool_name: &str) -> Color32 {
     match tool_name {
-        "Bash" => ACCENT_RED,       // Dangerous
-        "Write" => ACCENT_PURPLE,   // File modification
-        "Edit" => ACCENT_PURPLE,    // File modification
-        "Read" => ACCENT_GREEN,     // Safe
-        "Glob" => ACCENT_GREEN,     // Safe
-        "Grep" => ACCENT_GREEN,     // Safe
-        _ => ACCENT_CYAN,           // Unknown
+        "Bash" => ACCENT_RED,     // Dangerous
+        "Write" => ACCENT_PURPLE, // File modification
+        "Edit" => ACCENT_PURPLE,  // File modification
+        "Read" => ACCENT_GREEN,   // Safe
+        "Glob" => ACCENT_GREEN,   // Safe
+        "Grep" => ACCENT_GREEN,   // Safe
+        _ => ACCENT_CYAN,         // Unknown
     }
 }
 
 /// Render tool-specific input display
-fn render_tool_input(ui: &mut egui::Ui, tool_name: &str, input: &HashMap<String, serde_json::Value>) {
+fn render_tool_input(
+    ui: &mut egui::Ui,
+    tool_name: &str,
+    input: &HashMap<String, serde_json::Value>,
+) {
     match tool_name {
         "Bash" => {
             // Show the command being executed
@@ -267,8 +306,16 @@ fn render_tool_input(ui: &mut egui::Ui, tool_name: &str, input: &HashMap<String,
                     .inner_margin(8.0)
                     .corner_radius(4.0)
                     .show(ui, |ui| {
-                        ui.label(RichText::new("$ ").color(ACCENT_GREEN).family(egui::FontFamily::Monospace));
-                        ui.label(RichText::new(cmd).color(TEXT_PRIMARY).family(egui::FontFamily::Monospace));
+                        ui.label(
+                            RichText::new("$ ")
+                                .color(ACCENT_GREEN)
+                                .family(egui::FontFamily::Monospace),
+                        );
+                        ui.label(
+                            RichText::new(cmd)
+                                .color(TEXT_PRIMARY)
+                                .family(egui::FontFamily::Monospace),
+                        );
                     });
             }
         }
@@ -277,7 +324,11 @@ fn render_tool_input(ui: &mut egui::Ui, tool_name: &str, input: &HashMap<String,
             if let Some(path) = input.get("file_path").and_then(|v| v.as_str()) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("📄 File:").color(TEXT_MUTED));
-                    ui.label(RichText::new(path).color(ACCENT_CYAN).family(egui::FontFamily::Monospace));
+                    ui.label(
+                        RichText::new(path)
+                            .color(ACCENT_CYAN)
+                            .family(egui::FontFamily::Monospace),
+                    );
                 });
             }
             if let Some(content) = input.get("content").and_then(|v| v.as_str()) {
@@ -292,7 +343,12 @@ fn render_tool_input(ui: &mut egui::Ui, tool_name: &str, input: &HashMap<String,
                     .inner_margin(8.0)
                     .corner_radius(4.0)
                     .show(ui, |ui| {
-                        ui.label(RichText::new(preview).color(TEXT_DIM).family(egui::FontFamily::Monospace).size(11.0));
+                        ui.label(
+                            RichText::new(preview)
+                                .color(TEXT_DIM)
+                                .family(egui::FontFamily::Monospace)
+                                .size(11.0),
+                        );
                     });
             }
         }
@@ -310,7 +366,11 @@ fn render_tool_input(ui: &mut egui::Ui, tool_name: &str, input: &HashMap<String,
                     } else {
                         value_str
                     };
-                    ui.label(RichText::new(display).color(TEXT_PRIMARY).family(egui::FontFamily::Monospace));
+                    ui.label(
+                        RichText::new(display)
+                            .color(TEXT_PRIMARY)
+                            .family(egui::FontFamily::Monospace),
+                    );
                 });
             }
         }
