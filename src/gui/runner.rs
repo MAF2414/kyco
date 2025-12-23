@@ -44,6 +44,18 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
     } else {
         work_dir
     };
+    let work_dir = match work_dir.canonicalize() {
+        Ok(abs) => abs,
+        Err(_) => {
+            if work_dir.is_absolute() {
+                work_dir
+            } else if let Ok(cwd) = std::env::current_dir() {
+                cwd.join(work_dir)
+            } else {
+                work_dir
+            }
+        }
+    };
 
     let config_override_path =
         config_override.map(|p| if p.is_absolute() { p } else { work_dir.join(p) });

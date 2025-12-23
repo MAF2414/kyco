@@ -2,6 +2,7 @@
 .kyco/worktrees/
 .kyco/whisper-models/
 .kyco/gui_jobs/
+.kyco/orchestrator_system_prompt.txt
 
 # SDK Bridge (Node.js)
 /bridge/node_modules/

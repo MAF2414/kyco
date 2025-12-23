@@ -5,12 +5,29 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use std::path::Path;
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 
 use super::client::BridgeClient;
 use super::types::*;
 use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
+
+fn bridge_cwd_path(worktree: &Path) -> PathBuf {
+    if let Ok(abs) = worktree.canonicalize() {
+        return abs;
+    }
+    if worktree.is_absolute() {
+        return worktree.to_path_buf();
+    }
+    std::env::current_dir()
+        .map(|cwd| cwd.join(worktree))
+        .unwrap_or_else(|_| worktree.to_path_buf())
+}
+
+fn bridge_cwd(worktree: &Path) -> String {
+    bridge_cwd_path(worktree).to_string_lossy().to_string()
+}
 
 /// Claude adapter using the SDK Bridge
 ///
@@ -178,7 +195,7 @@ impl AgentRunner for ClaudeBridgeAdapter {
     ) -> Result<AgentResult> {
         let job_id = job.id;
         let prompt = self.build_prompt(job, config, worktree);
-        let cwd = worktree.to_string_lossy().to_string();
+        let cwd = bridge_cwd(worktree);
 
         // Log start
         let _ = event_tx
@@ -678,7 +695,7 @@ impl AgentRunner for CodexBridgeAdapter {
     ) -> Result<AgentResult> {
         let job_id = job.id;
         let prompt = self.build_prompt(job, config, worktree);
-        let cwd = worktree.to_string_lossy().to_string();
+        let cwd = bridge_cwd(worktree);
 
         // Log start
         let _ = event_tx
