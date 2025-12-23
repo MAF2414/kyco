@@ -136,6 +136,24 @@ function getProjectRoot(fileUri: vscode.Uri): string {
     return path.dirname(fileUri.fsPath);
 }
 
+/**
+ * Normalize a user-provided glob so that simple patterns like `*.sol` match
+ * anywhere under the selected folder (e.g., `**` + `/*.sol`).
+ */
+function normalizeSubtreeGlob(glob: string): string {
+    const trimmed = glob.trim();
+    if (!trimmed) {
+        return '**/*';
+    }
+
+    // If the user already provided a path-aware glob, keep it as-is.
+    if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.startsWith('**')) {
+        return trimmed;
+    }
+
+    return `**/${trimmed}`;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     console.log('KYCo extension activated');
 
@@ -214,33 +232,112 @@ export function activate(context: vscode.ExtensionContext) {
                 // Called from explorer context menu with single file
                 files = [clickedFile];
             } else {
-                vscode.window.showErrorMessage('KYCo: No files selected. Right-click on files in the explorer.');
+                vscode.window.showErrorMessage('KYCo: Nothing selected. Right-click on files/folders in the explorer.');
                 return;
             }
 
-            // Filter out directories, keep only files
+            // Determine workspace for auth/port discovery (prefer the selection's workspace folder)
+            const contextUri = clickedFile ?? files[0];
+            const contextWorkspaceFolder =
+                (contextUri ? vscode.workspace.getWorkspaceFolder(contextUri) : undefined) ??
+                vscode.workspace.workspaceFolders?.[0];
+            const workspace = contextWorkspaceFolder?.uri.fsPath ?? '';
+
+            // Classify selection (files vs folders)
             const fileStats = await Promise.all(
                 files.map(async (uri) => {
                     try {
                         const stat = await vscode.workspace.fs.stat(uri);
-                        return { uri, isFile: stat.type === vscode.FileType.File };
+                        return {
+                            uri,
+                            isFile: stat.type === vscode.FileType.File,
+                            isDirectory: stat.type === vscode.FileType.Directory
+                        };
                     } catch {
-                        return { uri, isFile: false };
+                        return { uri, isFile: false, isDirectory: false };
                     }
                 })
             );
-            const validFiles = fileStats.filter(f => f.isFile).map(f => f.uri);
 
-            if (validFiles.length === 0) {
+            const selectedFileUris = fileStats.filter(f => f.isFile).map(f => f.uri);
+            const selectedDirUris = fileStats.filter(f => f.isDirectory).map(f => f.uri);
+
+            // If folders are selected, expand them using a glob pattern.
+            let expandedDirFiles: vscode.Uri[] = [];
+            if (selectedDirUris.length > 0) {
+                const defaultGlob = '**/*.{sol,ts,js,tsx,jsx,py}';
+                const lastGlob = context.globalState.get<string>('kyco.sendBatch.folderGlob') ?? defaultGlob;
+
+                const rawGlob = await vscode.window.showInputBox({
+                    prompt: 'Folder file glob (supports **, {}, e.g. **/*.{sol,ts,js,tsx,jsx,py})',
+                    placeHolder: defaultGlob,
+                    value: lastGlob
+                });
+
+                if (rawGlob === undefined) {
+                    return; // User cancelled
+                }
+
+                const folderGlob = normalizeSubtreeGlob(rawGlob);
+                await context.globalState.update('kyco.sendBatch.folderGlob', folderGlob);
+
+                const excludePattern = '{**/node_modules/**,**/.git/**,**/target/**,**/dist/**,**/build/**,**/out/**,**/.idea/**,**/.venv/**,**/venv/**,**/__pycache__/**}';
+
+                expandedDirFiles = await vscode.window.withProgress(
+                    {
+                        location: vscode.ProgressLocation.Notification,
+                        title: 'KYCo: Collecting files from folders...',
+                        cancellable: true
+                    },
+                    async (_progress, token) => {
+                        const all: vscode.Uri[] = [];
+                        for (const dirUri of selectedDirUris) {
+                            if (token.isCancellationRequested) {
+                                break;
+                            }
+
+                            try {
+                                const found = await vscode.workspace.findFiles(
+                                    new vscode.RelativePattern(dirUri.fsPath, folderGlob),
+                                    excludePattern,
+                                    5000,
+                                    token
+                                );
+                                all.push(...found);
+                            } catch {
+                                // Ignore individual folder errors (e.g., permission issues)
+                            }
+                        }
+                        return all;
+                    }
+                );
+            }
+
+            // Merge + de-duplicate files (folders can contain already-selected files)
+            const fileByPath = new Map<string, vscode.Uri>();
+            for (const uri of [...selectedFileUris, ...expandedDirFiles]) {
+                fileByPath.set(uri.fsPath, uri);
+            }
+            const allFiles = [...fileByPath.values()];
+
+            if (allFiles.length === 0) {
                 vscode.window.showErrorMessage('KYCo: No valid files selected');
                 return;
             }
 
-            // Get workspace
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            const workspace = workspaceFolder?.uri.fsPath ?? '';
+            // Confirm when folders were expanded to avoid accidental huge batches.
+            if (selectedDirUris.length > 0) {
+                const confirm = await vscode.window.showInformationMessage(
+                    `Found ${allFiles.length} files. Send to KYCo?`,
+                    'Send',
+                    'Cancel'
+                );
+                if (confirm !== 'Send') {
+                    return;
+                }
+            }
 
-            const batchFiles: BatchFile[] = validFiles.map(uri => ({
+            const batchFiles: BatchFile[] = allFiles.map(uri => ({
                 path: uri.fsPath,
                 workspace: workspace,
                 git_root: getGitRoot(uri),
@@ -251,7 +348,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             const payload: BatchPayload = { files: batchFiles };
             const kycoHttp = await getKycoHttpConfig(workspace);
-            sendBatchRequest(payload, validFiles.length, kycoHttp);
+            sendBatchRequest(payload, allFiles.length, kycoHttp);
         }
     );
 

@@ -1,23 +1,90 @@
 package com.kyco.plugin
 
+import com.intellij.ide.util.PropertiesComponent
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.project.Project
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VfsUtilCore
 import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.charset.StandardCharsets
 import com.google.gson.Gson
 import com.intellij.openapi.application.ApplicationManager
+import java.nio.file.FileSystems
+import java.nio.file.PathMatcher
+import java.nio.file.Paths
 
 /**
  * Action to send multiple selected files to KYCo as a batch.
  * Works when files are selected in the Project View.
  */
 class SendBatchAction : AnAction() {
+
+    private fun normalizeSubtreeGlob(glob: String): String {
+        val trimmed = glob.trim()
+        if (trimmed.isEmpty()) {
+            return "**/*"
+        }
+
+        // If the user already provided a path-aware glob, keep it as-is.
+        if (trimmed.contains('/') || trimmed.contains('\\') || trimmed.startsWith("**")) {
+            return trimmed
+        }
+
+        return "**/$trimmed"
+    }
+
+    private fun shouldSkipDirectory(name: String): Boolean {
+        return name == ".git" ||
+            name == "node_modules" ||
+            name == "target" ||
+            name == "dist" ||
+            name == "build" ||
+            name == "out" ||
+            name == ".idea" ||
+            name == ".gradle" ||
+            name == "__pycache__" ||
+            name == ".venv" ||
+            name == "venv"
+    }
+
+    private fun collectFilesMatchingGlob(directories: List<VirtualFile>, glob: String): List<VirtualFile> {
+        val matcher: PathMatcher = FileSystems.getDefault().getPathMatcher("glob:$glob")
+        val results = mutableListOf<VirtualFile>()
+
+        for (dir in directories) {
+            collectFilesRecursively(root = dir, current = dir, matcher = matcher, results = results)
+        }
+
+        return results
+    }
+
+    private fun collectFilesRecursively(
+        root: VirtualFile,
+        current: VirtualFile,
+        matcher: PathMatcher,
+        results: MutableList<VirtualFile>
+    ) {
+        for (child in current.children) {
+            if (child.isDirectory) {
+                if (shouldSkipDirectory(child.name)) {
+                    continue
+                }
+                collectFilesRecursively(root, child, matcher, results)
+                continue
+            }
+
+            val relativePath = VfsUtilCore.getRelativePath(child, root, '/') ?: child.name
+            if (matcher.matches(Paths.get(relativePath))) {
+                results.add(child)
+            }
+        }
+    }
 
     private data class BatchFile(
         val path: String,
@@ -41,12 +108,27 @@ class SendBatchAction : AnAction() {
             return
         }
 
-        // Filter to only include files (not directories)
-        val files = virtualFiles.filter { !it.isDirectory }
+        val selectedFiles = virtualFiles.filter { !it.isDirectory }
+        val selectedDirs = virtualFiles.filter { it.isDirectory }
 
-        if (files.isEmpty()) {
-            showNotification(project, "No files selected (only directories)", NotificationType.ERROR)
-            return
+        val folderGlob: String? = if (selectedDirs.isNotEmpty()) {
+            val defaultGlob = "**/*.{sol,ts,js,tsx,jsx,py}"
+            val props = if (project != null) PropertiesComponent.getInstance(project) else PropertiesComponent.getInstance()
+            val initial = props.getValue("kyco.sendBatch.folderGlob") ?: defaultGlob
+            val raw = Messages.showInputDialog(
+                project,
+                "Folder file glob (supports **, {}, e.g. **/*.{sol,ts,js,tsx,jsx,py}):",
+                "KYCo: Folder Glob",
+                Messages.getQuestionIcon(),
+                initial,
+                null
+            ) ?: return // cancelled
+
+            val normalized = normalizeSubtreeGlob(raw)
+            props.setValue("kyco.sendBatch.folderGlob", normalized)
+            normalized
+        } else {
+            null
         }
 
         // Get workspace path
@@ -54,7 +136,39 @@ class SendBatchAction : AnAction() {
 
         // Send in background thread
         ApplicationManager.getApplication().executeOnPooledThread {
-            val batchFiles = files.map { file ->
+            val expandedDirFiles = if (folderGlob != null && selectedDirs.isNotEmpty()) {
+                collectFilesMatchingGlob(selectedDirs, folderGlob)
+            } else {
+                emptyList()
+            }
+
+            val allFiles = (selectedFiles + expandedDirFiles)
+                .distinctBy { it.path }
+
+            if (allFiles.isEmpty()) {
+                ApplicationManager.getApplication().invokeLater {
+                    showNotification(project, "No matching files found", NotificationType.ERROR)
+                }
+                return@executeOnPooledThread
+            }
+
+            // Confirm when folders were expanded to avoid accidental huge batches.
+            if (selectedDirs.isNotEmpty()) {
+                var confirm = Messages.NO
+                ApplicationManager.getApplication().invokeAndWait {
+                    confirm = Messages.showYesNoDialog(
+                        project,
+                        "Found ${allFiles.size} files. Send to KYCo?",
+                        "KYCo: Confirm",
+                        Messages.getQuestionIcon()
+                    )
+                }
+                if (confirm != Messages.YES) {
+                    return@executeOnPooledThread
+                }
+            }
+
+            val batchFiles = allFiles.map { file ->
                 BatchFile(
                     path = file.path,
                     workspace = workspace,
@@ -66,7 +180,7 @@ class SendBatchAction : AnAction() {
             }
 
             val payload = BatchPayload(files = batchFiles)
-            sendRequest(project, payload, files.size)
+            sendRequest(project, payload, allFiles.size)
         }
     }
 
@@ -112,9 +226,9 @@ class SendBatchAction : AnAction() {
     }
 
     override fun update(event: AnActionEvent) {
-        // Only enable when files are selected
+        // Enable when files or folders are selected
         val virtualFiles = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)
-        val hasFiles = virtualFiles?.any { !it.isDirectory } == true
-        event.presentation.isEnabledAndVisible = hasFiles
+        val hasSelection = virtualFiles?.isNotEmpty() == true
+        event.presentation.isEnabledAndVisible = event.project != null && hasSelection
     }
 }
