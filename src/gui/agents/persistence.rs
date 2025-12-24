@@ -135,28 +135,21 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
     // Update the in-memory config (insert or replace)
     state.config.agent.insert(name.clone(), agent_config);
 
-    // Serialize entire config using proper TOML serialization
+    // Save config with atomic write and file locking
     let config_path = state.work_dir.join(".kyco").join("config.toml");
-    match toml::to_string_pretty(&state.config) {
-        Ok(toml_content) => {
-            if let Err(e) = std::fs::write(&config_path, &toml_content) {
-                *state.agent_edit_status = Some((format!("Failed to write config: {}", e), true));
-                return;
-            }
-            *state.agent_edit_status = Some(("Agent saved!".to_string(), false));
-            if is_new {
-                *state.selected_agent = Some(name);
-            }
-        }
-        Err(e) => {
-            *state.agent_edit_status = Some((format!("Failed to serialize config: {}", e), true));
-        }
+    if let Err(e) = state.config.save_to_file(&config_path) {
+        *state.agent_edit_status = Some((format!("Failed to save config: {}", e), true));
+        return;
+    }
+    *state.agent_edit_status = Some(("Agent saved!".to_string(), false));
+    if is_new {
+        *state.selected_agent = Some(name);
     }
 }
 
 /// Delete agent from config
 ///
-/// Removes the agent from in-memory config and saves using proper TOML serialization.
+/// Removes the agent from in-memory config and saves with atomic write and file locking.
 pub fn delete_agent_from_config(state: &mut AgentEditorState<'_>) {
     if let Some(name) = &state.selected_agent.clone() {
         if name == "__new__" {
@@ -167,22 +160,13 @@ pub fn delete_agent_from_config(state: &mut AgentEditorState<'_>) {
         // Remove from in-memory config
         state.config.agent.remove(name);
 
-        // Serialize entire config using proper TOML serialization
+        // Save config with atomic write and file locking
         let config_path = state.work_dir.join(".kyco").join("config.toml");
-        match toml::to_string_pretty(&state.config) {
-            Ok(toml_content) => {
-                if let Err(e) = std::fs::write(&config_path, &toml_content) {
-                    *state.agent_edit_status =
-                        Some((format!("Failed to write config: {}", e), true));
-                    return;
-                }
-                *state.agent_edit_status = Some(("Agent deleted!".to_string(), false));
-                *state.selected_agent = None;
-            }
-            Err(e) => {
-                *state.agent_edit_status =
-                    Some((format!("Failed to serialize config: {}", e), true));
-            }
+        if let Err(e) = state.config.save_to_file(&config_path) {
+            *state.agent_edit_status = Some((format!("Failed to save config: {}", e), true));
+            return;
         }
+        *state.agent_edit_status = Some(("Agent deleted!".to_string(), false));
+        *state.selected_agent = None;
     }
 }

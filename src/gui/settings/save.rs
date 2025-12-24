@@ -80,20 +80,13 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
     state.config.settings.gui.voice.silence_duration = silence_duration;
     state.config.settings.gui.voice.max_duration = max_duration;
 
-    // Serialize entire config using proper TOML serialization
+    // Save config with atomic write and file locking
     let config_path = state.work_dir.join(".kyco").join("config.toml");
-    match toml::to_string_pretty(state.config) {
-        Ok(toml_content) => {
-            if let Err(e) = std::fs::write(&config_path, &toml_content) {
-                *state.settings_status = Some((format!("Failed to write config: {}", e), true));
-                return;
-            }
-            *state.settings_status = Some(("Settings saved!".to_string(), false));
-            // Signal that voice config needs to be applied to the VoiceManager
-            *state.voice_config_changed = true;
-        }
-        Err(e) => {
-            *state.settings_status = Some((format!("Failed to serialize config: {}", e), true));
-        }
+    if let Err(e) = state.config.save_to_file(&config_path) {
+        *state.settings_status = Some((format!("Failed to save config: {}", e), true));
+        return;
     }
+    *state.settings_status = Some(("Settings saved!".to_string(), false));
+    // Signal that voice config needs to be applied to the VoiceManager
+    *state.voice_config_changed = true;
 }

@@ -17,9 +17,12 @@ pub use settings::{GuiSettings, RegistrySettings, Settings, VoiceSettings};
 pub use target::TargetConfig;
 
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 use crate::{AgentConfig, SdkType, SessionMode, SystemPromptMode};
@@ -92,6 +95,62 @@ impl Config {
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
 
         Ok(config)
+    }
+
+    /// Save configuration to a file with atomic write and file locking.
+    ///
+    /// This ensures:
+    /// 1. Exclusive lock prevents concurrent writes from CLI and GUI
+    /// 2. Atomic write (temp file + rename) prevents corruption on crash
+    /// 3. Parent directory is created if needed
+    pub fn save_to_file(&self, path: &Path) -> Result<()> {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
+        }
+
+        // Serialize config
+        let content = toml::to_string_pretty(self)
+            .with_context(|| "Failed to serialize config")?;
+
+        // Create lock file (separate from config to avoid issues with rename)
+        let lock_path = path.with_extension("toml.lock");
+        let lock_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&lock_path)
+            .with_context(|| format!("Failed to create lock file: {}", lock_path.display()))?;
+
+        // Acquire exclusive lock (blocks until available)
+        lock_file
+            .lock_exclusive()
+            .with_context(|| "Failed to acquire config lock")?;
+
+        // Write to temp file first (atomic write pattern)
+        let temp_path = path.with_extension("toml.tmp");
+        let mut temp_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&temp_path)
+            .with_context(|| format!("Failed to create temp file: {}", temp_path.display()))?;
+
+        temp_file
+            .write_all(content.as_bytes())
+            .with_context(|| "Failed to write config content")?;
+
+        temp_file
+            .sync_all()
+            .with_context(|| "Failed to sync config file")?;
+
+        // Atomic rename (overwrites existing file)
+        std::fs::rename(&temp_path, path)
+            .with_context(|| format!("Failed to rename config file: {}", path.display()))?;
+
+        // Lock is automatically released when lock_file is dropped
+        Ok(())
     }
 
     /// Load global configuration from ~/.kyco/config.toml

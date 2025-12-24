@@ -1,6 +1,6 @@
 [package]
 name = "kyco"
-version = "0.9.11"
+version = "0.9.12"
 edition = "2024"
 description = "Know Your Codebase - AI-powered code tasks with transparency"
 license = "CC-BY-NC-ND-4.0"
@@ -36,6 +36,7 @@ thiserror = "2"
 
 # File system utilities
 dirs = "6"
+fs2 = "0.4"
 
 # Logging
 tracing = "0.1"

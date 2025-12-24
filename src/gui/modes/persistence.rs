@@ -155,28 +155,21 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
     // Update the in-memory config (insert or replace)
     state.config.mode.insert(name.clone(), mode_config);
 
-    // Serialize entire config using proper TOML serialization
+    // Save config with atomic write and file locking
     let config_path = state.work_dir.join(".kyco").join("config.toml");
-    match toml::to_string_pretty(&state.config) {
-        Ok(toml_content) => {
-            if let Err(e) = std::fs::write(&config_path, &toml_content) {
-                *state.mode_edit_status = Some((format!("Failed to write config: {}", e), true));
-                return;
-            }
-            *state.mode_edit_status = Some(("Mode saved!".to_string(), false));
-            if is_new {
-                *state.selected_mode = Some(name);
-            }
-        }
-        Err(e) => {
-            *state.mode_edit_status = Some((format!("Failed to serialize config: {}", e), true));
-        }
+    if let Err(e) = state.config.save_to_file(&config_path) {
+        *state.mode_edit_status = Some((format!("Failed to save config: {}", e), true));
+        return;
+    }
+    *state.mode_edit_status = Some(("Mode saved!".to_string(), false));
+    if is_new {
+        *state.selected_mode = Some(name);
     }
 }
 
 /// Delete mode from config
 ///
-/// Removes the mode from in-memory config and saves using proper TOML serialization.
+/// Removes the mode from in-memory config and saves with atomic write and file locking.
 pub fn delete_mode_from_config(state: &mut ModeEditorState<'_>) {
     if let Some(name) = &state.selected_mode.clone() {
         if name == "__new__" {
@@ -187,22 +180,13 @@ pub fn delete_mode_from_config(state: &mut ModeEditorState<'_>) {
         // Remove from in-memory config
         state.config.mode.remove(name);
 
-        // Serialize entire config using proper TOML serialization
+        // Save config with atomic write and file locking
         let config_path = state.work_dir.join(".kyco").join("config.toml");
-        match toml::to_string_pretty(&state.config) {
-            Ok(toml_content) => {
-                if let Err(e) = std::fs::write(&config_path, &toml_content) {
-                    *state.mode_edit_status =
-                        Some((format!("Failed to write config: {}", e), true));
-                    return;
-                }
-                *state.mode_edit_status = Some(("Mode deleted!".to_string(), false));
-                *state.selected_mode = None;
-            }
-            Err(e) => {
-                *state.mode_edit_status =
-                    Some((format!("Failed to serialize config: {}", e), true));
-            }
+        if let Err(e) = state.config.save_to_file(&config_path) {
+            *state.mode_edit_status = Some((format!("Failed to save config: {}", e), true));
+            return;
         }
+        *state.mode_edit_status = Some(("Mode deleted!".to_string(), false));
+        *state.selected_mode = None;
     }
 }

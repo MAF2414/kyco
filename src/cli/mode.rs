@@ -54,10 +54,7 @@ fn load_or_init_config(
 }
 
 fn save_config(config: &Config, config_path: &Path) -> Result<()> {
-    let toml = toml::to_string_pretty(config).context("Failed to serialize config")?;
-    std::fs::write(config_path, toml)
-        .with_context(|| format!("Failed to write {}", config_path.display()))?;
-    Ok(())
+    config.save_to_file(config_path)
 }
 
 pub fn mode_list_command(

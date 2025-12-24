@@ -1,7 +1,6 @@
 //! Chain persistence operations
 
 use std::collections::HashSet;
-use std::fs;
 
 use regex::Regex;
 
@@ -254,17 +253,8 @@ pub fn delete_chain_from_config(state: &mut ChainEditorState<'_>) {
     *state.chain_edit_pass_full_response = true;
 }
 
-/// Save the config to the config file
+/// Save the config to the config file with atomic write and file locking
 fn save_config_to_file(state: &ChainEditorState<'_>) -> anyhow::Result<()> {
     let config_path = state.work_dir.join(".kyco/config.toml");
-
-    // Ensure directory exists
-    if let Some(parent) = config_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let content = toml::to_string_pretty(&state.config)?;
-    fs::write(&config_path, content)?;
-
-    Ok(())
+    state.config.save_to_file(&config_path)
 }
