@@ -245,6 +245,8 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
             job_manager: Arc::clone(&job_manager),
             group_manager: Arc::clone(&group_manager),
             executor_tx: executor_tx.clone(),
+            config: Arc::clone(&config),
+            config_path: config_path.clone(),
         },
     );
 

@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use tiny_http::{Response, Server};
 use tracing::{error, info};
@@ -17,6 +17,7 @@ use super::executor::ExecutorEvent;
 use super::jobs;
 use super::selection::SelectionContext;
 use crate::agent::bridge::BridgeClient;
+use crate::config::Config;
 use crate::git::GitManager;
 use crate::job::{GroupManager, JobManager};
 use crate::{CommentTag, Job, JobId, JobStatus, LogEvent, Target};
@@ -31,6 +32,8 @@ pub struct ControlApiState {
     pub job_manager: Arc<Mutex<JobManager>>,
     pub group_manager: Arc<Mutex<GroupManager>>,
     pub executor_tx: Sender<ExecutorEvent>,
+    pub config: Arc<RwLock<Config>>,
+    pub config_path: std::path::PathBuf,
 }
 
 /// Dependency location from IDE
@@ -390,6 +393,9 @@ pub fn start_http_server(
                         }
                     };
                     handle_control_log(&control, &body, request);
+                }
+                ("POST", "/ctl/config/reload") => {
+                    handle_control_config_reload(&control, request);
                 }
 
                 _ => {
@@ -1097,6 +1103,38 @@ fn handle_control_log(control: &ControlApiState, body: &str, request: tiny_http:
         .send(ExecutorEvent::Log(LogEvent::system(msg.to_string())));
 
     respond_json(request, 200, serde_json::json!({ "status": "ok" }));
+}
+
+/// Handle config reload request from CLI or orchestrators.
+/// Immediately reloads the config from disk, bypassing the 500ms polling interval.
+fn handle_control_config_reload(control: &ControlApiState, request: tiny_http::Request) {
+    match Config::from_file(&control.config_path) {
+        Ok(new_config) => {
+            if let Ok(mut guard) = control.config.write() {
+                *guard = new_config;
+            }
+            let _ = control
+                .executor_tx
+                .send(ExecutorEvent::Log(LogEvent::system(format!(
+                    "Config reloaded via API from {}",
+                    control.config_path.display()
+                ))));
+            respond_json(request, 200, serde_json::json!({ "status": "ok" }));
+        }
+        Err(e) => {
+            let _ = control
+                .executor_tx
+                .send(ExecutorEvent::Log(LogEvent::error(format!(
+                    "Failed to reload config: {}",
+                    e
+                ))));
+            respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": "reload_failed", "details": e.to_string() }),
+            );
+        }
+    }
 }
 
 fn parse_job_id_from_path(path: &str, suffix: Option<&str>) -> Result<JobId, &'static str> {

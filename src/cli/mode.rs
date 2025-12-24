@@ -5,12 +5,29 @@ use std::path::{Path, PathBuf};
 
 use crate::config::{Config, ModeConfig, ModeSessionType};
 
+const AUTH_HEADER: &str = "X-KYCO-Token";
+
 fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> PathBuf {
     match config_override {
         Some(p) if p.is_absolute() => p.clone(),
         Some(p) => work_dir.join(p),
         None => work_dir.join(".kyco").join("config.toml"),
     }
+}
+
+/// Notify running GUI to reload config immediately (best-effort, fails silently).
+fn notify_gui_config_changed(config: &Config) {
+    let port = config.settings.gui.http_port;
+    let token = &config.settings.gui.http_token;
+    let url = format!("http://127.0.0.1:{port}/ctl/config/reload");
+
+    let mut req = ureq::post(&url).set("Content-Type", "application/json");
+    if !token.trim().is_empty() {
+        req = req.set(AUTH_HEADER, token);
+    }
+
+    // Best-effort: ignore errors (GUI might not be running)
+    let _ = req.send_string("{}");
 }
 
 fn load_or_init_config(
@@ -163,6 +180,7 @@ pub fn mode_set_command(
 
     cfg.mode.insert(args.name.clone(), mode.clone());
     save_config(&cfg, &config_path)?;
+    notify_gui_config_changed(&cfg);
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&mode)?);
@@ -182,6 +200,7 @@ pub fn mode_delete_command(
         anyhow::bail!("Mode not found: {}", name);
     }
     save_config(&cfg, &config_path)?;
+    notify_gui_config_changed(&cfg);
     println!("Mode deleted: {}", name);
     Ok(())
 }
