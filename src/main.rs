@@ -77,6 +77,18 @@ enum JobCommands {
         /// Print JSON instead of human output
         #[arg(long)]
         json: bool,
+        /// Filter by status (pending, queued, running, completed, failed, aborted)
+        #[arg(long, short = 's')]
+        status: Option<String>,
+        /// Limit number of results
+        #[arg(long, short = 'n')]
+        limit: Option<usize>,
+        /// Search in job description/prompt
+        #[arg(long, short = 'q')]
+        search: Option<String>,
+        /// Filter by mode (e.g., review, implement, fix)
+        #[arg(long, short = 'm')]
+        mode: Option<String>,
     },
     /// Get a single job by ID
     Get {
@@ -292,8 +304,22 @@ async fn main() -> Result<()> {
             cli::init::init_command(&work_dir, config_path.clone(), force).await?;
         }
         Some(Commands::Job { command }) => match command {
-            JobCommands::List { json } => {
-                cli::job::job_list_command(&work_dir, config_path.as_ref(), json)?;
+            JobCommands::List {
+                json,
+                status,
+                limit,
+                search,
+                mode,
+            } => {
+                cli::job::job_list_command(
+                    &work_dir,
+                    config_path.as_ref(),
+                    json,
+                    status.as_deref(),
+                    limit,
+                    search.as_deref(),
+                    mode.as_deref(),
+                )?;
             }
             JobCommands::Get { job_id, json } => {
                 cli::job::job_get_command(&work_dir, config_path.as_ref(), job_id, json)?;
