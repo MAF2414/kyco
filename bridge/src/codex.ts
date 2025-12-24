@@ -558,9 +558,17 @@ export async function* executeCodexQuery(
     };
   }
 
-  // Cleanup abort controller
+  // Cleanup abort controller and thread cache
+  // Removing from activeThreads prevents memory leaks - threads can be resumed
+  // via codex.resumeThread() which will reload state from disk
   const finalThreadId = threadId ?? fallbackThreadId;
   activeTurnAbortControllers.delete(finalThreadId);
+  activeThreads.delete(finalThreadId);
+
+  // Also cleanup the original request threadId if it differs (edge case: ID changed during session)
+  if (request.threadId && request.threadId !== finalThreadId) {
+    activeThreads.delete(request.threadId);
+  }
 }
 
 /**

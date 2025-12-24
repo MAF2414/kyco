@@ -147,6 +147,9 @@ export async function* executeClaudeQuery(
 
   currentEventEmitter = emitEvent;
 
+  // Track query for cleanup - must be accessible in catch block
+  let q: Query | null = null;
+
   try {
     // Build the query options
     const options: Parameters<typeof query>[0]['options'] = {
@@ -316,18 +319,19 @@ export async function* executeClaudeQuery(
     };
 
     // Start the query
-    const q = query({ prompt: buildClaudePrompt(request), options });
+    q = query({ prompt: buildClaudePrompt(request), options });
 
     // Process the stream in a background task
     const processStream = async () => {
       try {
-        for await (const message of q) {
+        // q is guaranteed to be non-null here since it's set before processStream is called
+        for await (const message of q!) {
           switch (message.type) {
             case 'system': {
               if (message.subtype === 'init') {
                 // Capture the real session ID from the SDK
                 sessionId = message.session_id;
-                activeQueries.set(sessionId, q);
+                activeQueries.set(sessionId, q!);
 
                 // Emit session start with real session ID
                 emitEvent({
@@ -495,6 +499,21 @@ export async function* executeClaudeQuery(
       }
     }
 
+    // Ensure the stream processing is complete and cleanup the query
+    // This is critical to prevent memory leaks - the Query spawns a child process
+    // that must be terminated when the session ends
+    await streamPromise.catch(() => {});
+
+    // Close the AsyncGenerator to ensure the underlying process is terminated
+    // The SDK's Query extends AsyncGenerator, and calling return() signals completion
+    if (q) {
+      try {
+        await q.return(undefined as never);
+      } catch {
+        // Ignore errors during cleanup - the session is already complete
+      }
+    }
+
   } catch (error) {
     yield {
       type: 'error',
@@ -510,6 +529,15 @@ export async function* executeClaudeQuery(
       success: false,
       durationMs: Date.now() - startTime,
     };
+
+    // Cleanup query on error - prevents memory leak from orphaned child processes
+    if (q) {
+      try {
+        await q.return(undefined as never);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   }
 }
 
