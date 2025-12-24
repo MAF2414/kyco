@@ -19,8 +19,8 @@ use super::selection::autocomplete::parse_input_multi;
 use super::selection::{AutocompleteState, SelectionContext};
 use super::update::{UpdateChecker, UpdateStatus};
 use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager, VoiceState};
-use crate::agent::bridge::{BridgeClient, PermissionMode, ToolApprovalResponse, ToolDecision};
 use crate::agent::TerminalSession;
+use crate::agent::bridge::{BridgeClient, PermissionMode, ToolApprovalResponse, ToolDecision};
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
 use crate::workspace::{WorkspaceId, WorkspaceRegistry};
@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 
@@ -79,6 +79,10 @@ Discovery
 Job lifecycle (GUI must be running)
 - Start a job (creates + queues by default):
   `kyco job start --file <path> --mode <mode_or_chain> --prompt "<what to do>" [--agent <id>] [--agents a,b] [--force-worktree]`
+- Abort/stop a job:
+  `kyco job abort <job_id>`
+- Delete a job from the GUI list:
+  `kyco job delete <job_id> [--cleanup-worktree]`
 - Wait until done/failed/rejected/merged:
   `kyco job wait <job_id>`
 - Fetch output:
@@ -86,6 +90,8 @@ Job lifecycle (GUI must be running)
   - Summary only: `kyco job output <job_id> --summary`
   - State only: `kyco job output <job_id> --state`
 - Inspect job JSON: `kyco job get <job_id> --json`
+- Continue a session job with a follow-up prompt (creates a new job):
+  `kyco job continue <job_id> --prompt "<follow-up>" [--pending]`
 
 Mode CRUD (only with explicit user confirmation)
 - Create/update mode: `kyco mode set <name> [--prompt ...] [--system-prompt ...] [--aliases ...] [--readonly] ...`
@@ -215,7 +221,7 @@ pub struct KycoApp {
     work_dir: PathBuf,
     /// Configuration
     #[allow(dead_code)]
-    config: Config,
+    config: Arc<RwLock<Config>>,
     /// Whether config file exists (show init button if not)
     config_exists: bool,
     /// Job manager (shared with async tasks)
@@ -437,7 +443,7 @@ impl KycoApp {
     /// Create a new GUI application
     pub fn new(
         work_dir: PathBuf,
-        config: Config,
+        config: Arc<RwLock<Config>>,
         config_exists: bool,
         job_manager: Arc<Mutex<JobManager>>,
         group_manager: Arc<Mutex<GroupManager>>,
@@ -446,18 +452,23 @@ impl KycoApp {
         executor_rx: Receiver<ExecutorEvent>,
         max_concurrent_jobs: Arc<AtomicUsize>,
     ) -> Self {
+        let config_snapshot = config
+            .read()
+            .map(|cfg| cfg.clone())
+            .unwrap_or_else(|_| Config::with_defaults());
+
         // Extract settings before moving config
-        let settings_max_concurrent = config.settings.max_concurrent_jobs.to_string();
-        let settings_auto_run = config.settings.auto_run;
-        let settings_use_worktree = config.settings.use_worktree;
+        let settings_max_concurrent = config_snapshot.settings.max_concurrent_jobs.to_string();
+        let settings_auto_run = config_snapshot.settings.auto_run;
+        let settings_use_worktree = config_snapshot.settings.use_worktree;
 
         // Extract voice settings
-        let voice_settings = &config.settings.gui.voice;
+        let voice_settings = &config_snapshot.settings.gui.voice;
         // Build voice action registry from modes and chains
         let action_registry = super::voice::VoiceActionRegistry::from_config(
-            &config.mode,
-            &config.chain,
-            &config.agent,
+            &config_snapshot.mode,
+            &config_snapshot.chain,
+            &config_snapshot.agent,
         );
         let voice_config = VoiceConfig {
             mode: match voice_settings.mode.as_str() {
@@ -485,9 +496,12 @@ impl KycoApp {
         let voice_settings_max_duration = voice_settings.max_duration.to_string();
 
         // Extract output schema
-        let settings_output_schema = config.settings.gui.output_schema.clone();
-        let settings_structured_output_schema =
-            config.settings.gui.structured_output_schema.clone();
+        let settings_output_schema = config_snapshot.settings.gui.output_schema.clone();
+        let settings_structured_output_schema = config_snapshot
+            .settings
+            .gui
+            .structured_output_schema
+            .clone();
 
         // Load or create workspace registry and register the initial workspace
         let mut workspace_registry = WorkspaceRegistry::load_or_create();
@@ -613,6 +627,7 @@ impl KycoApp {
 
     /// Render settings/extensions view
     fn render_settings(&mut self, ctx: &egui::Context) {
+        let mut config = self.config.write().unwrap();
         super::settings::render_settings(
             ctx,
             &mut super::settings::SettingsState {
@@ -646,7 +661,7 @@ impl KycoApp {
                 extension_status: &mut self.extension_status,
                 // Navigation and config
                 view_mode: &mut self.view_mode,
-                config: &mut self.config,
+                config: &mut *config,
                 work_dir: &self.work_dir,
                 // Voice config change tracking
                 voice_config_changed: &mut self.voice_config_changed,
@@ -665,6 +680,7 @@ impl KycoApp {
 
     /// Render modes configuration view
     fn render_modes(&mut self, ctx: &egui::Context) {
+        let mut config = self.config.write().unwrap();
         super::modes::render_modes(
             ctx,
             &mut super::modes::ModeEditorState {
@@ -686,7 +702,7 @@ impl KycoApp {
                 mode_edit_output_states: &mut self.mode_edit_output_states,
                 mode_edit_state_prompt: &mut self.mode_edit_state_prompt,
                 view_mode: &mut self.view_mode,
-                config: &mut self.config,
+                config: &mut *config,
                 work_dir: &self.work_dir,
             },
         );
@@ -694,6 +710,7 @@ impl KycoApp {
 
     /// Render agents configuration view
     fn render_agents(&mut self, ctx: &egui::Context) {
+        let mut config = self.config.write().unwrap();
         super::agents::render_agents(
             ctx,
             &mut super::agents::AgentEditorState {
@@ -711,7 +728,7 @@ impl KycoApp {
                 agent_edit_allowed_tools: &mut self.agent_edit_allowed_tools,
                 agent_edit_status: &mut self.agent_edit_status,
                 view_mode: &mut self.view_mode,
-                config: &mut self.config,
+                config: &mut *config,
                 work_dir: &self.work_dir,
             },
         );
@@ -719,6 +736,7 @@ impl KycoApp {
 
     /// Render chains configuration view
     fn render_chains(&mut self, ctx: &egui::Context) {
+        let mut config = self.config.write().unwrap();
         super::chains::render_chains(
             ctx,
             &mut super::chains::ChainEditorState {
@@ -732,7 +750,7 @@ impl KycoApp {
                 chain_edit_status: &mut self.chain_edit_status,
                 pending_confirmation: &mut self.chain_pending_confirmation,
                 view_mode: &mut self.view_mode,
-                config: &mut self.config,
+                config: &mut *config,
                 work_dir: &self.work_dir,
             },
         );
@@ -752,7 +770,11 @@ impl KycoApp {
             let prompt_file = kyco_dir.join("orchestrator_system_prompt.txt");
             std::fs::write(&prompt_file, ORCHESTRATOR_SYSTEM_PROMPT)?;
 
-            let default_agent = self.config.settings.gui.default_agent.trim().to_lowercase();
+            let default_agent = self
+                .config
+                .read()
+                .map(|cfg| cfg.settings.gui.default_agent.trim().to_lowercase())
+                .unwrap_or_default();
             let agent = if default_agent.is_empty() {
                 "claude"
             } else {
@@ -761,8 +783,10 @@ impl KycoApp {
 
             let command = match agent {
                 "codex" => "codex \"$(cat .kyco/orchestrator_system_prompt.txt)\"".to_string(),
-                _ => "claude --append-system-prompt \"$(cat .kyco/orchestrator_system_prompt.txt)\""
-                    .to_string(),
+                _ => {
+                    "claude --append-system-prompt \"$(cat .kyco/orchestrator_system_prompt.txt)\""
+                        .to_string()
+                }
             };
 
             let session_id = SystemTime::now()
@@ -1132,7 +1156,7 @@ impl KycoApp {
 
     /// Kill/stop a running job
     fn kill_job(&mut self, job_id: JobId) {
-        let (agent_id, session_id) = {
+        let (agent_id, job_mode, session_id) = {
             let manager = match self.job_manager.lock() {
                 Ok(m) => m,
                 Err(_) => {
@@ -1143,7 +1167,11 @@ impl KycoApp {
             };
 
             match manager.get(job_id) {
-                Some(job) => (job.agent_id.clone(), job.bridge_session_id.clone()),
+                Some(job) => (
+                    job.agent_id.clone(),
+                    job.mode.clone(),
+                    job.bridge_session_id.clone(),
+                ),
                 None => {
                     self.logs
                         .push(LogEvent::error(format!("Job #{} not found", job_id)));
@@ -1153,32 +1181,46 @@ impl KycoApp {
         };
 
         if let Some(session_id) = session_id.as_deref() {
-            let interrupted = if agent_id == "codex" {
-                self.bridge_client.interrupt_codex(session_id)
-            } else {
-                self.bridge_client.interrupt_claude(session_id)
-            };
+            let sdk_type = self
+                .config
+                .read()
+                .ok()
+                .and_then(|cfg| cfg.get_agent_for_job(&agent_id, &job_mode))
+                .map(|a| a.sdk_type)
+                .unwrap_or_else(|| {
+                    if agent_id == "codex" {
+                        SdkType::Codex
+                    } else {
+                        SdkType::Claude
+                    }
+                });
+
+            let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if sdk_type == SdkType::Codex {
+                    self.bridge_client.interrupt_codex(session_id)
+                } else {
+                    self.bridge_client.interrupt_claude(session_id)
+                }
+            }));
 
             match interrupted {
-                Ok(true) => {
-                    self.logs.push(LogEvent::system(format!(
-                        "Sent interrupt for job #{}",
-                        job_id
-                    )));
-                }
-                Ok(false) => {
-                    self.logs.push(LogEvent::error(format!(
-                        "Interrupt was rejected (job #{})",
-                        job_id
-                    )));
-                }
-                Err(e) => {
-                    self.logs.push(LogEvent::error(format!(
-                        "Failed to interrupt job #{}: {}",
-                        job_id, e
-                    )));
-                }
-            }
+                Ok(Ok(true)) => self.logs.push(LogEvent::system(format!(
+                    "Sent interrupt for job #{}",
+                    job_id
+                ))),
+                Ok(Ok(false)) => self.logs.push(LogEvent::error(format!(
+                    "Interrupt was rejected (job #{})",
+                    job_id
+                ))),
+                Ok(Err(e)) => self.logs.push(LogEvent::error(format!(
+                    "Failed to interrupt job #{}: {}",
+                    job_id, e
+                ))),
+                Err(_) => self.logs.push(LogEvent::error(format!(
+                    "Bridge interrupt panicked (job #{})",
+                    job_id
+                ))),
+            };
         }
 
         jobs::kill_job(&self.job_manager, job_id, &mut self.logs);
@@ -1210,11 +1252,13 @@ impl KycoApp {
             }
         };
 
-        let is_codex = self
-            .config
-            .get_agent_for_job(&agent_id, &job_mode)
-            .map(|a| a.sdk_type == SdkType::Codex)
-            .unwrap_or(agent_id == "codex");
+        let is_codex = {
+            let config = self.config.read().unwrap();
+            config
+                .get_agent_for_job(&agent_id, &job_mode)
+                .map(|a| a.sdk_type == SdkType::Codex)
+                .unwrap_or(agent_id == "codex")
+        };
 
         if is_codex {
             self.logs.push(LogEvent::error(format!(
@@ -1332,6 +1376,8 @@ impl KycoApp {
                 job.target = original.target;
                 job.ide_context = original.ide_context;
                 job.force_worktree = original.force_worktree;
+                job.workspace_id = original.workspace_id;
+                job.workspace_path = original.workspace_path.clone();
             }
 
             (continuation_id, original.mode)
@@ -1540,23 +1586,26 @@ impl KycoApp {
         }
 
         // Resolve agent aliases
-        let resolved_agents: Vec<String> = agents
-            .iter()
-            .map(|a| {
-                self.config
-                    .agent
-                    .iter()
-                    .find(|(name, cfg)| {
-                        name.eq_ignore_ascii_case(a)
-                            || cfg
-                                .aliases
-                                .iter()
-                                .any(|alias| alias.eq_ignore_ascii_case(a))
-                    })
-                    .map(|(name, _)| name.clone())
-                    .unwrap_or_else(|| a.clone())
-            })
-            .collect();
+        let resolved_agents: Vec<String> = {
+            let config = self.config.read().unwrap();
+            agents
+                .iter()
+                .map(|a| {
+                    config
+                        .agent
+                        .iter()
+                        .find(|(name, cfg)| {
+                            name.eq_ignore_ascii_case(a)
+                                || cfg
+                                    .aliases
+                                    .iter()
+                                    .any(|alias| alias.eq_ignore_ascii_case(a))
+                        })
+                        .map(|(name, _)| name.clone())
+                        .unwrap_or_else(|| a.clone())
+                })
+                .collect()
+        };
 
         self.logs.push(LogEvent::system(format!(
             "Starting batch: {} files with agents {:?}, mode '{}'",
@@ -1643,8 +1692,9 @@ impl KycoApp {
 
     /// Update autocomplete suggestions based on input
     fn update_suggestions(&mut self) {
+        let config = self.config.read().unwrap();
         self.autocomplete
-            .update_suggestions(&self.popup_input, &self.config);
+            .update_suggestions(&self.popup_input, &config);
     }
 
     /// Apply selected suggestion
@@ -1669,23 +1719,26 @@ impl KycoApp {
         }
 
         // Resolve agent aliases
-        let resolved_agents: Vec<String> = agents
-            .iter()
-            .map(|a| {
-                self.config
-                    .agent
-                    .iter()
-                    .find(|(name, cfg)| {
-                        name.eq_ignore_ascii_case(a)
-                            || cfg
-                                .aliases
-                                .iter()
-                                .any(|alias| alias.eq_ignore_ascii_case(a))
-                    })
-                    .map(|(name, _)| name.clone())
-                    .unwrap_or_else(|| a.clone())
-            })
-            .collect();
+        let resolved_agents: Vec<String> = {
+            let config = self.config.read().unwrap();
+            agents
+                .iter()
+                .map(|a| {
+                    config
+                        .agent
+                        .iter()
+                        .find(|(name, cfg)| {
+                            name.eq_ignore_ascii_case(a)
+                                || cfg
+                                    .aliases
+                                    .iter()
+                                    .any(|alias| alias.eq_ignore_ascii_case(a))
+                        })
+                        .map(|(name, _)| name.clone())
+                        .unwrap_or_else(|| a.clone())
+                })
+                .collect()
+        };
 
         // Remove duplicates and map legacy agents.
         let mut seen = std::collections::HashSet::new();
@@ -1777,20 +1830,25 @@ impl KycoApp {
     fn render_detail_panel(&mut self, ui: &mut egui::Ui) {
         use super::detail_panel::{DetailPanelAction, DetailPanelState, render_detail_panel};
 
-        let mut state = DetailPanelState {
-            selected_job_id: self.selected_job_id,
-            cached_jobs: &self.cached_jobs,
-            logs: &self.logs,
-            config: &self.config,
-            log_scroll_to_bottom: self.log_scroll_to_bottom,
-            activity_log_filters: &mut self.activity_log_filters,
-            continuation_prompt: &mut self.continuation_prompt,
-            commonmark_cache: &mut self.commonmark_cache,
-            permission_mode_overrides: &self.permission_mode_overrides,
-            diff_content: self.inline_diff_content.as_deref(),
+        let action = {
+            let config = self.config.read().unwrap();
+            let mut state = DetailPanelState {
+                selected_job_id: self.selected_job_id,
+                cached_jobs: &self.cached_jobs,
+                logs: &self.logs,
+                config: &config,
+                log_scroll_to_bottom: self.log_scroll_to_bottom,
+                activity_log_filters: &mut self.activity_log_filters,
+                continuation_prompt: &mut self.continuation_prompt,
+                commonmark_cache: &mut self.commonmark_cache,
+                permission_mode_overrides: &self.permission_mode_overrides,
+                diff_content: self.inline_diff_content.as_deref(),
+            };
+
+            render_detail_panel(ui, &mut state)
         };
 
-        if let Some(action) = render_detail_panel(ui, &mut state) {
+        if let Some(action) = action {
             match action {
                 DetailPanelAction::Queue(job_id) => self.queue_job(job_id),
                 DetailPanelAction::Apply(job_id) => self.apply_job(job_id),
@@ -2264,11 +2322,12 @@ impl KycoApp {
 
     /// Apply voice config from settings to the VoiceManager
     fn apply_voice_config(&mut self) {
-        let voice_settings = &self.config.settings.gui.voice;
+        let config = self.config.read().unwrap();
+        let voice_settings = &config.settings.gui.voice;
         let action_registry = super::voice::VoiceActionRegistry::from_config(
-            &self.config.mode,
-            &self.config.chain,
-            &self.config.agent,
+            &config.mode,
+            &config.chain,
+            &config.agent,
         );
 
         let new_config = VoiceConfig {
@@ -2471,11 +2530,13 @@ impl eframe::App for KycoApp {
                         state_str
                     )));
                     // Update chain progress in the job for real-time display
-                    if let Some(job) = self.job_manager.lock().unwrap().get_mut(job_id) {
-                        job.chain_current_step = Some(step_index + 1);
-                        // Add step to history if not already present
-                        if job.chain_step_history.len() <= step_index {
-                            job.chain_step_history.push(step_summary);
+                    if let Ok(mut manager) = self.job_manager.lock() {
+                        if let Some(job) = manager.get_mut(job_id) {
+                            job.chain_current_step = Some(step_index + 1);
+                            // Add step to history if not already present
+                            if job.chain_step_history.len() <= step_index {
+                                job.chain_step_history.push(step_summary);
+                            }
                         }
                     }
                 }
@@ -3064,8 +3125,10 @@ impl eframe::App for KycoApp {
         if self.orchestrator_requested {
             self.orchestrator_requested = false;
             if let Err(e) = self.launch_orchestrator() {
-                self.logs
-                    .push(LogEvent::error(format!("Failed to start orchestrator: {}", e)));
+                self.logs.push(LogEvent::error(format!(
+                    "Failed to start orchestrator: {}",
+                    e
+                )));
             }
         }
 

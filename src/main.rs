@@ -120,6 +120,28 @@ enum JobCommands {
     },
     /// Queue a job (set status=queued)
     Queue { job_id: u64 },
+    /// Abort/stop a job
+    Abort { job_id: u64 },
+    /// Delete a job from the GUI list
+    Delete {
+        job_id: u64,
+        /// Also remove the job's git worktree (if any)
+        #[arg(long)]
+        cleanup_worktree: bool,
+    },
+    /// Continue a session job with a follow-up prompt (creates a new job)
+    Continue {
+        job_id: u64,
+        /// Follow-up prompt text
+        #[arg(long)]
+        prompt: String,
+        /// Create as pending only (do not queue immediately)
+        #[arg(long)]
+        pending: bool,
+        /// Print JSON response
+        #[arg(long)]
+        json: bool,
+    },
     /// Wait until a job reaches a terminal state
     Wait {
         job_id: u64,
@@ -309,6 +331,35 @@ async fn main() -> Result<()> {
             JobCommands::Queue { job_id } => {
                 cli::job::job_queue_command(&work_dir, config_path.as_ref(), job_id)?;
             }
+            JobCommands::Abort { job_id } => {
+                cli::job::job_abort_command(&work_dir, config_path.as_ref(), job_id)?;
+            }
+            JobCommands::Delete {
+                job_id,
+                cleanup_worktree,
+            } => {
+                cli::job::job_delete_command(
+                    &work_dir,
+                    config_path.as_ref(),
+                    job_id,
+                    cleanup_worktree,
+                )?;
+            }
+            JobCommands::Continue {
+                job_id,
+                prompt,
+                pending,
+                json,
+            } => {
+                cli::job::job_continue_command(
+                    &work_dir,
+                    config_path.as_ref(),
+                    job_id,
+                    prompt,
+                    !pending,
+                    json,
+                )?;
+            }
             JobCommands::Wait {
                 job_id,
                 timeout_secs,
@@ -330,7 +381,14 @@ async fn main() -> Result<()> {
                 summary,
                 state,
             } => {
-                cli::job::job_output_command(&work_dir, config_path.as_ref(), job_id, json, summary, state)?;
+                cli::job::job_output_command(
+                    &work_dir,
+                    config_path.as_ref(),
+                    job_id,
+                    json,
+                    summary,
+                    state,
+                )?;
             }
         },
         Some(Commands::Mode { command }) => match command {

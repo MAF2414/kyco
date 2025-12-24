@@ -64,7 +64,10 @@ pub async fn status_command(
 
     println!("Jobs ({}):\n", jobs.len());
     for job in jobs {
-        println!("  #{} [{}] {} - {}", job.id, job.status, job.mode, job.target);
+        println!(
+            "  #{} [{}] {} - {}",
+            job.id, job.status, job.mode, job.target
+        );
 
         if let Some(desc) = job.description.as_deref().filter(|d| !d.trim().is_empty()) {
             println!("    {}", desc.trim());
@@ -88,7 +91,10 @@ fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> Pa
     }
 }
 
-fn load_gui_http_settings(work_dir: &Path, config_override: Option<&PathBuf>) -> (u16, Option<String>) {
+fn load_gui_http_settings(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+) -> (u16, Option<String>) {
     let config_path = resolve_config_path(work_dir, config_override);
     let config = Config::from_file(&config_path).ok();
 
@@ -96,8 +102,8 @@ fn load_gui_http_settings(work_dir: &Path, config_override: Option<&PathBuf>) ->
         .as_ref()
         .map(|c| c.settings.gui.http_port)
         .unwrap_or(9876);
-    let token = config
-        .and_then(|c| Some(c.settings.gui.http_token).filter(|t| !t.trim().is_empty()));
+    let token =
+        config.and_then(|c| Some(c.settings.gui.http_token).filter(|t| !t.trim().is_empty()));
 
     (port, token)
 }

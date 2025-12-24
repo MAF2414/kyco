@@ -13,7 +13,10 @@ fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> Pa
     }
 }
 
-fn load_or_init_config(work_dir: &Path, config_override: Option<&PathBuf>) -> Result<(Config, PathBuf)> {
+fn load_or_init_config(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+) -> Result<(Config, PathBuf)> {
     let config_path = resolve_config_path(work_dir, config_override);
     if config_path.exists() {
         let cfg = Config::from_file(&config_path)?;
@@ -21,9 +24,8 @@ fn load_or_init_config(work_dir: &Path, config_override: Option<&PathBuf>) -> Re
     }
 
     if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!("Failed to create config directory: {}", parent.display())
-        })?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
     }
 
     let cfg = Config::with_defaults();
@@ -41,7 +43,11 @@ fn save_config(config: &Config, config_path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn mode_list_command(work_dir: &Path, config_override: Option<&PathBuf>, json: bool) -> Result<()> {
+pub fn mode_list_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    json: bool,
+) -> Result<()> {
     let (cfg, _) = load_or_init_config(work_dir, config_override)?;
     let mut names: Vec<String> = cfg.mode.keys().cloned().collect();
     names.sort();
@@ -92,7 +98,11 @@ pub struct ModeSetArgs {
     pub json: bool,
 }
 
-pub fn mode_set_command(work_dir: &Path, config_override: Option<&PathBuf>, args: ModeSetArgs) -> Result<()> {
+pub fn mode_set_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    args: ModeSetArgs,
+) -> Result<()> {
     let (mut cfg, config_path) = load_or_init_config(work_dir, config_override)?;
 
     let mut mode = cfg.mode.remove(&args.name).unwrap_or_else(|| ModeConfig {
@@ -162,7 +172,11 @@ pub fn mode_set_command(work_dir: &Path, config_override: Option<&PathBuf>, args
     Ok(())
 }
 
-pub fn mode_delete_command(work_dir: &Path, config_override: Option<&PathBuf>, name: &str) -> Result<()> {
+pub fn mode_delete_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    name: &str,
+) -> Result<()> {
     let (mut cfg, config_path) = load_or_init_config(work_dir, config_override)?;
     if cfg.mode.remove(name).is_none() {
         anyhow::bail!("Mode not found: {}", name);
@@ -171,4 +185,3 @@ pub fn mode_delete_command(work_dir: &Path, config_override: Option<&PathBuf>, n
     println!("Mode deleted: {}", name);
     Ok(())
 }
-

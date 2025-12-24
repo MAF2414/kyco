@@ -151,6 +151,48 @@ impl GroupManager {
             .unwrap_or_default()
     }
 
+    /// Remove a job from its group (if any).
+    ///
+    /// If this removal leaves the group empty, the group is removed as well.
+    pub fn remove_job(&mut self, job_id: JobId) -> Option<AgentGroupId> {
+        let found = self.groups.iter().find_map(|(group_id, group)| {
+            group
+                .job_ids
+                .iter()
+                .position(|&id| id == job_id)
+                .map(|idx| (*group_id, idx))
+        });
+
+        let Some((group_id, idx)) = found else {
+            return None;
+        };
+
+        if let Some(group) = self.groups.get_mut(&group_id) {
+            group.job_ids.remove(idx);
+            group.agent_names.remove(idx);
+
+            if group.selected_job == Some(job_id) {
+                group.selected_job = None;
+                if !group.job_ids.is_empty() {
+                    group.set_status(GroupStatus::Comparing);
+                } else {
+                    group.set_status(GroupStatus::Cancelled);
+                }
+            }
+        }
+
+        if self
+            .groups
+            .get(&group_id)
+            .map(|g| g.job_ids.is_empty())
+            .unwrap_or(false)
+        {
+            self.groups.remove(&group_id);
+        }
+
+        Some(group_id)
+    }
+
     /// Remove a group (after cleanup)
     pub fn remove_group(&mut self, group_id: AgentGroupId) -> Option<AgentRunGroup> {
         self.groups.remove(&group_id)

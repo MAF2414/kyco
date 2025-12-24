@@ -184,10 +184,22 @@ KYCo can be used with an external orchestrator agent (Claude Code or Codex) that
      ```bash
      kyco job wait 1
      ```
+   - Abort a running job:
+     ```bash
+     kyco job abort 1
+     ```
+   - Continue a session job with a follow-up prompt (creates a new job in the same session/worktree):
+     ```bash
+     kyco job continue 1 --prompt "Please also update the tests"
+     ```
    - Get the last response/output and pass it into a follow-up job:
      ```bash
      out="$(kyco job output 1)"
      kyco job start --file src/foo.rs --mode fix --prompt "$out"
+     ```
+   - Delete a job from the GUI list (optional worktree cleanup):
+     ```bash
+     kyco job delete 1 --cleanup-worktree
      ```
 
 ## License

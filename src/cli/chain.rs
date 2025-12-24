@@ -20,9 +20,8 @@ fn load_or_init_config(work_dir: &Path, config_override: Option<&PathBuf>) -> Re
     }
 
     if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!("Failed to create config directory: {}", parent.display())
-        })?;
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
     }
 
     let cfg = Config::with_defaults();
@@ -33,7 +32,11 @@ fn load_or_init_config(work_dir: &Path, config_override: Option<&PathBuf>) -> Re
     Ok(cfg)
 }
 
-pub fn chain_list_command(work_dir: &Path, config_override: Option<&PathBuf>, json: bool) -> Result<()> {
+pub fn chain_list_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    json: bool,
+) -> Result<()> {
     let cfg = load_or_init_config(work_dir, config_override)?;
     let mut names: Vec<String> = cfg.chain.keys().cloned().collect();
     names.sort();
@@ -66,4 +69,3 @@ pub fn chain_get_command(
     }
     Ok(())
 }
-

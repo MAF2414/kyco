@@ -174,6 +174,14 @@ impl JobManager {
             .collect()
     }
 
+    /// Remove a job from the manager.
+    ///
+    /// This also releases any file locks held by the job.
+    pub fn remove_job(&mut self, job_id: JobId) -> Option<Job> {
+        self.release_job_locks(job_id);
+        self.jobs.remove(&job_id)
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Workspace-aware methods (Phase 2: Multi-Workspace Support)
     // ═══════════════════════════════════════════════════════════════════════

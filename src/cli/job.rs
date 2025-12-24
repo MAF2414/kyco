@@ -26,6 +26,11 @@ struct JobCreateResponse {
     group_id: Option<u64>,
 }
 
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+struct JobContinueResponse {
+    job_id: JobId,
+}
+
 fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> PathBuf {
     match config_override {
         Some(p) if p.is_absolute() => p.clone(),
@@ -34,7 +39,10 @@ fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> Pa
     }
 }
 
-fn load_gui_http_settings(work_dir: &Path, config_override: Option<&PathBuf>) -> (u16, Option<String>) {
+fn load_gui_http_settings(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+) -> (u16, Option<String>) {
     let config_path = resolve_config_path(work_dir, config_override);
     let config = Config::from_file(&config_path).ok();
 
@@ -42,8 +50,8 @@ fn load_gui_http_settings(work_dir: &Path, config_override: Option<&PathBuf>) ->
         .as_ref()
         .map(|c| c.settings.gui.http_port)
         .unwrap_or(9876);
-    let token = config
-        .and_then(|c| Some(c.settings.gui.http_token).filter(|t| !t.trim().is_empty()));
+    let token =
+        config.and_then(|c| Some(c.settings.gui.http_token).filter(|t| !t.trim().is_empty()));
 
     (port, token)
 }
@@ -71,7 +79,11 @@ fn http_get_json(url: &str, token: Option<&str>) -> Result<serde_json::Value> {
     Ok(json)
 }
 
-fn http_post_json(url: &str, token: Option<&str>, payload: serde_json::Value) -> Result<serde_json::Value> {
+fn http_post_json(
+    url: &str,
+    token: Option<&str>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value> {
     let req = with_auth(ureq::post(url), token).set("Content-Type", "application/json");
     let resp = req
         .send_string(&serde_json::to_string(&payload).context("Failed to serialize request JSON")?)
@@ -89,11 +101,16 @@ fn http_post_json(url: &str, token: Option<&str>, payload: serde_json::Value) ->
     Ok(json)
 }
 
-pub fn job_list_command(work_dir: &Path, config_override: Option<&PathBuf>, json: bool) -> Result<()> {
+pub fn job_list_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    json: bool,
+) -> Result<()> {
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs");
     let value = http_get_json(&url, token.as_deref())?;
-    let parsed: JobsListResponse = serde_json::from_value(value).context("Invalid /ctl/jobs response")?;
+    let parsed: JobsListResponse =
+        serde_json::from_value(value).context("Invalid /ctl/jobs response")?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&parsed.jobs)?);
@@ -107,7 +124,10 @@ pub fn job_list_command(work_dir: &Path, config_override: Option<&PathBuf>, json
 
     println!("Jobs ({}):\n", parsed.jobs.len());
     for job in parsed.jobs {
-        println!("  #{} [{}] {} - {}", job.id, job.status, job.mode, job.target);
+        println!(
+            "  #{} [{}] {} - {}",
+            job.id, job.status, job.mode, job.target
+        );
         if let Some(desc) = job.description {
             if !desc.trim().is_empty() {
                 println!("    {}", desc.trim());
@@ -131,7 +151,8 @@ pub fn job_get_command(
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}");
     let value = http_get_json(&url, token.as_deref())?;
-    let parsed: JobGetResponse = serde_json::from_value(value).context("Invalid /ctl/jobs/{id} response")?;
+    let parsed: JobGetResponse =
+        serde_json::from_value(value).context("Invalid /ctl/jobs/{id} response")?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&parsed.job)?);
@@ -166,7 +187,11 @@ pub struct JobStartArgs {
     pub json: bool,
 }
 
-pub fn job_start_command(work_dir: &Path, config_override: Option<&PathBuf>, args: JobStartArgs) -> Result<()> {
+pub fn job_start_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    args: JobStartArgs,
+) -> Result<()> {
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs");
 
@@ -191,7 +216,8 @@ pub fn job_start_command(work_dir: &Path, config_override: Option<&PathBuf>, arg
     });
 
     let value = http_post_json(&url, token.as_deref(), payload)?;
-    let parsed: JobCreateResponse = serde_json::from_value(value).context("Invalid /ctl/jobs response")?;
+    let parsed: JobCreateResponse =
+        serde_json::from_value(value).context("Invalid /ctl/jobs response")?;
 
     if args.json {
         println!("{}", serde_json::to_string_pretty(&parsed)?);
@@ -201,17 +227,95 @@ pub fn job_start_command(work_dir: &Path, config_override: Option<&PathBuf>, arg
     if parsed.job_ids.len() == 1 {
         println!("Created job #{}", parsed.job_ids[0]);
     } else {
-        println!("Created jobs: {}", parsed.job_ids.iter().map(|id| format!("#{id}")).collect::<Vec<_>>().join(", "));
+        println!(
+            "Created jobs: {}",
+            parsed
+                .job_ids
+                .iter()
+                .map(|id| format!("#{id}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 
     Ok(())
 }
 
-pub fn job_queue_command(work_dir: &Path, config_override: Option<&PathBuf>, job_id: JobId) -> Result<()> {
+pub fn job_queue_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+) -> Result<()> {
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/queue");
     let _ = http_post_json(&url, token.as_deref(), serde_json::json!({}))?;
     println!("Queued job #{}", job_id);
+    Ok(())
+}
+
+pub fn job_abort_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+) -> Result<()> {
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/abort");
+    let _ = http_post_json(&url, token.as_deref(), serde_json::json!({}))?;
+    println!("Aborted job #{}", job_id);
+    Ok(())
+}
+
+pub fn job_delete_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+    cleanup_worktree: bool,
+) -> Result<()> {
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/delete");
+    let _ = http_post_json(
+        &url,
+        token.as_deref(),
+        serde_json::json!({ "cleanup_worktree": cleanup_worktree }),
+    )?;
+    println!(
+        "Deleted job #{}{}",
+        job_id,
+        if cleanup_worktree {
+            " (worktree cleanup requested)"
+        } else {
+            ""
+        }
+    );
+    Ok(())
+}
+
+pub fn job_continue_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+    prompt: String,
+    queue: bool,
+    json: bool,
+) -> Result<()> {
+    let prompt = prompt.trim().to_string();
+    if prompt.is_empty() {
+        anyhow::bail!("Missing prompt");
+    }
+
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/continue");
+    let payload = serde_json::json!({ "prompt": prompt, "queue": queue });
+    let value = http_post_json(&url, token.as_deref(), payload)?;
+    let parsed: JobContinueResponse =
+        serde_json::from_value(value).context("Invalid /ctl/jobs/{id}/continue response")?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&parsed)?);
+    } else {
+        println!("Created continuation job #{}", parsed.job_id);
+    }
+
     Ok(())
 }
 
@@ -293,7 +397,8 @@ fn fetch_job(work_dir: &Path, config_override: Option<&PathBuf>, job_id: JobId) 
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}");
     let value = http_get_json(&url, token.as_deref())?;
-    let parsed: JobGetResponse = serde_json::from_value(value).context("Invalid /ctl/jobs/{id} response")?;
+    let parsed: JobGetResponse =
+        serde_json::from_value(value).context("Invalid /ctl/jobs/{id} response")?;
     Ok(parsed.job)
 }
 

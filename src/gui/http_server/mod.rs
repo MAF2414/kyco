@@ -16,8 +16,10 @@ use tracing::{error, info};
 use super::executor::ExecutorEvent;
 use super::jobs;
 use super::selection::SelectionContext;
+use crate::agent::bridge::BridgeClient;
+use crate::git::GitManager;
 use crate::job::{GroupManager, JobManager};
-use crate::{Job, JobId, JobStatus, LogEvent};
+use crate::{CommentTag, Job, JobId, JobStatus, LogEvent, Target};
 
 const AUTH_HEADER: &str = "X-KYCO-Token";
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024; // 2 MiB
@@ -134,6 +136,31 @@ pub struct ControlJobCreateResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ControlLogRequest {
     pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ControlJobContinueRequest {
+    pub prompt: String,
+    #[serde(default = "default_true")]
+    pub queue: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ControlJobContinueResponse {
+    pub job_id: JobId,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ControlJobDeleteRequest {
+    #[serde(default)]
+    pub cleanup_worktree: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ControlJobDeleteResponse {
+    pub status: String,
+    pub job_id: JobId,
+    pub cleanup_worktree: bool,
 }
 
 impl SelectionRequest {
@@ -331,6 +358,29 @@ pub fn start_http_server(
                 ("POST", p) if p.starts_with("/ctl/jobs/") && p.ends_with("/queue") => {
                     handle_control_job_queue(&control, p, request);
                 }
+                ("POST", p) if p.starts_with("/ctl/jobs/") && p.ends_with("/abort") => {
+                    handle_control_job_abort(&control, p, request);
+                }
+                ("POST", p) if p.starts_with("/ctl/jobs/") && p.ends_with("/delete") => {
+                    let body = match read_request_body(&mut request) {
+                        Ok(body) => body,
+                        Err(response) => {
+                            let _ = request.respond(response);
+                            continue;
+                        }
+                    };
+                    handle_control_job_delete(&control, p, &body, request);
+                }
+                ("POST", p) if p.starts_with("/ctl/jobs/") && p.ends_with("/continue") => {
+                    let body = match read_request_body(&mut request) {
+                        Ok(body) => body,
+                        Err(response) => {
+                            let _ = request.respond(response);
+                            continue;
+                        }
+                    };
+                    handle_control_job_continue(&control, p, &body, request);
+                }
                 ("POST", "/ctl/log") => {
                     let body = match read_request_body(&mut request) {
                         Ok(body) => body,
@@ -398,7 +448,8 @@ fn read_request_body(
 }
 
 fn respond_json(request: tiny_http::Request, status_code: u16, value: serde_json::Value) {
-    let body = serde_json::to_string(&value).unwrap_or_else(|_| "{\"error\":\"serialize\"}".to_string());
+    let body =
+        serde_json::to_string(&value).unwrap_or_else(|_| "{\"error\":\"serialize\"}".to_string());
     let response = Response::from_string(body)
         .with_status_code(status_code)
         .with_header(json_content_type());
@@ -471,7 +522,11 @@ fn handle_control_jobs_list(control: &ControlApiState, request: tiny_http::Reque
     let jobs: Vec<Job> = match control.job_manager.lock() {
         Ok(manager) => manager.jobs().into_iter().cloned().collect(),
         Err(_) => {
-            respond_json(request, 500, serde_json::json!({ "error": "job_manager_lock" }));
+            respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": "job_manager_lock" }),
+            );
             return;
         }
     };
@@ -491,7 +546,11 @@ fn handle_control_job_get(control: &ControlApiState, path: &str, request: tiny_h
     let job = match control.job_manager.lock() {
         Ok(manager) => manager.get(job_id).cloned(),
         Err(_) => {
-            respond_json(request, 500, serde_json::json!({ "error": "job_manager_lock" }));
+            respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": "job_manager_lock" }),
+            );
             return;
         }
     };
@@ -522,7 +581,11 @@ fn handle_control_job_queue(control: &ControlApiState, path: &str, request: tiny
             false => None,
         },
         Err(_) => {
-            respond_json(request, 500, serde_json::json!({ "error": "job_manager_lock" }));
+            respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": "job_manager_lock" }),
+            );
             return;
         }
     };
@@ -543,6 +606,123 @@ fn handle_control_job_queue(control: &ControlApiState, path: &str, request: tiny
         request,
         200,
         serde_json::json!({ "status": "ok", "job_id": job_id, "job_status": status }),
+    );
+}
+
+fn handle_control_job_abort(control: &ControlApiState, path: &str, request: tiny_http::Request) {
+    let job_id = match parse_job_id_from_path(path, Some("abort")) {
+        Ok(id) => id,
+        Err(err) => {
+            respond_json(request, 400, serde_json::json!({ "error": err }));
+            return;
+        }
+    };
+
+    let (agent_id, session_id, status) = match control.job_manager.lock() {
+        Ok(mut manager) => match manager.get_mut(job_id) {
+            Some(job) => (
+                job.agent_id.clone(),
+                job.bridge_session_id.clone(),
+                job.status,
+            ),
+            None => {
+                respond_json(request, 404, serde_json::json!({ "error": "not_found" }));
+                return;
+            }
+        },
+        Err(_) => {
+            respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": "job_manager_lock" }),
+            );
+            return;
+        }
+    };
+
+    if matches!(
+        status,
+        JobStatus::Running | JobStatus::Queued | JobStatus::Pending | JobStatus::Blocked
+    ) {
+        if let Some(session_id) = session_id.as_deref() {
+            let client = BridgeClient::new();
+            let agent_id_lower = agent_id.to_ascii_lowercase();
+            let likely_codex = agent_id_lower == "codex" || agent_id_lower.contains("codex");
+
+            let interrupt_attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if likely_codex {
+                    client
+                        .interrupt_codex(session_id)
+                        .or_else(|_| client.interrupt_claude(session_id))
+                } else {
+                    client
+                        .interrupt_claude(session_id)
+                        .or_else(|_| client.interrupt_codex(session_id))
+                }
+            }));
+
+            match interrupt_attempt {
+                Ok(Ok(true)) => {
+                    let _ = control
+                        .executor_tx
+                        .send(ExecutorEvent::Log(LogEvent::system(format!(
+                            "Sent interrupt for job #{} (agent: {})",
+                            job_id, agent_id
+                        ))));
+                }
+                Ok(Ok(false)) => {
+                    let _ = control
+                        .executor_tx
+                        .send(ExecutorEvent::Log(LogEvent::error(format!(
+                            "Interrupt rejected for job #{} (agent: {})",
+                            job_id, agent_id
+                        ))));
+                }
+                Ok(Err(e)) => {
+                    let _ = control
+                        .executor_tx
+                        .send(ExecutorEvent::Log(LogEvent::error(format!(
+                            "Failed to interrupt job #{} (agent: {}): {}",
+                            job_id, agent_id, e
+                        ))));
+                }
+                Err(_) => {
+                    let _ = control
+                        .executor_tx
+                        .send(ExecutorEvent::Log(LogEvent::error(format!(
+                            "Bridge interrupt panicked (job #{})",
+                            job_id
+                        ))));
+                }
+            }
+        }
+
+        // Mark job as failed ("aborted")
+        if let Ok(mut manager) = control.job_manager.lock() {
+            if let Some(job) = manager.get_mut(job_id) {
+                job.fail("Job aborted by user".to_string());
+            }
+        }
+
+        let _ = control
+            .executor_tx
+            .send(ExecutorEvent::Log(LogEvent::system(format!(
+                "Aborted job #{}",
+                job_id
+            ))));
+
+        respond_json(
+            request,
+            200,
+            serde_json::json!({ "status": "ok", "job_id": job_id }),
+        );
+        return;
+    }
+
+    respond_json(
+        request,
+        400,
+        serde_json::json!({ "error": "not_abortable", "job_id": job_id, "status": status }),
     );
 }
 
@@ -567,7 +747,11 @@ fn handle_control_job_create(control: &ControlApiState, body: &str, request: tin
 
     let file_path_raw = req.file_path.trim();
     if file_path_raw.is_empty() {
-        respond_json(request, 400, serde_json::json!({ "error": "missing_file_path" }));
+        respond_json(
+            request,
+            400,
+            serde_json::json!({ "error": "missing_file_path" }),
+        );
         return;
     }
 
@@ -579,12 +763,7 @@ fn handle_control_job_create(control: &ControlApiState, body: &str, request: tin
         .filter(|a| !a.is_empty())
         .collect();
     if agents.is_empty() {
-        let agent = req
-            .agent
-            .as_deref()
-            .unwrap_or("claude")
-            .trim()
-            .to_string();
+        let agent = req.agent.as_deref().unwrap_or("claude").trim().to_string();
         agents.push(agent);
     }
 
@@ -622,7 +801,11 @@ fn handle_control_job_create(control: &ControlApiState, body: &str, request: tin
     );
 
     let Some(created) = created else {
-        respond_json(request, 500, serde_json::json!({ "error": "create_failed" }));
+        respond_json(
+            request,
+            500,
+            serde_json::json!({ "error": "create_failed" }),
+        );
         return;
     };
 
@@ -647,6 +830,245 @@ fn handle_control_job_create(control: &ControlApiState, body: &str, request: tin
     );
 }
 
+fn handle_control_job_continue(
+    control: &ControlApiState,
+    path: &str,
+    body: &str,
+    request: tiny_http::Request,
+) {
+    let job_id = match parse_job_id_from_path(path, Some("continue")) {
+        Ok(id) => id,
+        Err(err) => {
+            respond_json(request, 400, serde_json::json!({ "error": err }));
+            return;
+        }
+    };
+
+    let req: ControlJobContinueRequest = match serde_json::from_str(body) {
+        Ok(req) => req,
+        Err(e) => {
+            respond_json(
+                request,
+                400,
+                serde_json::json!({ "error": "invalid_json", "details": e.to_string() }),
+            );
+            return;
+        }
+    };
+
+    let prompt = req.prompt.trim();
+    if prompt.is_empty() {
+        respond_json(
+            request,
+            400,
+            serde_json::json!({ "error": "missing_prompt" }),
+        );
+        return;
+    }
+
+    let mut logs: Vec<LogEvent> = Vec::new();
+
+    let created_id = {
+        let mut manager = match control.job_manager.lock() {
+            Ok(m) => m,
+            Err(_) => {
+                respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": "job_manager_lock" }),
+                );
+                return;
+            }
+        };
+
+        let Some(original) = manager.get(job_id).cloned() else {
+            respond_json(request, 404, serde_json::json!({ "error": "not_found" }));
+            return;
+        };
+
+        let Some(session_id) = original.bridge_session_id.clone() else {
+            respond_json(request, 400, serde_json::json!({ "error": "no_session" }));
+            return;
+        };
+
+        let tag = CommentTag {
+            file_path: original.source_file.clone(),
+            line_number: original.source_line,
+            raw_line: format!("// @{}:{} {}", &original.agent_id, &original.mode, prompt),
+            agent: original.agent_id.clone(),
+            agents: vec![original.agent_id.clone()],
+            mode: original.mode.clone(),
+            target: Target::Block,
+            status_marker: None,
+            description: Some(prompt.to_string()),
+            job_id: None,
+        };
+
+        let continuation_id = match manager.create_job_with_range(&tag, &original.agent_id, None) {
+            Ok(id) => id,
+            Err(e) => {
+                respond_json(
+                    request,
+                    500,
+                    serde_json::json!({ "error": "create_failed", "details": e.to_string() }),
+                );
+                return;
+            }
+        };
+
+        if let Some(job) = manager.get_mut(continuation_id) {
+            job.raw_tag_line = None;
+            job.bridge_session_id = Some(session_id);
+
+            // Reuse the same worktree and job context
+            job.git_worktree_path = original.git_worktree_path.clone();
+            job.branch_name = original.branch_name.clone();
+            job.base_branch = original.base_branch.clone();
+            job.scope = original.scope.clone();
+            job.target = original.target;
+            job.ide_context = original.ide_context;
+            job.force_worktree = original.force_worktree;
+            job.workspace_id = original.workspace_id;
+            job.workspace_path = original.workspace_path.clone();
+        }
+
+        logs.push(LogEvent::system(format!(
+            "Created continuation job #{} (from job #{})",
+            continuation_id, job_id
+        )));
+
+        continuation_id
+    };
+
+    if req.queue {
+        jobs::queue_job(&control.job_manager, created_id, &mut logs);
+    }
+
+    for log in &logs {
+        let _ = control.executor_tx.send(ExecutorEvent::Log(log.clone()));
+    }
+
+    respond_json(
+        request,
+        200,
+        serde_json::to_value(ControlJobContinueResponse { job_id: created_id })
+            .unwrap_or_else(|_| serde_json::json!({ "error": "serialize" })),
+    );
+}
+
+fn handle_control_job_delete(
+    control: &ControlApiState,
+    path: &str,
+    body: &str,
+    request: tiny_http::Request,
+) {
+    let job_id = match parse_job_id_from_path(path, Some("delete")) {
+        Ok(id) => id,
+        Err(err) => {
+            respond_json(request, 400, serde_json::json!({ "error": err }));
+            return;
+        }
+    };
+
+    let req: ControlJobDeleteRequest = if body.trim().is_empty() {
+        ControlJobDeleteRequest {
+            cleanup_worktree: false,
+        }
+    } else {
+        match serde_json::from_str(body) {
+            Ok(req) => req,
+            Err(e) => {
+                respond_json(
+                    request,
+                    400,
+                    serde_json::json!({ "error": "invalid_json", "details": e.to_string() }),
+                );
+                return;
+            }
+        }
+    };
+
+    let mut removed: Option<Job> = None;
+    if let Ok(mut manager) = control.job_manager.lock() {
+        if let Some(job) = manager.get(job_id) {
+            if matches!(job.status, JobStatus::Running) {
+                respond_json(
+                    request,
+                    400,
+                    serde_json::json!({ "error": "job_running", "job_id": job_id }),
+                );
+                return;
+            }
+        }
+        removed = manager.remove_job(job_id);
+    }
+
+    let Some(job) = removed else {
+        respond_json(request, 404, serde_json::json!({ "error": "not_found" }));
+        return;
+    };
+
+    // Remove from group tracking (best-effort).
+    if let Some(group_id) = job.group_id {
+        if let Ok(mut gm) = control.group_manager.lock() {
+            let _ = gm.remove_job(job_id);
+            let _ = control
+                .executor_tx
+                .send(ExecutorEvent::Log(LogEvent::system(format!(
+                    "Removed job #{} from group #{}",
+                    job_id, group_id
+                ))));
+        }
+    }
+
+    if req.cleanup_worktree {
+        if let Some(worktree_path) = job.git_worktree_path.as_ref() {
+            let workspace_root = job
+                .workspace_path
+                .clone()
+                .unwrap_or_else(|| control.work_dir.clone());
+            match GitManager::new(&workspace_root)
+                .and_then(|gm| gm.remove_worktree_by_path(worktree_path))
+            {
+                Ok(()) => {
+                    let _ = control
+                        .executor_tx
+                        .send(ExecutorEvent::Log(LogEvent::system(format!(
+                            "Removed worktree for job #{}",
+                            job_id
+                        ))));
+                }
+                Err(e) => {
+                    let _ = control
+                        .executor_tx
+                        .send(ExecutorEvent::Log(LogEvent::error(format!(
+                            "Failed to remove worktree for job #{}: {}",
+                            job_id, e
+                        ))));
+                }
+            }
+        }
+    }
+
+    let _ = control
+        .executor_tx
+        .send(ExecutorEvent::Log(LogEvent::system(format!(
+            "Deleted job #{}",
+            job_id
+        ))));
+
+    respond_json(
+        request,
+        200,
+        serde_json::to_value(ControlJobDeleteResponse {
+            status: "ok".to_string(),
+            job_id,
+            cleanup_worktree: req.cleanup_worktree,
+        })
+        .unwrap_or_else(|_| serde_json::json!({ "error": "serialize" })),
+    );
+}
+
 fn handle_control_log(control: &ControlApiState, body: &str, request: tiny_http::Request) {
     let req: ControlLogRequest = match serde_json::from_str(body) {
         Ok(req) => req,
@@ -662,7 +1084,11 @@ fn handle_control_log(control: &ControlApiState, body: &str, request: tiny_http:
 
     let msg = req.message.trim();
     if msg.is_empty() {
-        respond_json(request, 400, serde_json::json!({ "error": "missing_message" }));
+        respond_json(
+            request,
+            400,
+            serde_json::json!({ "error": "missing_message" }),
+        );
         return;
     }
 
@@ -676,7 +1102,9 @@ fn handle_control_log(control: &ControlApiState, body: &str, request: tiny_http:
 fn parse_job_id_from_path(path: &str, suffix: Option<&str>) -> Result<JobId, &'static str> {
     let trimmed = path.trim_end_matches('/');
     let trimmed = match suffix {
-        Some(suffix) => trimmed.strip_suffix(&format!("/{suffix}")).ok_or("bad_path")?,
+        Some(suffix) => trimmed
+            .strip_suffix(&format!("/{suffix}"))
+            .ok_or("bad_path")?,
         None => trimmed,
     };
 

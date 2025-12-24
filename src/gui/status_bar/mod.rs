@@ -197,13 +197,8 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         *state.chain_edit_status = None;
                     }
                     ui.add_space(8.0);
-                    if animated_button(
-                        ui,
-                        "Orchestrator",
-                        ACCENT_GREEN,
-                        "statusbar_orchestrator",
-                    )
-                    .clicked()
+                    if animated_button(ui, "Orchestrator", ACCENT_GREEN, "statusbar_orchestrator")
+                        .clicked()
                     {
                         *state.orchestrator_requested = true;
                     }

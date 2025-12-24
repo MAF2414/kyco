@@ -12,6 +12,22 @@ use std::time::Duration;
 
 use super::types::*;
 
+fn encode_url_path_segment(segment: &str) -> String {
+    // RFC3986 unreserved = ALPHA / DIGIT / "-" / "." / "_" / "~"
+    let mut out = String::with_capacity(segment.len());
+    for &b in segment.as_bytes() {
+        let is_unreserved =
+            matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~');
+        if is_unreserved {
+            out.push(b as char);
+        } else {
+            out.push('%');
+            out.push_str(&format!("{:02X}", b));
+        }
+    }
+    out
+}
+
 /// GitHub repository for downloading bridge
 const GITHUB_REPO: &str = "MAF2414/kyco";
 
@@ -137,7 +153,11 @@ impl BridgeClient {
 
     /// Interrupt a running Claude session
     pub fn interrupt_claude(&self, session_id: &str) -> Result<bool> {
-        let url = format!("{}/claude/interrupt/{}", self.base_url, session_id);
+        let url = format!(
+            "{}/claude/interrupt/{}",
+            self.base_url,
+            encode_url_path_segment(session_id)
+        );
 
         #[derive(serde::Deserialize)]
         struct Response {
@@ -163,7 +183,8 @@ impl BridgeClient {
     ) -> Result<bool> {
         let url = format!(
             "{}/claude/set-permission-mode/{}",
-            self.base_url, session_id
+            self.base_url,
+            encode_url_path_segment(session_id)
         );
 
         #[derive(serde::Serialize)]
@@ -190,7 +211,11 @@ impl BridgeClient {
 
     /// Interrupt a running Codex thread
     pub fn interrupt_codex(&self, thread_id: &str) -> Result<bool> {
-        let url = format!("{}/codex/interrupt/{}", self.base_url, thread_id);
+        let url = format!(
+            "{}/codex/interrupt/{}",
+            self.base_url,
+            encode_url_path_segment(thread_id)
+        );
 
         #[derive(serde::Deserialize)]
         struct Response {
@@ -233,7 +258,11 @@ impl BridgeClient {
 
     /// Get a specific session
     pub fn get_session(&self, session_id: &str) -> Result<Option<StoredSession>> {
-        let url = format!("{}/sessions/{}", self.base_url, session_id);
+        let url = format!(
+            "{}/sessions/{}",
+            self.base_url,
+            encode_url_path_segment(session_id)
+        );
 
         let response = self.client.get(&url).call();
 

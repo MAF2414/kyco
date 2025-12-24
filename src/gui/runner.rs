@@ -5,17 +5,74 @@
 use anyhow::Result;
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, IconData};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
+use std::time::Duration;
 use tracing::{info, warn};
 
 use super::app::KycoApp;
 use super::executor::{ExecutorEvent, start_executor};
 use super::http_server::{BatchRequest, ControlApiState, SelectionRequest, start_http_server};
+use crate::LogEvent;
 use crate::agent::BridgeProcess;
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
+
+fn start_config_watch_thread(
+    config_path: PathBuf,
+    config: Arc<RwLock<Config>>,
+    max_concurrent_jobs: Arc<AtomicUsize>,
+    event_tx: mpsc::Sender<ExecutorEvent>,
+) {
+    thread::spawn(move || {
+        let mut last_modified = std::fs::metadata(&config_path)
+            .and_then(|m| m.modified())
+            .ok();
+
+        loop {
+            thread::sleep(Duration::from_millis(500));
+
+            let modified = match std::fs::metadata(&config_path).and_then(|m| m.modified()) {
+                Ok(m) => Some(m),
+                Err(_) => None,
+            };
+
+            if modified.is_none() || modified == last_modified {
+                continue;
+            }
+
+            // Debounce slightly to avoid reading partially-written files.
+            thread::sleep(Duration::from_millis(50));
+
+            match Config::from_file(&config_path) {
+                Ok(new_config) => {
+                    max_concurrent_jobs
+                        .store(new_config.settings.max_concurrent_jobs, Ordering::Relaxed);
+
+                    if let Ok(mut guard) = config.write() {
+                        *guard = new_config;
+                    }
+
+                    let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+                        "Reloaded config from {}",
+                        config_path.display()
+                    ))));
+                    last_modified = modified;
+                }
+                Err(e) => {
+                    let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                        "Failed to reload config ({}): {}",
+                        config_path.display(),
+                        e
+                    ))));
+                    // Keep last_modified unchanged so we retry on next tick.
+                }
+            }
+        }
+    });
+}
 
 /// Load the KYCo app icon from embedded PNG
 fn load_kyco_icon() -> IconData {
@@ -134,6 +191,9 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
         info!("[kyco] Created {}", config_path.display());
     }
 
+    // Shared config (mutable at runtime)
+    let config = Arc::new(RwLock::new(config));
+
     // Load job manager
     let job_manager = Arc::new(Mutex::new(
         JobManager::load(&work_dir).unwrap_or_else(|_| JobManager::new(&work_dir)),
@@ -145,9 +205,19 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
     let _bridge_process = BridgeProcess::spawn()?;
     info!("[kyco] SDK Bridge server ready");
 
+    let (http_port, http_token) = config
+        .read()
+        .map(|cfg| {
+            (
+                cfg.settings.gui.http_port,
+                cfg.settings.gui.http_token.clone(),
+            )
+        })
+        .unwrap_or((9876, String::new()));
+
     info!(
         "[kyco] Starting GUI with HTTP server on port {}...",
-        config.settings.gui.http_port
+        http_port
     );
 
     // Create channel for HTTP server -> GUI communication (single selection)
@@ -168,8 +238,8 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
     start_http_server(
         http_tx,
         batch_tx,
-        config.settings.gui.http_port,
-        Some(config.settings.gui.http_token.clone()).filter(|t| !t.trim().is_empty()),
+        http_port,
+        Some(http_token).filter(|t| !t.trim().is_empty()),
         ControlApiState {
             work_dir: work_dir.clone(),
             job_manager: Arc::clone(&job_manager),
@@ -179,12 +249,24 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
     );
 
     // Create shared max_concurrent_jobs so GUI can update it at runtime
-    let max_concurrent_jobs = Arc::new(AtomicUsize::new(config.settings.max_concurrent_jobs));
+    let max_concurrent_jobs = Arc::new(AtomicUsize::new(
+        config
+            .read()
+            .map(|cfg| cfg.settings.max_concurrent_jobs)
+            .unwrap_or(1),
+    ));
+
+    start_config_watch_thread(
+        config_path.clone(),
+        Arc::clone(&config),
+        Arc::clone(&max_concurrent_jobs),
+        executor_tx.clone(),
+    );
 
     // Start job executor in background
     start_executor(
         work_dir.clone(),
-        config.clone(),
+        Arc::clone(&config),
         job_manager.clone(),
         executor_tx,
         Arc::clone(&max_concurrent_jobs),

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
@@ -57,7 +57,7 @@ pub enum ExecutorEvent {
 /// Start the job executor in a background thread
 pub fn start_executor(
     work_dir: PathBuf,
-    config: Config,
+    config: Arc<RwLock<Config>>,
     job_manager: Arc<Mutex<JobManager>>,
     event_tx: Sender<ExecutorEvent>,
     max_concurrent_jobs: Arc<AtomicUsize>,
@@ -76,7 +76,7 @@ pub fn start_executor(
 
 async fn executor_loop(
     work_dir: PathBuf,
-    config: Config,
+    config: Arc<RwLock<Config>>,
     job_manager: Arc<Mutex<JobManager>>,
     event_tx: Sender<ExecutorEvent>,
     max_concurrent_jobs: Arc<AtomicUsize>,
@@ -87,8 +87,13 @@ async fn executor_loop(
     let git_manager = GitManager::new(&work_dir).ok();
 
     loop {
+        let should_use_worktree = config
+            .read()
+            .map(|cfg| cfg.settings.use_worktree)
+            .unwrap_or(false);
+
         // Check for queued jobs and handle file locks
-        let (running_count, next_queued, should_use_worktree) = {
+        let (running_count, next_queued) = {
             let mut manager = job_manager.lock().unwrap();
             let running = manager
                 .jobs()
@@ -133,7 +138,7 @@ async fn executor_loop(
                 .find(|j| j.status == JobStatus::Queued)
                 .map(|j| (*j).clone());
 
-            (running, next, config.settings.use_worktree)
+            (running, next)
         };
 
         // Start next job if we have capacity (read current limit each iteration)
@@ -177,7 +182,7 @@ async fn executor_loop(
 
                 // Spawn job in background so we can start multiple jobs concurrently
                 let work_dir = work_dir.clone();
-                let config = config.clone();
+                let config_snapshot = config.read().map(|cfg| cfg.clone()).unwrap_or_default();
                 let job_manager = Arc::clone(&job_manager);
                 let agent_registry = agent_registry.clone();
                 let git_manager = git_manager.clone();
@@ -186,7 +191,7 @@ async fn executor_loop(
                 tokio::spawn(async move {
                     run_job(
                         &work_dir,
-                        &config,
+                        &config_snapshot,
                         &job_manager,
                         &agent_registry,
                         git_manager.as_ref(),
