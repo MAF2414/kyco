@@ -499,13 +499,10 @@ export async function* executeClaudeQuery(
       }
     }
 
-    // Ensure the stream processing is complete and cleanup the query
-    // This is critical to prevent memory leaks - the Query spawns a child process
-    // that must be terminated when the session ends
-    await streamPromise.catch(() => {});
-
-    // Close the AsyncGenerator to ensure the underlying process is terminated
-    // The SDK's Query extends AsyncGenerator, and calling return() signals completion
+    // IMPORTANT: Close the query FIRST to unblock processStream, then wait for cleanup.
+    // The processStream is iterating over `q` (for await of q), so it will block until
+    // the SDK query closes. We must call q.return() to signal completion BEFORE waiting
+    // for streamPromise, otherwise we have a deadlock.
     if (q) {
       try {
         await q.return(undefined as never);
@@ -513,6 +510,9 @@ export async function* executeClaudeQuery(
         // Ignore errors during cleanup - the session is already complete
       }
     }
+
+    // Now wait for processStream to finish its cleanup (session store update, etc.)
+    await streamPromise.catch(() => {});
 
   } catch (error) {
     yield {
