@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use super::state::AgentEditorState;
-use crate::config::AgentConfigToml;
+use crate::config::{AgentConfigToml, Config};
 use crate::{SdkType, SessionMode, SystemPromptMode};
 
 /// Load agent data for editing
@@ -136,7 +136,7 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
     state.config.agent.insert(name.clone(), agent_config);
 
     // Save config with atomic write and file locking
-    let config_path = state.work_dir.join(".kyco").join("config.toml");
+    let config_path = Config::global_config_path();
     if let Err(e) = state.config.save_to_file(&config_path) {
         *state.agent_edit_status = Some((format!("Failed to save config: {}", e), true));
         return;
@@ -161,7 +161,7 @@ pub fn delete_agent_from_config(state: &mut AgentEditorState<'_>) {
         state.config.agent.remove(name);
 
         // Save config with atomic write and file locking
-        let config_path = state.work_dir.join(".kyco").join("config.toml");
+        let config_path = Config::global_config_path();
         if let Err(e) = state.config.save_to_file(&config_path) {
             *state.agent_edit_status = Some((format!("Failed to save config: {}", e), true));
             return;

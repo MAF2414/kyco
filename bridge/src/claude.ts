@@ -135,6 +135,7 @@ export async function* executeClaudeQuery(
   // Event queue for async generator
   const eventQueue: BridgeEvent[] = [];
   let resolveNext: (() => void) | null = null;
+  let sessionCompleted = false; // Track if session.complete was sent
 
   // Set up event emitter
   const emitEvent = (event: BridgeEvent) => {
@@ -393,6 +394,7 @@ export async function* executeClaudeQuery(
             }
 
             case 'result': {
+              sessionCompleted = true; // Mark that we sent session.complete
               if (message.subtype === 'success') {
                 totalInputTokens = message.usage.input_tokens;
                 totalOutputTokens = message.usage.output_tokens;
@@ -430,6 +432,23 @@ export async function* executeClaudeQuery(
               break;
             }
           }
+        }
+
+        // Fallback: If stream ended without sending session.complete, send one now
+        // This ensures the client ALWAYS receives a session.complete event
+        if (!sessionCompleted) {
+          emitEvent({
+            type: 'session.complete',
+            sessionId,
+            timestamp: Date.now(),
+            success: true, // Stream ended normally, treat as success
+            usage: {
+              inputTokens: totalInputTokens,
+              outputTokens: totalOutputTokens,
+            },
+            costUsd,
+            durationMs: Date.now() - startTime,
+          });
         }
 
         // Update session store

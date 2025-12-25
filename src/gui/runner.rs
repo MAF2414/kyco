@@ -114,78 +114,38 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
         }
     };
 
-    let config_override_path =
-        config_override.map(|p| if p.is_absolute() { p } else { work_dir.join(p) });
-    let config_override_provided = config_override_path.is_some();
-    let config_path =
-        config_override_path.unwrap_or_else(|| work_dir.join(".kyco").join("config.toml"));
+    // Use global config by default (~/.kyco/config.toml), allow override with --config
+    let config_path = match config_override {
+        Some(p) if p.is_absolute() => p,
+        Some(p) => work_dir.join(p),
+        None => Config::global_config_path(),
+    };
 
-    // Load config
+    // Load config (auto-creates global config if missing)
     let config_was_present = config_path.exists();
-    let config = if config_was_present {
-        match Config::from_file(&config_path) {
-            Ok(cfg) => cfg,
-            Err(e) => {
+    let config = match Config::from_file(&config_path) {
+        Ok(cfg) => cfg,
+        Err(_) if !config_was_present => {
+            // Config doesn't exist - use Config::load() which auto-inits global config
+            Config::load().unwrap_or_else(|e| {
                 warn!(
-                    "[kyco] Failed to parse config ({}): {}. Falling back to defaults.",
-                    config_path.display(),
+                    "[kyco] Failed to initialize config: {}. Falling back to defaults.",
                     e
                 );
                 Config::with_defaults()
-            }
+            })
         }
-    } else if config_override_provided {
-        // User explicitly requested a config path: create it if missing.
-        let cfg = Config::with_defaults();
-        // Note: http_token is intentionally left empty by default for local development.
-        // Users can set it manually in config if they need auth.
-
-        if let Some(parent) = config_path.parent() {
-            if let Err(e) = std::fs::create_dir_all(parent) {
-                warn!(
-                    "[kyco] Failed to create config directory ({}): {}",
-                    parent.display(),
-                    e
-                );
-            }
-        }
-
-        match toml::to_string_pretty(&cfg) {
-            Ok(content) => {
-                if let Err(e) = std::fs::write(&config_path, content) {
-                    warn!(
-                        "[kyco] Failed to write config ({}): {}",
-                        config_path.display(),
-                        e
-                    );
-                }
-            }
-            Err(e) => {
-                warn!(
-                    "[kyco] Failed to serialize default config for {}: {}",
-                    config_path.display(),
-                    e
-                );
-            }
-        }
-
-        cfg
-    } else {
-        // Create a config on first GUI launch so IDE extension auth works out-of-the-box.
-        Config::from_dir(&work_dir).unwrap_or_else(|e| {
+        Err(e) => {
             warn!(
-                "[kyco] Failed to initialize config in {}: {}. Falling back to defaults.",
-                work_dir.display(),
+                "[kyco] Failed to parse config ({}): {}. Falling back to defaults.",
+                config_path.display(),
                 e
             );
             Config::with_defaults()
-        })
+        }
     };
 
-    // Note: http_token is intentionally left empty by default.
-    // Auth is only enforced when http_token is explicitly set in config.
-    // This avoids the "chicken-and-egg" problem with new workspaces.
-
+    // Global config is auto-created by Config::load(), so it always exists after loading
     let config_exists = config_path.exists();
     if !config_was_present && config_exists {
         info!("[kyco] Created {}", config_path.display());

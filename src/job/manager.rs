@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::git::find_git_root;
 use crate::workspace::WorkspaceId;
 use crate::{CommentTag, Job, JobId, JobStatus, ScopeDefinition};
 
@@ -81,7 +82,11 @@ impl JobManager {
             format!("{}:{}", tag.file_path.display(), tag.line_number)
         };
 
-        let job = Job::new(
+        // Determine workspace_path: git root > file's parent directory
+        let workspace_path = find_git_root(&tag.file_path)
+            .or_else(|| tag.file_path.parent().map(PathBuf::from));
+
+        let mut job = Job::new(
             id,
             tag.mode.clone(),
             scope_def,
@@ -96,6 +101,9 @@ impl JobManager {
                 Some(tag.raw_line.clone())
             },
         );
+
+        // Set workspace_path for proper job isolation
+        job.workspace_path = workspace_path;
 
         self.jobs.insert(id, job);
         self.generation += 1;

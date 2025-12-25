@@ -103,6 +103,34 @@ fn sanitize_commit_subject(raw: &str) -> String {
     out
 }
 
+/// Find the git repository root for a given path.
+/// Returns None if the path is not inside a git repository.
+pub fn find_git_root(path: &Path) -> Option<PathBuf> {
+    // Determine the directory to start from
+    let start_dir = if path.is_file() {
+        path.parent()?
+    } else {
+        path
+    };
+
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(start_dir)
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if root.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(root))
+    }
+}
+
 /// Manages Git operations for KYCo
 #[derive(Clone)]
 pub struct GitManager {

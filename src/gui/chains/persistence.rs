@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use regex::Regex;
 
 use super::state::{ChainEditorState, ChainStepEdit, StateDefinitionEdit};
-use crate::config::ModeChain;
+use crate::config::{Config, ModeChain};
 
 /// Load a chain's data into the editor state
 pub fn load_chain_for_editing(state: &mut ChainEditorState<'_>, chain_name: &str) {
@@ -255,6 +255,6 @@ pub fn delete_chain_from_config(state: &mut ChainEditorState<'_>) {
 
 /// Save the config to the config file with atomic write and file locking
 fn save_config_to_file(state: &ChainEditorState<'_>) -> anyhow::Result<()> {
-    let config_path = state.work_dir.join(".kyco/config.toml");
+    let config_path = Config::global_config_path();
     state.config.save_to_file(&config_path)
 }

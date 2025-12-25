@@ -3121,12 +3121,12 @@ impl eframe::App for KycoApp {
                             )
                             .clicked()
                         {
-                            // Create .kyco directory and config.toml
-                            let config_dir = self.work_dir.join(".kyco");
-                            let config_path = config_dir.join("config.toml");
+                            // Create global config at ~/.kyco/config.toml
+                            let config_dir = Config::global_config_dir();
+                            let config_path = Config::global_config_path();
                             if let Err(e) = std::fs::create_dir_all(&config_dir) {
                                 self.logs.push(LogEvent::error(format!(
-                                    "Failed to create .kyco directory: {}",
+                                    "Failed to create config directory: {}",
                                     e
                                 )));
                             } else if let Err(e) =

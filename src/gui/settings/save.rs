@@ -5,6 +5,7 @@
 use std::sync::atomic::Ordering;
 
 use super::state::SettingsState;
+use crate::config::Config;
 
 /// Save settings to config file
 ///
@@ -81,7 +82,7 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
     state.config.settings.gui.voice.max_duration = max_duration;
 
     // Save config with atomic write and file locking
-    let config_path = state.work_dir.join(".kyco").join("config.toml");
+    let config_path = Config::global_config_path();
     if let Err(e) = state.config.save_to_file(&config_path) {
         *state.settings_status = Some((format!("Failed to save config: {}", e), true));
         return;

@@ -1,7 +1,7 @@
 //! Mode configuration persistence (save/delete/load operations)
 
 use super::state::ModeEditorState;
-use crate::config::{ClaudeModeOptions, CodexModeOptions, ModeConfig, ModeSessionType};
+use crate::config::{ClaudeModeOptions, CodexModeOptions, Config, ModeConfig, ModeSessionType};
 
 /// Load mode data for editing
 pub fn load_mode_for_editing(state: &mut ModeEditorState<'_>, name: &str) {
@@ -156,7 +156,7 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
     state.config.mode.insert(name.clone(), mode_config);
 
     // Save config with atomic write and file locking
-    let config_path = state.work_dir.join(".kyco").join("config.toml");
+    let config_path = Config::global_config_path();
     if let Err(e) = state.config.save_to_file(&config_path) {
         *state.mode_edit_status = Some((format!("Failed to save config: {}", e), true));
         return;
@@ -181,7 +181,7 @@ pub fn delete_mode_from_config(state: &mut ModeEditorState<'_>) {
         state.config.mode.remove(name);
 
         // Save config with atomic write and file locking
-        let config_path = state.work_dir.join(".kyco").join("config.toml");
+        let config_path = Config::global_config_path();
         if let Err(e) = state.config.save_to_file(&config_path) {
             *state.mode_edit_status = Some((format!("Failed to save config: {}", e), true));
             return;
