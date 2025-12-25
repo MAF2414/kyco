@@ -93,24 +93,29 @@ pub fn render_job_list(
         ui.horizontal(|ui| {
             ui.label(RichText::new("JOBS").monospace().color(TEXT_PRIMARY));
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // "Clear All" button - only show when there are finished jobs
-                if count_finished > 0 {
-                    let clear_btn = egui::Button::new(
-                        RichText::new("Clear All").small().color(TEXT_DIM),
-                    )
-                    .fill(BG_SECONDARY)
-                    .stroke(Stroke::new(1.0, TEXT_MUTED));
-
-                    if ui
-                        .add(clear_btn)
-                        .on_hover_text(format!("Delete all {} finished jobs", count_finished))
-                        .clicked()
-                    {
-                        action = JobListAction::DeleteAllFinished;
-                    }
+            // Spacer to push Clear All button to the right
+            let remaining = ui.available_width();
+            if count_finished > 0 {
+                // Calculate button width (approximately)
+                let btn_width = 60.0;
+                if remaining > btn_width {
+                    ui.add_space(remaining - btn_width);
                 }
-            });
+
+                let clear_btn = egui::Button::new(
+                    RichText::new("Clear All").small().color(TEXT_DIM),
+                )
+                .fill(BG_SECONDARY)
+                .stroke(Stroke::new(1.0, TEXT_MUTED));
+
+                if ui
+                    .add(clear_btn)
+                    .on_hover_text(format!("Delete all {} finished jobs", count_finished))
+                    .clicked()
+                {
+                    action = JobListAction::DeleteAllFinished;
+                }
+            }
         });
 
         ui.add_space(4.0);
@@ -308,31 +313,33 @@ pub fn render_job_list(
                                 ui.label(RichText::new(target).color(TEXT_DIM))
                                     .on_hover_text(&job.target);
 
-                                // Delete button (only for finished jobs, on right side)
+                                // Delete button (only for finished jobs, pushed to right with spacer)
                                 if job.is_finished() {
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            // Larger, more visible delete button
-                                            let delete_btn = egui::Button::new(
-                                                RichText::new(" ✕ ")
-                                                    .color(ACCENT_RED)
-                                                    .size(14.0),
-                                            )
-                                            .fill(Color32::TRANSPARENT)
-                                            .stroke(Stroke::new(1.0, ACCENT_RED.linear_multiply(0.3)))
-                                            .corner_radius(3.0)
-                                            .min_size(egui::vec2(24.0, 20.0));
+                                    // Push delete button to the right
+                                    let remaining = ui.available_width();
+                                    let btn_width = 28.0;
+                                    if remaining > btn_width {
+                                        ui.add_space(remaining - btn_width);
+                                    }
 
-                                            if ui
-                                                .add(delete_btn)
-                                                .on_hover_text("Delete this job")
-                                                .clicked()
-                                            {
-                                                action = JobListAction::DeleteJob(job.id);
-                                            }
-                                        },
-                                    );
+                                    // Larger, more visible delete button
+                                    let delete_btn = egui::Button::new(
+                                        RichText::new(" ✕ ")
+                                            .color(ACCENT_RED)
+                                            .size(14.0),
+                                    )
+                                    .fill(Color32::TRANSPARENT)
+                                    .stroke(Stroke::new(1.0, ACCENT_RED.linear_multiply(0.3)))
+                                    .corner_radius(3.0)
+                                    .min_size(egui::vec2(24.0, 20.0));
+
+                                    if ui
+                                        .add(delete_btn)
+                                        .on_hover_text("Delete this job")
+                                        .clicked()
+                                    {
+                                        action = JobListAction::DeleteJob(job.id);
+                                    }
                                 }
                             });
                         });
