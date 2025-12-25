@@ -12,12 +12,30 @@ use crate::{AgentGroupId, CommentTag, Job, JobId, JobStatus, LogEvent, Target};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-/// Refresh cached jobs from JobManager
-pub fn refresh_jobs(job_manager: &Arc<Mutex<JobManager>>) -> Vec<Job> {
+/// Refresh cached jobs from JobManager.
+/// Returns (jobs, generation) tuple for change detection.
+pub fn refresh_jobs(job_manager: &Arc<Mutex<JobManager>>) -> (Vec<Job>, u64) {
     if let Ok(manager) = job_manager.lock() {
-        manager.jobs().into_iter().cloned().collect()
+        let generation = manager.generation();
+        let jobs = manager.jobs().into_iter().cloned().collect();
+        (jobs, generation)
     } else {
-        Vec::new()
+        (Vec::new(), 0)
+    }
+}
+
+/// Check if jobs have changed since last refresh.
+/// Returns Some(generation) if changed, None if same.
+pub fn check_jobs_changed(job_manager: &Arc<Mutex<JobManager>>, last_generation: u64) -> Option<u64> {
+    if let Ok(manager) = job_manager.lock() {
+        let current = manager.generation();
+        if current != last_generation {
+            Some(current)
+        } else {
+            None
+        }
+    } else {
+        None
     }
 }
 

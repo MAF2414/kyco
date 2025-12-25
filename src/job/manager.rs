@@ -22,6 +22,10 @@ pub struct JobManager {
 
     /// File locks for concurrent job isolation
     file_locks: HashMap<PathBuf, JobId>,
+
+    /// Generation counter - incremented on any mutation.
+    /// Used by GUI to know when to refresh cached jobs.
+    generation: u64,
 }
 
 impl JobManager {
@@ -34,7 +38,14 @@ impl JobManager {
             jobs: HashMap::new(),
             next_id: AtomicU64::new(1),
             file_locks: HashMap::new(),
+            generation: 0,
         }
+    }
+
+    /// Get current generation counter.
+    /// Use this to check if jobs have changed since last refresh.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     /// Create a new job manager (for API compatibility, same as new())
@@ -87,6 +98,7 @@ impl JobManager {
         );
 
         self.jobs.insert(id, job);
+        self.generation += 1;
 
         Ok(id)
     }
@@ -126,6 +138,7 @@ impl JobManager {
     pub fn set_status(&mut self, id: JobId, status: JobStatus) {
         if let Some(job) = self.jobs.get_mut(&id) {
             job.set_status(status);
+            self.generation += 1;
         }
     }
 
@@ -179,7 +192,11 @@ impl JobManager {
     /// This also releases any file locks held by the job.
     pub fn remove_job(&mut self, job_id: JobId) -> Option<Job> {
         self.release_job_locks(job_id);
-        self.jobs.remove(&job_id)
+        let removed = self.jobs.remove(&job_id);
+        if removed.is_some() {
+            self.generation += 1;
+        }
+        removed
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -241,6 +258,7 @@ impl JobManager {
         );
 
         self.jobs.insert(id, job);
+        self.generation += 1;
 
         Ok(id)
     }
@@ -287,6 +305,7 @@ impl JobManager {
         if let Some(job) = self.jobs.get_mut(&job_id) {
             job.workspace_id = Some(workspace_id);
             job.workspace_path = Some(workspace_path);
+            self.generation += 1;
             true
         } else {
             false

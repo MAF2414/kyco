@@ -243,10 +243,14 @@ pub struct KycoApp {
     workspace_registry: Arc<Mutex<WorkspaceRegistry>>,
     /// Currently active workspace ID (for filtering jobs in UI)
     active_workspace_id: Option<WorkspaceId>,
-    /// Cached jobs for display (updated periodically)
+    /// Cached jobs for display (updated only when changed)
     cached_jobs: Vec<Job>,
+    /// Last known job manager generation (for change detection)
+    last_job_generation: u64,
     /// Selected job ID
     selected_job_id: Option<u64>,
+    /// Job list filter
+    job_list_filter: jobs::JobListFilter,
     /// Log events
     logs: Vec<LogEvent>,
     /// Receiver for HTTP selection events from IDE extensions
@@ -531,7 +535,9 @@ impl KycoApp {
             workspace_registry: Arc::new(Mutex::new(workspace_registry)),
             active_workspace_id: Some(initial_workspace_id),
             cached_jobs: Vec::new(),
+            last_job_generation: 0,
             selected_job_id: None,
+            job_list_filter: jobs::JobListFilter::default(),
             logs: vec![LogEvent::system("kyco GUI started")],
             http_rx,
             batch_rx,
@@ -875,9 +881,21 @@ impl KycoApp {
         }
     }
 
-    /// Refresh cached jobs from JobManager
+    /// Refresh cached jobs from JobManager (only if changed)
     fn refresh_jobs(&mut self) {
-        self.cached_jobs = jobs::refresh_jobs(&self.job_manager);
+        // Only refresh if jobs have changed (generation counter check)
+        if let Some(new_generation) =
+            jobs::check_jobs_changed(&self.job_manager, self.last_job_generation)
+        {
+            let (new_jobs, generation) = jobs::refresh_jobs(&self.job_manager);
+            self.cached_jobs = new_jobs;
+            self.last_job_generation = generation;
+            tracing::trace!(
+                "Jobs refreshed, generation {} -> {}",
+                self.last_job_generation,
+                new_generation
+            );
+        }
     }
 
     fn open_apply_confirm(&mut self, target: ApplyTarget) {
@@ -1893,7 +1911,42 @@ impl KycoApp {
 
     /// Render the job list panel
     fn render_job_list(&mut self, ui: &mut egui::Ui) {
-        jobs::render_job_list(ui, &self.cached_jobs, &mut self.selected_job_id);
+        let action = jobs::render_job_list(
+            ui,
+            &self.cached_jobs,
+            &mut self.selected_job_id,
+            &mut self.job_list_filter,
+        );
+
+        // Handle delete action
+        if let jobs::JobListAction::DeleteJob(job_id) = action {
+            self.delete_job(job_id);
+        }
+    }
+
+    /// Delete a job from the job manager
+    fn delete_job(&mut self, job_id: JobId) {
+        if let Ok(mut manager) = self.job_manager.lock() {
+            if let Some(job) = manager.remove_job(job_id) {
+                self.logs.push(LogEvent::system(format!(
+                    "Deleted job #{} ({})",
+                    job_id, job.mode
+                )));
+
+                // Clear selection if deleted job was selected
+                if self.selected_job_id == Some(job_id) {
+                    self.selected_job_id = None;
+                }
+            }
+        }
+
+        // Also remove from group manager
+        if let Ok(mut gm) = self.group_manager.lock() {
+            gm.remove_job(job_id);
+        }
+
+        // Refresh to update UI
+        self.refresh_jobs();
     }
 
     /// Render the detail panel
