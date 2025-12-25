@@ -7,11 +7,13 @@ use crate::config::{Config, ModeConfig, ModeSessionType};
 
 const AUTH_HEADER: &str = "X-KYCO-Token";
 
+/// Resolve the config path - uses global config (~/.kyco/config.toml) as default,
+/// but allows override via --config flag for project-local configs.
 fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> PathBuf {
     match config_override {
         Some(p) if p.is_absolute() => p.clone(),
         Some(p) => work_dir.join(p),
-        None => work_dir.join(".kyco").join("config.toml"),
+        None => Config::global_config_path(), // Use global config as default
     }
 }
 
@@ -35,11 +37,20 @@ fn load_or_init_config(
     config_override: Option<&PathBuf>,
 ) -> Result<(Config, PathBuf)> {
     let config_path = resolve_config_path(work_dir, config_override);
+
+    // If using default global config, use Config::load() which handles auto-init
+    if config_override.is_none() {
+        let cfg = Config::load()?;
+        return Ok((cfg, config_path));
+    }
+
+    // For explicit config override, load from that file
     if config_path.exists() {
         let cfg = Config::from_file(&config_path)?;
         return Ok((cfg, config_path));
     }
 
+    // Create the specified config with defaults
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;

@@ -83,11 +83,13 @@ pub async fn status_command(
     Ok(())
 }
 
+/// Resolve the config path - uses global config (~/.kyco/config.toml) as default,
+/// but allows override via --config flag for project-local configs.
 fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> PathBuf {
     match config_override {
         Some(p) if p.is_absolute() => p.clone(),
         Some(p) => work_dir.join(p),
-        None => work_dir.join(".kyco").join("config.toml"),
+        None => Config::global_config_path(), // Use global config as default
     }
 }
 
@@ -95,8 +97,13 @@ fn load_gui_http_settings(
     work_dir: &Path,
     config_override: Option<&PathBuf>,
 ) -> (u16, Option<String>) {
-    let config_path = resolve_config_path(work_dir, config_override);
-    let config = Config::from_file(&config_path).ok();
+    // If using default global config, use Config::load() which handles auto-init
+    let config = if config_override.is_none() {
+        Config::load().ok()
+    } else {
+        let config_path = resolve_config_path(work_dir, config_override);
+        Config::from_file(&config_path).ok()
+    };
 
     let port = config
         .as_ref()
