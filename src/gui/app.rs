@@ -108,9 +108,22 @@ Mode CRUD (only with explicit user confirmation)
 - Create/update mode: `kyco mode set <name> [--prompt ...] [--system-prompt ...] [--aliases ...] [--readonly] ...`
 - Delete mode: `kyco mode delete <name>`
 
+Batch job creation (efficient pattern for many files)
+- Use ripgrep to find files, write to a temp file, then loop:
+  ```bash
+  # Example: Add tests to all .rs files in src/
+  rg --files -g '*.rs' src/ > /tmp/files.txt
+  while read file; do
+    kyco job start --file "$file" --mode test --prompt "Add unit tests" --pending
+  done < /tmp/files.txt
+  ```
+- Use --pending flag to create jobs without auto-queueing (review first in GUI)
+- For multi-agent comparison: `--agents claude,codex` creates parallel jobs
+
 Orchestration pattern
 - Start a job, wait for completion, read its output/state, then decide follow-ups.
 - If you start multiple jobs, keep track of IDs and report progress to the user.
+- For batch operations: create all jobs first (--pending), let user review in GUI, then queue.
 "#;
 
 // ═══════════════════════════════════════════════════════════════════════════
