@@ -4,11 +4,12 @@
 
 use super::super::animations::{blocked_indicator, pending_indicator, queued_indicator};
 use super::super::app::{
-    ACCENT_CYAN, ACCENT_PURPLE, ACCENT_RED, BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT_CYAN, ACCENT_PURPLE, ACCENT_RED, BG_HIGHLIGHT, BG_SECONDARY, BG_SELECTED, TEXT_DIM,
+    TEXT_MUTED, TEXT_PRIMARY,
 };
 use super::super::detail_panel::status_color;
 use crate::{Job, JobId, JobStatus};
-use eframe::egui::{self, Color32, RichText, ScrollArea};
+use eframe::egui::{self, Color32, RichText, ScrollArea, Stroke};
 
 /// Filter options for job list
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -44,6 +45,11 @@ impl JobListFilter {
             JobListFilter::Failed => "Failed",
         }
     }
+
+    /// Get count of jobs matching this filter
+    pub fn count(&self, jobs: &[Job]) -> usize {
+        jobs.iter().filter(|j| self.matches(j)).count()
+    }
 }
 
 /// Action returned from job list rendering
@@ -53,6 +59,8 @@ pub enum JobListAction {
     None,
     /// Delete the specified job
     DeleteJob(JobId),
+    /// Delete all finished jobs
+    DeleteAllFinished,
 }
 
 /// Render the job list panel
@@ -74,48 +82,85 @@ pub fn render_job_list(
         ui.ctx().request_repaint();
     }
 
+    // Pre-calculate counts for each filter
+    let count_all = cached_jobs.len();
+    let count_active = JobListFilter::Active.count(cached_jobs);
+    let count_finished = JobListFilter::Finished.count(cached_jobs);
+    let count_failed = JobListFilter::Failed.count(cached_jobs);
+
     ui.vertical(|ui| {
-        // Header with filter buttons
+        // Header
         ui.horizontal(|ui| {
             ui.label(RichText::new("JOBS").monospace().color(TEXT_PRIMARY));
-            ui.add_space(8.0);
 
-            // Filter buttons
-            for filter_option in [
-                JobListFilter::All,
-                JobListFilter::Active,
-                JobListFilter::Finished,
-                JobListFilter::Failed,
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // "Clear All" button - only show when there are finished jobs
+                if count_finished > 0 {
+                    let clear_btn = egui::Button::new(
+                        RichText::new("Clear All").small().color(TEXT_DIM),
+                    )
+                    .fill(BG_SECONDARY)
+                    .stroke(Stroke::new(1.0, TEXT_MUTED));
+
+                    if ui
+                        .add(clear_btn)
+                        .on_hover_text(format!("Delete all {} finished jobs", count_finished))
+                        .clicked()
+                    {
+                        action = JobListAction::DeleteAllFinished;
+                    }
+                }
+            });
+        });
+
+        ui.add_space(4.0);
+
+        // Filter buttons as pill-shaped tabs with counts
+        ui.horizontal(|ui| {
+            for (filter_option, count) in [
+                (JobListFilter::All, count_all),
+                (JobListFilter::Active, count_active),
+                (JobListFilter::Finished, count_finished),
+                (JobListFilter::Failed, count_failed),
             ] {
                 let is_selected = *filter == filter_option;
                 let label = filter_option.label();
-                let text = if is_selected {
-                    RichText::new(label).color(ACCENT_CYAN).small()
+
+                // Format label with count
+                let label_with_count = if count > 0 {
+                    format!("{} ({})", label, count)
                 } else {
-                    RichText::new(label).color(TEXT_MUTED).small()
+                    label.to_string()
                 };
 
-                if ui
-                    .add(egui::Button::new(text).frame(false))
-                    .on_hover_text(format!("Filter: {}", label))
-                    .clicked()
-                {
+                // Style based on selection and filter type
+                let (text_color, bg_color) = if is_selected {
+                    (ACCENT_CYAN, BG_HIGHLIGHT)
+                } else if count > 0 {
+                    (TEXT_DIM, BG_SECONDARY)
+                } else {
+                    (TEXT_MUTED, Color32::TRANSPARENT)
+                };
+
+                // Special highlight for failed jobs with count > 0 (but not when selected)
+                let text_color = if filter_option == JobListFilter::Failed && count > 0 && !is_selected {
+                    ACCENT_RED
+                } else {
+                    text_color
+                };
+
+                let btn = egui::Button::new(RichText::new(&label_with_count).small().color(text_color))
+                    .fill(bg_color)
+                    .corner_radius(4.0);
+
+                if ui.add(btn).clicked() {
                     *filter = filter_option;
                 }
-            }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Count filtered jobs
-                let filtered_count = cached_jobs.iter().filter(|j| filter.matches(j)).count();
-                let total_count = cached_jobs.len();
-                let count_text = if filtered_count == total_count {
-                    format!("{} total", total_count)
-                } else {
-                    format!("{}/{}", filtered_count, total_count)
-                };
-                ui.label(RichText::new(count_text).small().color(TEXT_MUTED));
-            });
+                ui.add_space(2.0);
+            }
         });
+
         ui.add_space(4.0);
         ui.separator();
 
@@ -268,16 +313,20 @@ pub fn render_job_list(
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
                                         |ui| {
+                                            // Larger, more visible delete button
+                                            let delete_btn = egui::Button::new(
+                                                RichText::new(" ✕ ")
+                                                    .color(ACCENT_RED)
+                                                    .size(14.0),
+                                            )
+                                            .fill(Color32::TRANSPARENT)
+                                            .stroke(Stroke::new(1.0, ACCENT_RED.linear_multiply(0.3)))
+                                            .corner_radius(3.0)
+                                            .min_size(egui::vec2(24.0, 20.0));
+
                                             if ui
-                                                .add(
-                                                    egui::Button::new(
-                                                        RichText::new("×")
-                                                            .color(ACCENT_RED)
-                                                            .small(),
-                                                    )
-                                                    .frame(false),
-                                                )
-                                                .on_hover_text("Delete job")
+                                                .add(delete_btn)
+                                                .on_hover_text("Delete this job")
                                                 .clicked()
                                             {
                                                 action = JobListAction::DeleteJob(job.id);

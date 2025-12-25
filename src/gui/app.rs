@@ -1885,9 +1885,15 @@ impl KycoApp {
             &mut self.job_list_filter,
         );
 
-        // Handle delete action
-        if let jobs::JobListAction::DeleteJob(job_id) = action {
-            self.delete_job(job_id);
+        // Handle actions
+        match action {
+            jobs::JobListAction::DeleteJob(job_id) => {
+                self.delete_job(job_id);
+            }
+            jobs::JobListAction::DeleteAllFinished => {
+                self.delete_all_finished_jobs();
+            }
+            jobs::JobListAction::None => {}
         }
     }
 
@@ -1911,6 +1917,58 @@ impl KycoApp {
         if let Ok(mut gm) = self.group_manager.lock() {
             gm.remove_job(job_id);
         }
+
+        // Cleanup per-job UI state
+        self.permission_mode_overrides.remove(&job_id);
+
+        // Refresh to update UI
+        self.refresh_jobs();
+    }
+
+    /// Delete all finished jobs (Done, Failed, Rejected, Merged)
+    fn delete_all_finished_jobs(&mut self) {
+        // Collect IDs of finished jobs
+        let finished_ids: Vec<JobId> = self
+            .cached_jobs
+            .iter()
+            .filter(|j| j.is_finished())
+            .map(|j| j.id)
+            .collect();
+
+        if finished_ids.is_empty() {
+            return;
+        }
+
+        let count = finished_ids.len();
+
+        // Remove from job manager
+        if let Ok(mut manager) = self.job_manager.lock() {
+            for job_id in &finished_ids {
+                manager.remove_job(*job_id);
+            }
+        }
+
+        // Remove from group manager
+        if let Ok(mut gm) = self.group_manager.lock() {
+            for job_id in &finished_ids {
+                gm.remove_job(*job_id);
+            }
+        }
+
+        // Cleanup per-job UI state
+        for job_id in &finished_ids {
+            self.permission_mode_overrides.remove(job_id);
+        }
+
+        // Clear selection if deleted job was selected
+        if let Some(selected) = self.selected_job_id {
+            if finished_ids.contains(&selected) {
+                self.selected_job_id = None;
+            }
+        }
+
+        self.logs
+            .push(LogEvent::system(format!("Deleted {} finished jobs", count)));
 
         // Refresh to update UI
         self.refresh_jobs();
