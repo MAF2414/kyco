@@ -7,6 +7,10 @@ use std::time::Duration;
 use super::{AgentGroupId, LogEvent, ScopeDefinition};
 use crate::workspace::WorkspaceId;
 
+/// Maximum number of log events to keep per job (FIFO eviction)
+/// Prevents unbounded memory growth from tool call accumulation
+const MAX_JOB_LOG_EVENTS: usize = 200;
+
 /// Parsed output from the agent's YAML summary block
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JobResult {
@@ -648,9 +652,15 @@ impl Job {
         }
     }
 
-    /// Add a log event
+    /// Add a log event, automatically removing oldest entries if over limit.
+    /// This prevents unbounded memory growth from tool call accumulation.
     pub fn add_log_event(&mut self, event: LogEvent) {
         self.log_events.push(event);
+        // Remove oldest entries if over limit (FIFO eviction)
+        if self.log_events.len() > MAX_JOB_LOG_EVENTS {
+            let excess = self.log_events.len() - MAX_JOB_LOG_EVENTS;
+            self.log_events.drain(0..excess);
+        }
         self.updated_at = Utc::now();
     }
 

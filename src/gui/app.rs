@@ -34,6 +34,17 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MEMORY LIMITS - Prevent unbounded growth
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Maximum number of log entries to keep in memory (FIFO eviction)
+const MAX_GLOBAL_LOGS: usize = 500;
+
+/// Maximum age of finished jobs before automatic cleanup (in seconds)
+/// Jobs older than this are removed from memory to prevent leaks
+const MAX_FINISHED_JOB_AGE_SECS: i64 = 4 * 60 * 60; // 4 hours
+
 /// Minimal default config for GUI initialization
 const DEFAULT_CONFIG_MINIMAL: &str = r#"# KYCo Configuration
 # Run `kyco init` for full configuration with all options
@@ -437,6 +448,9 @@ pub struct KycoApp {
 
     /// UI action: launch an external orchestrator session (Terminal)
     orchestrator_requested: bool,
+
+    /// Last time we ran job cleanup (to avoid running every frame)
+    last_job_cleanup: std::time::Instant,
 }
 
 impl KycoApp {
@@ -622,6 +636,62 @@ impl KycoApp {
             import_chains: false,
             import_settings: false,
             orchestrator_requested: false,
+            last_job_cleanup: std::time::Instant::now(),
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Memory Management Helpers
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// Truncate global logs to MAX_GLOBAL_LOGS (FIFO eviction).
+    /// Called periodically to prevent unbounded memory growth.
+    fn truncate_logs(&mut self) {
+        if self.logs.len() > MAX_GLOBAL_LOGS {
+            let excess = self.logs.len() - MAX_GLOBAL_LOGS;
+            self.logs.drain(0..excess);
+        }
+    }
+
+    /// Remove finished jobs older than MAX_FINISHED_JOB_AGE_SECS.
+    /// Called periodically to prevent unbounded job accumulation.
+    fn cleanup_old_finished_jobs(&mut self) {
+        let now = chrono::Utc::now();
+        let mut jobs_to_remove = Vec::new();
+
+        if let Ok(mut manager) = self.job_manager.lock() {
+            for job in manager.jobs() {
+                // Only cleanup finished jobs (Done, Failed, Rejected, Merged)
+                if job.is_finished() {
+                    if let Some(finished_at) = job.finished_at {
+                        let age_secs = (now - finished_at).num_seconds();
+                        if age_secs > MAX_FINISHED_JOB_AGE_SECS {
+                            jobs_to_remove.push(job.id);
+                        }
+                    }
+                }
+            }
+
+            // Remove the old jobs
+            for job_id in &jobs_to_remove {
+                manager.remove_job(*job_id);
+            }
+        }
+
+        // Also cleanup from group manager
+        if !jobs_to_remove.is_empty() {
+            if let Ok(mut group_manager) = self.group_manager.lock() {
+                for job_id in &jobs_to_remove {
+                    group_manager.remove_job(*job_id);
+                }
+            }
+        }
+
+        if !jobs_to_remove.is_empty() {
+            tracing::debug!(
+                "Memory cleanup: removed {} old finished jobs",
+                jobs_to_remove.len()
+            );
         }
     }
 
@@ -2449,6 +2519,13 @@ impl eframe::App for KycoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Refresh jobs periodically (every frame for now, could optimize)
         self.refresh_jobs();
+
+        // Periodically cleanup old finished jobs and truncate logs (every 60 seconds)
+        if self.last_job_cleanup.elapsed().as_secs() >= 60 {
+            self.cleanup_old_finished_jobs();
+            self.truncate_logs();
+            self.last_job_cleanup = std::time::Instant::now();
+        }
 
         // Load inline diff when job selection changes
         if self.selected_job_id != self.prev_selected_job_id {
