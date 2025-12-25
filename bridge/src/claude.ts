@@ -501,18 +501,25 @@ export async function* executeClaudeQuery(
 
     // IMPORTANT: Close the query FIRST to unblock processStream, then wait for cleanup.
     // The processStream is iterating over `q` (for await of q), so it will block until
-    // the SDK query closes. We must call q.return() to signal completion BEFORE waiting
-    // for streamPromise, otherwise we have a deadlock.
+    // the SDK query closes. We must signal completion BEFORE waiting for streamPromise.
     if (q) {
       try {
-        await q.return(undefined as never);
+        // First try interrupt() which is more forceful
+        await q.interrupt();
       } catch {
-        // Ignore errors during cleanup - the session is already complete
+        // If interrupt fails, try return()
+        try {
+          await q.return(undefined as never);
+        } catch {
+          // Ignore cleanup errors - session is already complete
+        }
       }
     }
 
-    // Now wait for processStream to finish its cleanup (session store update, etc.)
-    await streamPromise.catch(() => {});
+    // Wait for processStream with a timeout - don't block forever
+    // Use Promise.race to ensure we exit even if cleanup hangs
+    const timeoutPromise = new Promise<void>(resolve => setTimeout(resolve, 2000));
+    await Promise.race([streamPromise.catch(() => {}), timeoutPromise]);
 
   } catch (error) {
     yield {
