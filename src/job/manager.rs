@@ -150,6 +150,14 @@ impl JobManager {
         }
     }
 
+    /// Manually increment the generation counter.
+    ///
+    /// Call this after directly modifying a job via `get_mut()` to ensure
+    /// the GUI cache is invalidated and refreshes the job list.
+    pub fn touch(&mut self) {
+        self.generation += 1;
+    }
+
     /// Try to acquire a file lock for a job
     pub fn try_lock_file(&mut self, path: &Path, job_id: JobId) -> bool {
         if self.file_locks.contains_key(path) {

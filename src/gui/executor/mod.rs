@@ -391,6 +391,7 @@ async fn run_job(
                 if let Some(j) = manager.get_mut(job_id) {
                     j.fail(error.clone());
                 }
+                manager.touch();
             }
             let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
             return;
@@ -518,6 +519,8 @@ async fn run_job(
                     let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
                 }
             }
+            // Ensure GUI cache is invalidated after job completion/failure
+            manager.touch();
         }
         Err(e) => {
             let error = e.to_string();
@@ -526,6 +529,7 @@ async fn run_job(
                 if let Some(j) = manager.get_mut(job_id) {
                     j.fail(error.clone());
                 }
+                manager.touch();
             }
             let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
                 "Job #{} error: {}",
@@ -629,6 +633,7 @@ async fn run_chain_job(
                 if let Some(j) = manager.get_mut(job_id) {
                     j.fail(error.clone());
                 }
+                manager.touch();
             }
             let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
             return;
@@ -1013,6 +1018,8 @@ async fn run_chain_job(
                 ));
             }
         }
+        // Ensure GUI cache is invalidated after chain completion/failure
+        manager.touch();
     }
 
     // Send chain completion event
