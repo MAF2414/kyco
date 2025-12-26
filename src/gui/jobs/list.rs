@@ -310,7 +310,16 @@ pub fn render_job_list(
                                     .file_name()
                                     .and_then(|f| f.to_str())
                                     .unwrap_or(&job.target);
-                                ui.label(RichText::new(target).color(TEXT_DIM))
+
+                                // Truncate long filenames to prevent layout overflow
+                                const MAX_FILENAME_LEN: usize = 35;
+                                let display_target = if target.len() > MAX_FILENAME_LEN {
+                                    format!("{}…", &target[..MAX_FILENAME_LEN])
+                                } else {
+                                    target.to_string()
+                                };
+
+                                ui.label(RichText::new(&display_target).color(TEXT_DIM))
                                     .on_hover_text(&job.target);
 
                                 // Delete button (only for finished jobs, pushed to right with spacer)
