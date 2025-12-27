@@ -490,6 +490,32 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
                 60.0,
                 "seconds",
             );
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+            ui.label(RichText::new("Hotkeys").color(TEXT_PRIMARY).strong());
+            ui.add_space(4.0);
+            render_text_field_with_desc(
+                ui,
+                "Global Dictation:",
+                state.voice_settings_global_hotkey,
+                120.0,
+                "e.g. cmd+shift+v",
+            );
+            ui.add_space(4.0);
+            render_text_field_with_desc(
+                ui,
+                "Popup Recording:",
+                state.voice_settings_popup_hotkey,
+                120.0,
+                "e.g. cmd+d",
+            );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Note: Hotkey changes require app restart")
+                    .color(TEXT_MUTED)
+                    .small(),
+            );
         });
     });
 

@@ -399,6 +399,10 @@ pub struct KycoApp {
     voice_settings_silence_duration: String,
     /// Voice settings editor: max duration
     voice_settings_max_duration: String,
+    /// Voice settings editor: global hotkey (dictate from any app)
+    voice_settings_global_hotkey: String,
+    /// Voice settings editor: popup hotkey (start/stop in selection popup)
+    voice_settings_popup_hotkey: String,
     /// VAD settings: enabled
     vad_enabled: bool,
     /// VAD settings: speech threshold
@@ -475,6 +479,191 @@ pub struct KycoApp {
     show_voice_overlay: bool,
 }
 
+/// Check if a hotkey string matches the current egui input state
+/// Returns true if the hotkey is pressed
+fn check_egui_hotkey(input: &egui::InputState, hotkey_str: &str) -> bool {
+    let hotkey_lower = hotkey_str.to_lowercase();
+    let parts: Vec<&str> = hotkey_lower.split('+').collect();
+    if parts.is_empty() {
+        return false;
+    }
+
+    let key_part = match parts.last() {
+        Some(k) => *k,
+        None => return false,
+    };
+
+    // Check modifiers
+    let mut need_cmd = false;
+    let mut need_ctrl = false;
+    let mut need_alt = false;
+    let mut need_shift = false;
+
+    for part in &parts[..parts.len() - 1] {
+        match *part {
+            "cmd" | "command" | "super" | "win" => need_cmd = true,
+            "ctrl" | "control" => need_ctrl = true,
+            "alt" | "option" => need_alt = true,
+            "shift" => need_shift = true,
+            _ => {}
+        }
+    }
+
+    // Check if modifiers match (use command for cmd on all platforms in egui)
+    let mods_match = input.modifiers.command == need_cmd
+        && input.modifiers.ctrl == need_ctrl
+        && input.modifiers.alt == need_alt
+        && input.modifiers.shift == need_shift;
+
+    if !mods_match {
+        return false;
+    }
+
+    // Map key string to egui Key
+    let key = match key_part {
+        "a" => Key::A,
+        "b" => Key::B,
+        "c" => Key::C,
+        "d" => Key::D,
+        "e" => Key::E,
+        "f" => Key::F,
+        "g" => Key::G,
+        "h" => Key::H,
+        "i" => Key::I,
+        "j" => Key::J,
+        "k" => Key::K,
+        "l" => Key::L,
+        "m" => Key::M,
+        "n" => Key::N,
+        "o" => Key::O,
+        "p" => Key::P,
+        "q" => Key::Q,
+        "r" => Key::R,
+        "s" => Key::S,
+        "t" => Key::T,
+        "u" => Key::U,
+        "v" => Key::V,
+        "w" => Key::W,
+        "x" => Key::X,
+        "y" => Key::Y,
+        "z" => Key::Z,
+        "0" => Key::Num0,
+        "1" => Key::Num1,
+        "2" => Key::Num2,
+        "3" => Key::Num3,
+        "4" => Key::Num4,
+        "5" => Key::Num5,
+        "6" => Key::Num6,
+        "7" => Key::Num7,
+        "8" => Key::Num8,
+        "9" => Key::Num9,
+        "space" => Key::Space,
+        "enter" | "return" => Key::Enter,
+        "escape" | "esc" => Key::Escape,
+        "tab" => Key::Tab,
+        "backspace" => Key::Backspace,
+        "delete" => Key::Delete,
+        "f1" => Key::F1,
+        "f2" => Key::F2,
+        "f3" => Key::F3,
+        "f4" => Key::F4,
+        "f5" => Key::F5,
+        "f6" => Key::F6,
+        "f7" => Key::F7,
+        "f8" => Key::F8,
+        "f9" => Key::F9,
+        "f10" => Key::F10,
+        "f11" => Key::F11,
+        "f12" => Key::F12,
+        _ => return false,
+    };
+
+    input.key_pressed(key)
+}
+
+/// Parse a hotkey string like "cmd+shift+v" into Modifiers and Code
+/// Returns None if the string is invalid
+fn parse_hotkey_string(hotkey_str: &str) -> Option<(Modifiers, Code)> {
+    let hotkey_lower = hotkey_str.to_lowercase();
+    let parts: Vec<&str> = hotkey_lower.split('+').collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let mut modifiers = Modifiers::empty();
+    let key_part = parts.last()?;
+
+    for part in &parts[..parts.len() - 1] {
+        match *part {
+            "cmd" | "command" | "super" | "win" => modifiers |= Modifiers::SUPER,
+            "ctrl" | "control" => modifiers |= Modifiers::CONTROL,
+            "alt" | "option" => modifiers |= Modifiers::ALT,
+            "shift" => modifiers |= Modifiers::SHIFT,
+            _ => {}
+        }
+    }
+
+    let code = match *key_part {
+        "a" => Code::KeyA,
+        "b" => Code::KeyB,
+        "c" => Code::KeyC,
+        "d" => Code::KeyD,
+        "e" => Code::KeyE,
+        "f" => Code::KeyF,
+        "g" => Code::KeyG,
+        "h" => Code::KeyH,
+        "i" => Code::KeyI,
+        "j" => Code::KeyJ,
+        "k" => Code::KeyK,
+        "l" => Code::KeyL,
+        "m" => Code::KeyM,
+        "n" => Code::KeyN,
+        "o" => Code::KeyO,
+        "p" => Code::KeyP,
+        "q" => Code::KeyQ,
+        "r" => Code::KeyR,
+        "s" => Code::KeyS,
+        "t" => Code::KeyT,
+        "u" => Code::KeyU,
+        "v" => Code::KeyV,
+        "w" => Code::KeyW,
+        "x" => Code::KeyX,
+        "y" => Code::KeyY,
+        "z" => Code::KeyZ,
+        "0" => Code::Digit0,
+        "1" => Code::Digit1,
+        "2" => Code::Digit2,
+        "3" => Code::Digit3,
+        "4" => Code::Digit4,
+        "5" => Code::Digit5,
+        "6" => Code::Digit6,
+        "7" => Code::Digit7,
+        "8" => Code::Digit8,
+        "9" => Code::Digit9,
+        "space" => Code::Space,
+        "enter" | "return" => Code::Enter,
+        "escape" | "esc" => Code::Escape,
+        "tab" => Code::Tab,
+        "backspace" => Code::Backspace,
+        "delete" => Code::Delete,
+        "f1" => Code::F1,
+        "f2" => Code::F2,
+        "f3" => Code::F3,
+        "f4" => Code::F4,
+        "f5" => Code::F5,
+        "f6" => Code::F6,
+        "f7" => Code::F7,
+        "f8" => Code::F8,
+        "f9" => Code::F9,
+        "f10" => Code::F10,
+        "f11" => Code::F11,
+        "f12" => Code::F12,
+        _ => return None,
+    };
+
+    Some((modifiers, code))
+}
+
 impl KycoApp {
     /// Create a new GUI application
     pub fn new(
@@ -530,6 +719,8 @@ impl KycoApp {
         let voice_settings_silence_threshold = voice_settings.silence_threshold.to_string();
         let voice_settings_silence_duration = voice_settings.silence_duration.to_string();
         let voice_settings_max_duration = voice_settings.max_duration.to_string();
+        let voice_settings_global_hotkey = voice_settings.global_hotkey.clone();
+        let voice_settings_popup_hotkey = voice_settings.popup_hotkey.clone();
 
         // Extract output schema
         let settings_output_schema = config_snapshot.settings.gui.output_schema.clone();
@@ -543,6 +734,9 @@ impl KycoApp {
         let mut workspace_registry = WorkspaceRegistry::load_or_create();
         let initial_workspace_id = workspace_registry.get_or_create(work_dir.clone());
         workspace_registry.set_active(initial_workspace_id);
+
+        // Initialize global hotkey manager with configured hotkey (before struct init)
+        let global_hotkey_manager = Self::init_global_hotkey_manager(&voice_settings_global_hotkey);
 
         Self {
             work_dir: work_dir.clone(),
@@ -629,6 +823,8 @@ impl KycoApp {
             voice_settings_silence_threshold,
             voice_settings_silence_duration,
             voice_settings_max_duration,
+            voice_settings_global_hotkey,
+            voice_settings_popup_hotkey,
             vad_enabled: true,
             vad_speech_threshold: "0.5".to_string(),
             vad_silence_duration_ms: "1000".to_string(),
@@ -658,8 +854,8 @@ impl KycoApp {
             orchestrator_requested: false,
             last_log_cleanup: std::time::Instant::now(),
 
-            // Initialize global voice hotkey
-            global_hotkey_manager: Self::init_global_hotkey_manager(),
+            // Use pre-computed global hotkey manager
+            global_hotkey_manager,
             voice_hotkey: None, // Will be set after manager is created
             global_voice_recording: false,
             global_voice_auto_paste: true,
@@ -668,23 +864,34 @@ impl KycoApp {
     }
 
     /// Initialize the global hotkey manager and register voice hotkey
-    fn init_global_hotkey_manager() -> Option<GlobalHotKeyManager> {
+    fn init_global_hotkey_manager(hotkey_str: &str) -> Option<GlobalHotKeyManager> {
         match GlobalHotKeyManager::new() {
             Ok(manager) => {
-                // Register Cmd+Shift+V (macOS) / Ctrl+Shift+V (Linux/Windows) for voice input
-                #[cfg(target_os = "macos")]
-                let modifiers = Modifiers::SUPER | Modifiers::SHIFT;
-                #[cfg(not(target_os = "macos"))]
-                let modifiers = Modifiers::CONTROL | Modifiers::SHIFT;
+                // Parse the configured hotkey string
+                let (modifiers, code) = match parse_hotkey_string(hotkey_str) {
+                    Some((m, c)) => (m, c),
+                    None => {
+                        tracing::warn!(
+                            "Invalid hotkey string '{}', using default Cmd+Shift+V",
+                            hotkey_str
+                        );
+                        // Fallback to default
+                        #[cfg(target_os = "macos")]
+                        let default_mods = Modifiers::SUPER | Modifiers::SHIFT;
+                        #[cfg(not(target_os = "macos"))]
+                        let default_mods = Modifiers::CONTROL | Modifiers::SHIFT;
+                        (default_mods, Code::KeyV)
+                    }
+                };
 
-                let hotkey = HotKey::new(Some(modifiers), Code::KeyV);
+                let hotkey = HotKey::new(Some(modifiers), code);
 
                 if let Err(e) = manager.register(hotkey) {
                     tracing::warn!("Failed to register global voice hotkey: {}", e);
                     return Some(manager);
                 }
 
-                tracing::info!("Global voice hotkey registered: Cmd+Shift+V");
+                tracing::info!("Global voice hotkey registered: {}", hotkey_str);
                 Some(manager)
             }
             Err(e) => {
@@ -881,6 +1088,8 @@ impl KycoApp {
                 voice_settings_silence_threshold: &mut self.voice_settings_silence_threshold,
                 voice_settings_silence_duration: &mut self.voice_settings_silence_duration,
                 voice_settings_max_duration: &mut self.voice_settings_max_duration,
+                voice_settings_global_hotkey: &mut self.voice_settings_global_hotkey,
+                voice_settings_popup_hotkey: &mut self.voice_settings_popup_hotkey,
                 voice_install_status: &mut self.voice_install_status,
                 voice_install_in_progress: &mut self.voice_install_in_progress,
                 // Voice test state
@@ -3274,10 +3483,9 @@ impl eframe::App for KycoApp {
                 self.auto_run = !self.auto_run;
             }
 
-            // Voice hotkey handling (Cmd+D / Ctrl+D to start recording in selection popup)
-            // Using Cmd/Ctrl+D because it doesn't conflict with text input (unlike Shift+V)
+            // Voice hotkey handling (configurable, default: Cmd+D / Ctrl+D)
             if self.view_mode == ViewMode::SelectionPopup {
-                let voice_hotkey_pressed = i.modifiers.command && i.key_pressed(Key::D);
+                let voice_hotkey_pressed = check_egui_hotkey(i, &self.voice_settings_popup_hotkey);
 
                 if voice_hotkey_pressed {
                     // Auto-install voice dependencies if not available

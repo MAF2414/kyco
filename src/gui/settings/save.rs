@@ -80,6 +80,8 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
     state.config.settings.gui.voice.silence_threshold = silence_threshold;
     state.config.settings.gui.voice.silence_duration = silence_duration;
     state.config.settings.gui.voice.max_duration = max_duration;
+    state.config.settings.gui.voice.global_hotkey = state.voice_settings_global_hotkey.clone();
+    state.config.settings.gui.voice.popup_hotkey = state.voice_settings_popup_hotkey.clone();
 
     // Save config with atomic write and file locking
     let config_path = Config::global_config_path();

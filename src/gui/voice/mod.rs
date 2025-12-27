@@ -472,11 +472,10 @@ impl VoiceManager {
             "--no-timestamps".to_string(),
         ];
 
-        // Add language if not auto
-        if language != "auto" {
-            args.push("-l".to_string());
-            args.push(language.to_string());
-        }
+        // Always pass the language flag - whisper defaults to English if not specified
+        // "auto" tells whisper to auto-detect the language
+        args.push("-l".to_string());
+        args.push(language.to_string());
 
         let output = Command::new("whisper-cli")
             .args(&args)

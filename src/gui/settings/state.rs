@@ -40,6 +40,8 @@ pub struct SettingsState<'a> {
     pub voice_settings_silence_threshold: &'a mut String,
     pub voice_settings_silence_duration: &'a mut String,
     pub voice_settings_max_duration: &'a mut String,
+    pub voice_settings_global_hotkey: &'a mut String,
+    pub voice_settings_popup_hotkey: &'a mut String,
     pub voice_install_status: &'a mut Option<(String, bool)>,
     pub voice_install_in_progress: &'a mut bool,
 

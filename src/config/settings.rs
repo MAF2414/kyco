@@ -163,6 +163,16 @@ pub struct VoiceSettings {
     /// Maximum recording duration (in seconds)
     #[serde(default = "default_max_duration")]
     pub max_duration: f32,
+
+    /// Global voice hotkey (dictate from any app)
+    /// Format: "modifier+key" e.g., "cmd+shift+v", "ctrl+shift+v"
+    #[serde(default = "default_global_voice_hotkey")]
+    pub global_hotkey: String,
+
+    /// Popup voice hotkey (start/stop recording in selection popup)
+    /// Format: "modifier+key" e.g., "cmd+d", "ctrl+d"
+    #[serde(default = "default_popup_voice_hotkey")]
+    pub popup_hotkey: String,
 }
 
 // Default functions for VoiceSettings
@@ -204,6 +214,20 @@ fn default_max_duration() -> f32 {
     300.0 // 5 minutes - safety limit for manual recording
 }
 
+fn default_global_voice_hotkey() -> String {
+    #[cfg(target_os = "macos")]
+    return "cmd+shift+v".to_string();
+    #[cfg(not(target_os = "macos"))]
+    return "ctrl+shift+v".to_string();
+}
+
+fn default_popup_voice_hotkey() -> String {
+    #[cfg(target_os = "macos")]
+    return "cmd+d".to_string();
+    #[cfg(not(target_os = "macos"))]
+    return "ctrl+d".to_string();
+}
+
 impl Default for VoiceSettings {
     fn default() -> Self {
         Self {
@@ -214,6 +238,8 @@ impl Default for VoiceSettings {
             silence_threshold: default_silence_threshold(),
             silence_duration: default_silence_duration(),
             max_duration: default_max_duration(),
+            global_hotkey: default_global_voice_hotkey(),
+            popup_hotkey: default_popup_voice_hotkey(),
         }
     }
 }
