@@ -48,10 +48,7 @@ impl AutocompleteState {
         if input_trimmed.is_empty() {
             // Show agents first, then modes when empty
             for (agent_name, agent_config) in &config.agent {
-                let backend = agent_config
-                    .binary
-                    .as_deref()
-                    .unwrap_or(agent_config.sdk.default_name());
+                let backend = agent_config.sdk.default_name();
                 let desc = format!("{} ({})", backend, agent_config.aliases.join(", "));
                 self.suggestions.push(Suggestion {
                     text: format!("{}:", agent_name),
@@ -181,10 +178,7 @@ impl AutocompleteState {
                     .any(|a| a.to_lowercase().starts_with(input_trimmed));
 
                 if matches_name || matches_alias {
-                    let backend = agent_config
-                        .binary
-                        .as_deref()
-                        .unwrap_or(agent_config.sdk.default_name());
+                    let backend = agent_config.sdk.default_name();
                     let desc = format!("{} ({})", backend, agent_config.aliases.join(", "));
                     self.suggestions.push(Suggestion {
                         text: format!("{}:", agent_name),

@@ -23,22 +23,6 @@ pub struct AgentConfigToml {
     #[serde(default, alias = "mode")]
     pub session_mode: SessionMode,
 
-    // Legacy CLI fields (ignored for SDK-based agents)
-    /// Binary to execute (legacy)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub binary: Option<String>,
-    /// Arguments for print/non-interactive mode (legacy)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub print_mode_args: Vec<String>,
-    /// Arguments for output format (legacy)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub output_format_args: Vec<String>,
-    /// Arguments for REPL/interactive mode (legacy)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub repl_mode_args: Vec<String>,
-    /// Legacy default args (prefer print_mode_args + output_format_args)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub default_args: Vec<String>,
     #[serde(default)]
     pub system_prompt_mode: SystemPromptMode,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

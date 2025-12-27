@@ -214,11 +214,6 @@ impl Config {
                 aliases: vec!["c".to_string(), "cl".to_string()],
                 sdk: SdkType::Claude,
                 session_mode: SessionMode::Oneshot,
-                binary: None,
-                print_mode_args: vec![],
-                output_format_args: vec![],
-                repl_mode_args: vec![],
-                default_args: vec![],
                 system_prompt_mode: SystemPromptMode::Append,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
@@ -235,11 +230,6 @@ impl Config {
                 aliases: vec!["x".to_string(), "cx".to_string()],
                 sdk: SdkType::Codex,
                 session_mode: SessionMode::Oneshot,
-                binary: None,
-                print_mode_args: vec![],
-                output_format_args: vec![],
-                repl_mode_args: vec![],
-                default_args: vec![],
                 system_prompt_mode: SystemPromptMode::Append,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
@@ -513,14 +503,6 @@ impl Config {
                 },
                 output_schema,
                 structured_output_schema,
-                // Legacy fields
-                cli_type: Some(toml.sdk),
-                mode: Some(toml.session_mode),
-                binary: toml.binary.clone(),
-                print_mode_args: toml.print_mode_args.clone(),
-                output_format_args: toml.output_format_args.clone(),
-                repl_mode_args: toml.repl_mode_args.clone(),
-                default_args: toml.default_args.clone(),
             }
         })
     }

@@ -18,14 +18,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
 
     ui.label(RichText::new(&title).monospace().color(TEXT_PRIMARY));
     ui.add_space(16.0);
-    ui.label(
-        RichText::new(
-            "Agents run through the SDK Bridge (Claude/Codex). CLI binary/args are legacy and typically ignored.",
-        )
-        .small()
-        .color(TEXT_MUTED),
-    );
-    ui.add_space(12.0);
 
     ScrollArea::vertical()
         .auto_shrink([false, false])
@@ -58,19 +50,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
                         .font(egui::TextStyle::Monospace)
                         .text_color(TEXT_PRIMARY)
                         .hint_text("c, cl")
-                        .desired_width(200.0),
-                );
-            });
-            ui.add_space(8.0);
-
-            // Binary
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Binary (legacy):").color(TEXT_MUTED));
-                ui.add(
-                    egui::TextEdit::singleline(state.agent_edit_binary)
-                        .font(egui::TextStyle::Monospace)
-                        .text_color(TEXT_PRIMARY)
-                        .hint_text("claude (optional)")
                         .desired_width(200.0),
                 );
             });
@@ -140,46 +119,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
                     });
             });
             ui.add_space(16.0);
-
-            egui::CollapsingHeader::new("Legacy CLI Arguments (ignored)")
-                .default_open(false)
-                .show(ui, |ui| {
-                    // Print mode args
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Print Args:").color(TEXT_MUTED));
-                        ui.add(
-                            egui::TextEdit::singleline(state.agent_edit_print_args)
-                                .font(egui::TextStyle::Monospace)
-                                .text_color(TEXT_PRIMARY)
-                                .desired_width(400.0),
-                        );
-                    });
-                    ui.add_space(8.0);
-
-                    // Output format args
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Output Args:").color(TEXT_MUTED));
-                        ui.add(
-                            egui::TextEdit::singleline(state.agent_edit_output_args)
-                                .font(egui::TextStyle::Monospace)
-                                .text_color(TEXT_PRIMARY)
-                                .desired_width(400.0),
-                        );
-                    });
-                    ui.add_space(8.0);
-
-                    // REPL mode args
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("REPL Args:").color(TEXT_MUTED));
-                        ui.add(
-                            egui::TextEdit::singleline(state.agent_edit_repl_args)
-                                .font(egui::TextStyle::Monospace)
-                                .text_color(TEXT_PRIMARY)
-                                .desired_width(400.0),
-                        );
-                    });
-                    ui.add_space(16.0);
-                });
 
             ui.separator();
             ui.add_space(8.0);

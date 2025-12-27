@@ -11,7 +11,6 @@ pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
     if let Some(agent) = state.config.agent.get(name) {
         *state.agent_edit_name = name.to_string();
         *state.agent_edit_aliases = agent.aliases.join(", ");
-        *state.agent_edit_binary = agent.binary.clone().unwrap_or_default();
         *state.agent_edit_cli_type = match agent.sdk {
             SdkType::Codex => "codex".to_string(),
             _ => "claude".to_string(),
@@ -20,9 +19,6 @@ pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
             SessionMode::Session | SessionMode::Repl => "session".to_string(),
             _ => "oneshot".to_string(),
         };
-        *state.agent_edit_print_args = agent.print_mode_args.join(" ");
-        *state.agent_edit_output_args = agent.output_format_args.join(" ");
-        *state.agent_edit_repl_args = agent.repl_mode_args.join(" ");
         *state.agent_edit_system_prompt_mode =
             format!("{:?}", agent.system_prompt_mode).to_lowercase();
         *state.agent_edit_disallowed_tools = agent.disallowed_tools.join(", ");
@@ -52,25 +48,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .collect();
-
-    // Build args arrays
-    let print_mode_args: Vec<String> = state
-        .agent_edit_print_args
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .collect();
-
-    let output_format_args: Vec<String> = state
-        .agent_edit_output_args
-        .split_whitespace()
-        .map(|s| s.to_string())
-        .collect();
-
-    let repl_mode_args: Vec<String> = state
-        .agent_edit_repl_args
-        .split_whitespace()
-        .map(|s| s.to_string())
         .collect();
 
     let allowed_tools: Vec<String> = state
@@ -118,12 +95,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         aliases,
         sdk,
         session_mode,
-        binary: (!state.agent_edit_binary.trim().is_empty())
-            .then(|| state.agent_edit_binary.clone()),
-        print_mode_args,
-        output_format_args,
-        repl_mode_args,
-        default_args: vec![],
         system_prompt_mode,
         disallowed_tools,
         allowed_tools,

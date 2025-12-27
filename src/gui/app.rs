@@ -338,18 +338,10 @@ pub struct KycoApp {
     agent_edit_name: String,
     /// Agent editor: aliases field
     agent_edit_aliases: String,
-    /// Agent editor: binary field
-    agent_edit_binary: String,
-    /// Agent editor: cli_type field
+    /// Agent editor: sdk type (claude/codex)
     agent_edit_cli_type: String,
-    /// Agent editor: mode (print/repl)
+    /// Agent editor: session mode (oneshot/session)
     agent_edit_mode: String,
-    /// Agent editor: print_mode_args
-    agent_edit_print_args: String,
-    /// Agent editor: output_format_args
-    agent_edit_output_args: String,
-    /// Agent editor: repl_mode_args
-    agent_edit_repl_args: String,
     /// Agent editor: system_prompt_mode
     agent_edit_system_prompt_mode: String,
     /// Agent editor: disallowed_tools
@@ -596,12 +588,8 @@ impl KycoApp {
             selected_agent: None,
             agent_edit_name: String::new(),
             agent_edit_aliases: String::new(),
-            agent_edit_binary: String::new(),
             agent_edit_cli_type: String::new(),
             agent_edit_mode: String::new(),
-            agent_edit_print_args: String::new(),
-            agent_edit_output_args: String::new(),
-            agent_edit_repl_args: String::new(),
             agent_edit_system_prompt_mode: String::new(),
             agent_edit_disallowed_tools: String::new(),
             agent_edit_allowed_tools: String::new(),
@@ -760,12 +748,8 @@ impl KycoApp {
                 selected_agent: &mut self.selected_agent,
                 agent_edit_name: &mut self.agent_edit_name,
                 agent_edit_aliases: &mut self.agent_edit_aliases,
-                agent_edit_binary: &mut self.agent_edit_binary,
                 agent_edit_cli_type: &mut self.agent_edit_cli_type,
                 agent_edit_mode: &mut self.agent_edit_mode,
-                agent_edit_print_args: &mut self.agent_edit_print_args,
-                agent_edit_output_args: &mut self.agent_edit_output_args,
-                agent_edit_repl_args: &mut self.agent_edit_repl_args,
                 agent_edit_system_prompt_mode: &mut self.agent_edit_system_prompt_mode,
                 agent_edit_disallowed_tools: &mut self.agent_edit_disallowed_tools,
                 agent_edit_allowed_tools: &mut self.agent_edit_allowed_tools,

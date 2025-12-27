@@ -26,10 +26,7 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
         .iter()
         .map(|(name, agent)| {
             let aliases = agent.aliases.join(", ");
-            let backend = agent
-                .binary
-                .clone()
-                .unwrap_or_else(|| agent.sdk.default_name().to_string());
+            let backend = agent.sdk.default_name().to_string();
             (name.clone(), aliases, backend)
         })
         .collect();
@@ -81,12 +78,8 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
                 *state.selected_agent = Some("__new__".to_string());
                 state.agent_edit_name.clear();
                 state.agent_edit_aliases.clear();
-                state.agent_edit_binary.clear();
                 *state.agent_edit_cli_type = "claude".to_string();
                 *state.agent_edit_mode = "oneshot".to_string();
-                state.agent_edit_print_args.clear();
-                state.agent_edit_output_args.clear();
-                state.agent_edit_repl_args.clear();
                 *state.agent_edit_system_prompt_mode = "append".to_string();
                 state.agent_edit_allowed_tools.clear();
                 state.agent_edit_disallowed_tools.clear();

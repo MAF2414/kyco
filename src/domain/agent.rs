@@ -265,21 +265,6 @@ pub struct AgentConfig {
     #[serde(default)]
     pub structured_output_schema: Option<String>,
 
-    // Legacy fields for backwards compatibility - will be ignored
-    #[serde(default, skip_serializing)]
-    pub cli_type: Option<SdkType>,
-    #[serde(default, skip_serializing)]
-    pub mode: Option<SessionMode>,
-    #[serde(default, skip_serializing)]
-    pub binary: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub print_mode_args: Vec<String>,
-    #[serde(default, skip_serializing)]
-    pub output_format_args: Vec<String>,
-    #[serde(default, skip_serializing)]
-    pub repl_mode_args: Vec<String>,
-    #[serde(default, skip_serializing)]
-    pub default_args: Vec<String>,
 }
 
 impl Default for AgentConfig {
@@ -310,14 +295,6 @@ impl AgentConfig {
             plugins: Vec::new(),
             output_schema: None,
             structured_output_schema: None,
-            // Legacy fields
-            cli_type: None,
-            mode: None,
-            binary: None,
-            print_mode_args: vec![],
-            output_format_args: vec![],
-            repl_mode_args: vec![],
-            default_args: vec![],
         }
     }
 
@@ -342,14 +319,6 @@ impl AgentConfig {
             plugins: Vec::new(),
             output_schema: None,
             structured_output_schema: None,
-            // Legacy fields
-            cli_type: None,
-            mode: None,
-            binary: None,
-            print_mode_args: vec![],
-            output_format_args: vec![],
-            repl_mode_args: vec![],
-            default_args: vec![],
         }
     }
 
@@ -511,36 +480,18 @@ impl AgentConfig {
             .unwrap_or(self.session_mode)
     }
 
-    // Legacy compatibility methods - these will be deprecated
-
-    /// Legacy: Get the binary name (for CLI-based adapters)
+    /// Get the binary name for CLI-based adapters (fallback to SDK type name)
     pub fn get_binary(&self) -> String {
-        self.binary
-            .clone()
-            .unwrap_or_else(|| self.sdk_type.default_name().to_string())
+        self.sdk_type.default_name().to_string()
     }
 
-    /// Legacy: Get run args for CLI-based adapters.
-    ///
-    /// This combines `print_mode_args` and `output_format_args`, falling back to
-    /// `default_args` if both are empty.
+    /// Get run args for CLI-based adapters (returns empty for SDK-based agents)
     pub fn get_run_args(&self) -> Vec<String> {
-        if self.print_mode_args.is_empty() && self.output_format_args.is_empty() {
-            return self.default_args.clone();
-        }
-
-        let mut args = self.print_mode_args.clone();
-        args.extend(self.output_format_args.clone());
-        args
+        Vec::new()
     }
 
-    /// Legacy: Get repl args (returns empty for SDK agents)
+    /// Get repl args for CLI-based adapters (returns empty for SDK-based agents)
     pub fn get_repl_args(&self) -> Vec<String> {
-        self.repl_mode_args.clone()
-    }
-
-    /// Legacy: Get output format args
-    pub fn get_output_format_args(&self) -> Vec<String> {
-        self.output_format_args.clone()
+        Vec::new()
     }
 }
