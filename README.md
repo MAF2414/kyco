@@ -4,25 +4,44 @@
 
 # KYCo - Know Your Codebase
 
-**One agent, one task, one file.** That's the idea.
+**Point agents exactly where to look.**
 
-Instead of letting a single agent loose on your entire codebase for hours, KYCo spawns focused agents that each handle exactly one task on a specific code selection. The result: faster iterations, lower hallucination rates, and changes you can actually review.
+When you tell a coding CLI "check our services for security issues", it might scan 5-10 files before the context window fills up. Half your code never gets looked at. KYCo flips this: you select the files, KYCo spawns a dedicated agent for each one. Every file gets full attention.
 
-## How it works
+## The problem with general-purpose agents
 
-1. Select code in your IDE
-2. Tell KYCo what to do (refactor, fix, test, etc.)
-3. A dedicated agent works on just that
-4. Review the diff, accept or reject
+Coding CLIs like Claude Code or Codex are generalists. They're powerful, but when you ask them to refactor a module or audit for vulnerabilities, they have to decide what to look at. Large codebases exceed context limits. Files get skipped. You hope for the best.
 
-You can also orchestrate multiple jobs from coding CLIs like Claude Code or Codex - KYCo handles the job queue while you stay in control of what gets merged.
+## How KYCo fixes this
 
-## Why this approach?
+1. **You define the scope** - Select specific files or lines in your IDE, or batch-select an entire folder
+2. **One agent per target** - Each job gets a dedicated agent focused on exactly that code
+3. **Parallel execution** - Run 4, 8, or more agents simultaneously across your codebase
+4. **Full agent power** - Every KYCo job runs a complete Claude/Codex session with all tools available
 
-- **Focused scope** - Each agent sees only what it needs. Less context = fewer hallucinations.
-- **Parallel execution** - Run multiple agents on different files simultaneously
-- **Reviewable changes** - Every job produces a diff you can inspect before merging
-- **CLI orchestration** - External agents can spawn and manage KYCo jobs programmatically
+The agents aren't limited - they have full repo access. But you're telling them exactly where to focus: "Look HERE. Do THIS." No hoping the generalist finds everything.
+
+## System prompts for precision
+
+Each mode can append or override the agent's system prompt. Instead of relying on generic instructions, you define exactly what you want:
+
+```toml
+[mode.security-audit]
+prompt = "Analyze this code for security vulnerabilities. Check for injection, auth bypass, data exposure."
+system_prompt = "You are a security auditor. Be thorough. Flag anything suspicious."
+```
+
+## Orchestrator for CLI power
+
+Want the flexibility of a coding CLI but with focused execution? Use the orchestrator pattern:
+
+1. Start KYCo GUI (shows all jobs, handles review)
+2. Run Claude Code or Codex as your orchestrator
+3. The orchestrator spawns KYCo jobs: `kyco job start --file src/auth.rs --mode security-audit`
+4. It can wait for results, spawn follow-ups, or review changes itself
+5. You make the final call on what gets merged
+
+This gives you CLI-level autonomy for planning while ensuring every file gets dedicated attention.
 
 ## Installation
 
@@ -134,7 +153,8 @@ sdk = "codex"
 
 [mode.custom]
 aliases = ["cu"]
-prompt = "Your custom instruction here"
+prompt = "Your instruction here"
+system_prompt = "Optional: override or extend the agent's system prompt"
 ```
 
 ## Keyboard shortcuts
@@ -171,24 +191,13 @@ kyco                    # start GUI
 kyco init               # create config
 kyco status             # show jobs
 
-# Job management (useful for orchestration)
+# Job management
 kyco job start --file src/foo.rs --mode fix --prompt "Fix the null check"
 kyco job wait 1
 kyco job output 1
 kyco job continue 1 --prompt "Add tests for this"
 kyco job abort 1
 ```
-
-## Orchestrator mode
-
-KYCo can be controlled by an external coding agent:
-
-1. Start `kyco` (GUI shows all jobs)
-2. In another terminal, run your orchestrator agent (Claude Code, Codex, etc.)
-3. The orchestrator spawns focused jobs via `kyco job start ...`
-4. You review results in the KYCo GUI
-
-This pattern lets you combine high-level planning (orchestrator) with focused execution (KYCo jobs) while keeping humans in the loop for code review.
 
 ## Voice input
 
