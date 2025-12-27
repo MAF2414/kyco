@@ -4,38 +4,39 @@
 
 # KYCo - Know Your Codebase
 
-**Stay in control with AI coding.** Select code in your IDE, run targeted AI tasks, review diffs. No more endless agent sessions - just focused changes where you need them.
+Hey! 👋 Kennst du das? Du startest nen AI-Agent und 2 Stunden später hat der halbe Codebase umgebaut. KYCo macht das anders:
 
-## Why KYCo?
+**Du wählst Code aus → sagst was passieren soll → reviewst den Diff → fertig.**
 
-Coding agents can spiral into hour-long sessions that touch half your codebase. KYCo takes a different approach:
+Keine endlosen Agent-Sessions mehr. Du bleibst in Control.
 
-- **Focused Changes**: Select specific code lines, run a mode, get targeted changes
-- **Multi-Agent Power**: Run Claude or Codex in parallel with concurrent jobs
-- **Voice-First Workflow**: Dictate tasks via Whisper speech-to-text - even into other apps
-- **You Stay in Control**: Review every diff, accept or reject changes
+## Was kann das Ding?
+
+- 🎯 **Gezielte Changes** - Markier Code, wähl nen Mode, krieg genau die Änderung die du brauchst
+- 🤖 **Multi-Agent** - Claude und Codex parallel laufen lassen? Kein Problem
+- 🎤 **Voice Input** - Einfach reinsprechen was du willst (Whisper macht die Transkription)
+- 👀 **Du entscheidest** - Jeder Diff wird dir gezeigt, du sagst Accept oder Reject
 
 ## Installation
 
-### Prerequisites
+### Was du brauchst
 
-- Node.js >= 18 (for the local SDK Bridge server)
-- Claude CLI or Codex CLI installed
+- Node.js >= 18 (für den SDK Bridge Server)
+- Claude CLI oder Codex CLI
 
 ### macOS
 
 ```bash
-# Apple Silicon (M1/M2/M3/M4)
+# M1/M2/M3/M4
 curl -L -o kyco https://github.com/MAF2414/kyco/releases/latest/download/kyco-macos-arm64
 
-# Intel Mac
+# Intel
 curl -L -o kyco https://github.com/MAF2414/kyco/releases/latest/download/kyco-macos-x64
 
-# Make executable and move to PATH
 chmod +x kyco
 sudo mv kyco /usr/local/bin/
 
-# Remove macOS quarantine (if blocked by Gatekeeper)
+# Falls Gatekeeper meckert:
 xattr -d com.apple.quarantine /usr/local/bin/kyco
 ```
 
@@ -49,9 +50,9 @@ sudo mv kyco /usr/local/bin/
 
 ### Windows
 
-Download `kyco-windows-x64.exe` from [Releases](https://github.com/MAF2414/kyco/releases/latest) and add to your PATH.
+Hol dir `kyco-windows-x64.exe` von den [Releases](https://github.com/MAF2414/kyco/releases/latest) und pack's in deinen PATH.
 
-### From Source
+### Selber bauen
 
 ```bash
 git clone https://github.com/MAF2414/kyco.git
@@ -59,75 +60,66 @@ cd kyco
 cargo install --path .
 ```
 
-Requires Rust 1.75+
+Brauchst Rust 1.75+
 
 ### IDE Extensions
 
 **VS Code:**
-1. Download `kyco-vscode.vsix` from [Releases](https://github.com/MAF2414/kyco/releases/latest)
-2. Install: `code --install-extension kyco-vscode.vsix`
+```bash
+# vsix von Releases holen, dann:
+code --install-extension kyco-vscode.vsix
+```
 
-**JetBrains (IntelliJ, WebStorm, PyCharm, etc.):**
-1. Download `kyco-jetbrains.zip` from [Releases](https://github.com/MAF2414/kyco/releases/latest)
-2. Settings → Plugins → ⚙️ → Install Plugin from Disk → Select the zip file
+**JetBrains:** Settings → Plugins → ⚙️ → Install from Disk → die zip auswählen
 
-## Quick Start
+## Los geht's
 
-1. **Initialize KYCo in your project:**
-   ```bash
-   kyco init
-   ```
+```bash
+kyco init    # Config erstellen
+kyco         # GUI starten
+```
 
-2. **Launch KYCo:**
-   ```bash
-   kyco
-   ```
+Dann in der IDE: Code markieren → `Cmd+Alt+Y` (Mac) bzw. `Ctrl+Alt+Y` → Mode wählen → Enter → Diff reviewen → Done ✅
 
-3. **In your IDE**, select some code and press `Cmd+Alt+Y` (Mac) or `Ctrl+Alt+Y` (Windows/Linux)
+## Die wichtigsten Modes
 
-4. **Choose a mode** and agent, then run the job
+| Mode | Shortcut | Was macht's? |
+|------|----------|--------------|
+| `chat` | `c` | Einfach quatschen über den Code |
+| `implement` | `i` | Neues Feature bauen |
+| `review` | `r` | Code checken (read-only) |
+| `fix` | `f` | Bug fixen |
+| `refactor` | `ref` | Aufräumen ohne Funktionsänderung |
+| `test` | `t` | Tests schreiben |
+| `plan` | `p` | Plan erstellen (read-only) |
 
-5. **Review the diff** and accept/reject changes
+## Chains - mehrere Modes hintereinander
 
-## Built-in Modes
-
-| Mode | Aliases | Description |
-|------|---------|-------------|
-| `chat` | `c` | Interactive conversation about the codebase |
-| `implement` | `i`, `impl` | Implement new functionality |
-| `review` | `r`, `rev` | Analyze code for issues (read-only) |
-| `fix` | `f` | Fix specific bugs with minimal changes |
-| `refactor` | `ref` | Improve code structure without changing behavior |
-| `test` | `t` | Generate unit tests |
-| `plan` | `p` | Create implementation plans (read-only) |
-
-## Chains
-
-Chains execute multiple modes in sequence:
+Willst du erst reviewen und dann fixen? Dafür gibt's Chains:
 
 ```toml
 [chain."review+fix"]
-description = "Review code and fix any issues found"
+description = "Erst checken, dann fixen"
 steps = [
     { mode = "review" },
     { mode = "fix", trigger_on = ["issues_found"] },
 ]
 ```
 
-Built-in chains include:
-- `refactor-safe` - Review → Refactor → Test
-- `implement-and-test` - Implement → Test
-- `quality-gate` - Review → Security → Types → Coverage
+Eingebaute Chains:
+- `refactor-safe` → Review → Refactor → Test
+- `implement-and-test` → Implement → Test
+- `quality-gate` → Review → Security → Types → Coverage
 
-## Configuration
+## Config
 
-KYCo stores configuration in `~/.kyco/config.toml` (global) or `.kyco/config.toml` (per-project):
+Liegt in `~/.kyco/config.toml` (global) oder `.kyco/config.toml` (pro Projekt):
 
 ```toml
 [settings]
-max_concurrent_jobs = 4      # Parallel job limit
-auto_run = true              # Auto-start jobs
-use_worktree = false         # Isolate jobs in git worktrees
+max_concurrent_jobs = 4      # Wieviele Jobs parallel
+auto_run = true              # Jobs direkt starten
+use_worktree = false         # Jobs in Git Worktrees isolieren
 
 [agent.claude]
 aliases = ["c", "cl"]
@@ -137,107 +129,79 @@ sdk = "claude"
 aliases = ["x", "cx"]
 sdk = "codex"
 
-[mode.custom]
+# Eigene Modes definieren:
+[mode.cleanup]
 aliases = ["cu"]
-prompt = "Your custom prompt here"
+prompt = "Räum den Code auf, entfern toten Code"
 ```
 
-## Keyboard Shortcuts
+## Shortcuts
 
-### IDE Extension
+### In der IDE
 
-| Action | macOS | Windows/Linux |
-|--------|-------|---------------|
-| Send Selection | `Cmd+Alt+Y` | `Ctrl+Alt+Y` |
-| Grep & Send | `Cmd+Alt+Shift+G` | `Ctrl+Alt+Shift+G` |
+| Was | Mac | Windows/Linux |
+|-----|-----|---------------|
+| Code schicken | `Cmd+Alt+Y` | `Ctrl+Alt+Y` |
+| Grep & schicken | `Cmd+Alt+Shift+G` | `Ctrl+Alt+Shift+G` |
 
-### KYCo GUI
+### In KYCo
 
-| Action | Key |
-|--------|-----|
-| Execute job | `Enter` |
-| Execute in worktree | `Shift+Enter` |
-| Voice input (popup) | `Cmd+D` / `Ctrl+D` |
-| Close popup | `Esc` |
-| Navigate jobs | `j` / `k` or `↑` / `↓` |
-| Toggle auto-run | `Shift+A` |
+| Was | Taste |
+|-----|-------|
+| Job starten | `Enter` |
+| Mit Worktree | `Shift+Enter` |
+| Voice | `Cmd+D` |
+| Popup schließen | `Esc` |
+| Jobs navigieren | `j`/`k` oder Pfeiltasten |
+| Auto-run toggle | `Shift+A` |
 
-### Global Voice Hotkey
+### Voice Hotkey (überall!)
 
-| Action | macOS | Windows/Linux |
-|--------|-------|---------------|
-| Voice dictation | `Cmd+Shift+V` | `Ctrl+Shift+V` |
+| Was | Mac | Windows/Linux |
+|-----|-----|---------------|
+| Diktat starten/stoppen | `Cmd+Shift+V` | `Ctrl+Shift+V` |
 
-Press once to start recording, press again to stop. The transcribed text is automatically pasted into the focused application - works with any app, including terminal-based tools like Claude Code.
+Das Coole: Funktioniert von überall! Auch wenn Claude Code im Terminal läuft. Einmal drücken = Recording, nochmal drücken = fertig, Text wird automatisch eingefügt.
 
 ## CLI Commands
 
 ```bash
-kyco                    # Launch GUI (default)
-kyco init               # Create config file
-kyco status             # Show job status
-kyco job --help         # Start/inspect jobs via the running GUI
-kyco agent --help       # List/show configured agents
-kyco chain --help       # List/show configured chains
-kyco mode --help        # CRUD modes in config.toml
-kyco --help             # Show all options
+kyco                    # GUI starten
+kyco init               # Config erstellen
+kyco status             # Jobs anzeigen
+kyco job start --file src/foo.rs --mode fix --prompt "Fix den Bug"
+kyco job wait 1         # Warten bis Job fertig
+kyco job output 1       # Output holen
+kyco job continue 1 --prompt "Mach noch Tests dazu"
+kyco job abort 1        # Job abbrechen
 ```
 
-## Orchestrator (External Agent)
+## Orchestrator Mode
 
-KYCo can be controlled by an external orchestrator agent (Claude Code or Codex) via CLI commands.
+Du kannst nen externen Agent (Claude Code / Codex) KYCo steuern lassen:
 
-1. Start KYCo GUI (so the user sees all jobs/results):
-   ```bash
-   kyco
-   ```
+1. KYCo GUI starten (damit du alles siehst)
+2. In nem zweiten Terminal den Agent starten
+3. Der Agent ruft dann `kyco job ...` Commands auf
 
-   Use the **Orchestrator** button in the status bar to launch an external agent session in Terminal.app.
-
-2. In a second terminal (same workspace), the agent can control jobs:
-   ```bash
-   # Create and queue a job
-   kyco job start --file src/foo.rs --mode refactor --prompt "Clean this up"
-
-   # Wait for completion
-   kyco job wait 1
-
-   # Get output for follow-up
-   out="$(kyco job output 1)"
-   kyco job start --file src/foo.rs --mode fix --prompt "$out"
-
-   # Continue a session with follow-up prompt
-   kyco job continue 1 --prompt "Please also update the tests"
-
-   # Abort or delete jobs
-   kyco job abort 1
-   kyco job delete 1 --cleanup-worktree
-   ```
+Gibt auch nen Orchestrator-Button in der Statusbar der direkt ne Claude/Codex Session in Terminal.app startet.
 
 ## Voice Input
 
-KYCo uses Whisper for speech-to-text transcription. Voice dependencies are auto-installed on first use.
+KYCo nutzt Whisper für Speech-to-Text. Dependencies werden beim ersten Mal automatisch installiert.
 
-**In the selection popup:**
-- Click the microphone button or press `Cmd+D` / `Ctrl+D`
-- Speak your mode and prompt (e.g., "refactor this function")
-- Press Enter to execute
+**Im Popup:** Mikrofon-Button klicken oder `Cmd+D` → sprechen → Enter
 
-**Global dictation (any app):**
-- Press `Cmd+Shift+V` / `Ctrl+Shift+V` from any application
-- Speak your text
-- Press the hotkey again to stop - text is auto-pasted
+**Global (in jeder App):** `Cmd+Shift+V` → sprechen → nochmal drücken → Text wird eingefügt
 
 ## Support
 
-If you find KYCo useful, consider [sponsoring the project](https://github.com/sponsors/MAF2414).
+Wenn dir KYCo hilft, freu ich mich über nen [Sponsor](https://github.com/sponsors/MAF2414) ☕
 
-## License
+## Lizenz
 
 [Business Source License 1.1](LICENSE)
 
-You may use the Licensed Work for any purpose, including production use, as long as you do not offer it as a hosted service or sell it as a competing product.
+Kannst du frei nutzen, auch produktiv - solange du's nicht als Hosted Service anbietest oder als Konkurrenzprodukt verkaufst. Ab 2029 wird's Apache 2.0.
 
-On 2029-01-01, the license converts to Apache License 2.0.
-
-For commercial licensing inquiries, contact via [GitHub](https://github.com/MAF2414/kyco).
+Fragen? [GitHub Issues](https://github.com/MAF2414/kyco/issues) oder einfach melden 👋
