@@ -3,7 +3,7 @@ name = "kyco"
 version = "0.9.28"
 edition = "2024"
 description = "Know Your Codebase - AI-powered code tasks with transparency"
-license = "CC-BY-NC-ND-4.0"
+license = "BUSL-1.1"
 
 [[bin]]
 name = "kyco"
