@@ -23,14 +23,12 @@ use super::app::{
 
 /// Render the chains configuration view
 pub fn render_chains(ctx: &egui::Context, state: &mut ChainEditorState<'_>) {
-    // Render confirmation dialog if pending
     render_confirmation_dialog(ctx, state);
 
     egui::CentralPanel::default()
         .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(16.0))
         .show(ctx, |ui| {
             ui.vertical(|ui| {
-                // Header
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new("CHAINS")

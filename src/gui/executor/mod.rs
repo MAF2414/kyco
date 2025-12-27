@@ -82,8 +82,6 @@ async fn executor_loop(
     max_concurrent_jobs: Arc<AtomicUsize>,
 ) {
     let agent_registry = AgentRegistry::new();
-
-    // Try to get git manager
     let git_manager = GitManager::new(&work_dir).ok();
 
     loop {
@@ -92,17 +90,21 @@ async fn executor_loop(
             .map(|cfg| cfg.settings.use_worktree)
             .unwrap_or(false);
 
-        // Check for queued jobs and handle file locks
         let (running_count, next_queued) = {
-            let mut manager = job_manager.lock().unwrap();
+            let Ok(mut manager) = job_manager.lock() else {
+                // Lock poisoned - log and continue to next iteration
+                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
+                    "Job manager lock poisoned, skipping this tick".to_string(),
+                )));
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            };
             let running = manager
                 .jobs()
                 .iter()
                 .filter(|j| j.status == JobStatus::Running)
                 .count();
 
-            // First, check if any blocked jobs can be unblocked
-            // (their blocking job has finished)
             let blocked_jobs: Vec<_> = manager
                 .jobs()
                 .iter()
@@ -111,13 +113,11 @@ async fn executor_loop(
                 .collect();
 
             for (job_id, blocked_by, source_file) in blocked_jobs {
-                // Check if the blocking job still holds the lock
                 if let Some(blocking_id) = blocked_by {
                     if manager
                         .get_blocking_job(&source_file, Some(job_id))
                         .is_none()
                     {
-                        // Lock is free, unblock this job
                         if let Some(j) = manager.get_mut(job_id) {
                             j.status = JobStatus::Queued;
                             j.blocked_by = None;
@@ -131,7 +131,6 @@ async fn executor_loop(
                 }
             }
 
-            // Find next queued job (skip blocked jobs)
             let next: Option<Job> = manager
                 .jobs()
                 .iter()
@@ -141,22 +140,24 @@ async fn executor_loop(
             (running, next)
         };
 
-        // Start next job if we have capacity (read current limit each iteration)
         if running_count < max_concurrent_jobs.load(Ordering::Relaxed) {
             if let Some(job) = next_queued {
-                // Check file lock (only when not using worktrees)
                 let is_multi_agent = job.group_id.is_some();
                 let needs_lock_check =
                     !should_use_worktree && !is_multi_agent && !job.force_worktree;
 
                 if needs_lock_check {
-                    let mut manager = job_manager.lock().unwrap();
+                    let Ok(mut manager) = job_manager.lock() else {
+                        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
+                            "Job manager lock poisoned, skipping job start".to_string(),
+                        )));
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    };
 
-                    // Check if the source file is locked by another job
                     if let Some(blocking_job_id) =
                         manager.get_blocking_job(&job.source_file, Some(job.id))
                     {
-                        // File is locked - mark job as blocked
                         if let Some(j) = manager.get_mut(job.id) {
                             j.status = JobStatus::Blocked;
                             j.blocked_by = Some(blocking_job_id);
@@ -171,16 +172,13 @@ async fn executor_loop(
                                 .map(|f| f.to_string_lossy().to_string())
                                 .unwrap_or_else(|| job.source_file.display().to_string())
                         ))));
-                        // Continue to next iteration - this job can't start yet
                         tokio::time::sleep(Duration::from_millis(100)).await;
                         continue;
                     }
 
-                    // Acquire the lock
                     manager.try_lock_file(&job.source_file, job.id);
                 }
 
-                // Spawn job in background so we can start multiple jobs concurrently
                 let work_dir = work_dir.clone();
                 let config_snapshot = config.read().map(|cfg| cfg.clone()).unwrap_or_default();
                 let job_manager = Arc::clone(&job_manager);
@@ -203,7 +201,6 @@ async fn executor_loop(
             }
         }
 
-        // Sleep before checking again
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
@@ -219,7 +216,6 @@ async fn run_job(
 ) {
     let job_id = job.id;
 
-    // Check if this mode is actually a chain
     if config.is_chain(&job.mode) {
         run_chain_job(
             work_dir,
@@ -234,9 +230,14 @@ async fn run_job(
         return;
     }
 
-    // Update status to running
     {
-        let mut manager = job_manager.lock().unwrap();
+        let Ok(mut manager) = job_manager.lock() else {
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                "Job #{} failed: lock poisoned",
+                job_id
+            ))));
+            return;
+        };
         manager.set_status(job_id, JobStatus::Running);
     }
 
@@ -246,32 +247,24 @@ async fn run_job(
         job_id
     ))));
 
-    // Determine working directory
-    // Multi-agent jobs (jobs with group_id) ALWAYS require worktrees for isolation,
-    // regardless of the use_worktree config setting.
-    // Jobs with force_worktree=true (submitted with Shift+Enter) also use worktrees.
+    // Multi-agent jobs always require worktrees for isolation
     let is_multi_agent_job = job.group_id.is_some();
     let should_use_worktree =
         config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
 
-    // Get the effective working directory from job's workspace_path, falling back to work_dir
-    // This is crucial for multi-workspace support where jobs may target different repositories
     let job_work_dir = job
         .workspace_path
         .clone()
         .unwrap_or_else(|| work_dir.clone());
 
-    // Create GitManager for the job's workspace (may be different from global work_dir)
     let job_git_manager =
         if job.workspace_path.is_some() && job.workspace_path.as_ref() != Some(work_dir) {
-            // Job has a different workspace, create a new GitManager for it
             GitManager::new(&job_work_dir).ok()
         } else {
             None
         };
     let effective_git_manager = job_git_manager.as_ref().or(git_manager);
 
-    // Reuse existing worktree when present (e.g., session continuation)
     let (worktree_path, _is_isolated) = if let Some(existing_worktree) =
         job.git_worktree_path.as_ref().filter(|p| p.exists())
     {
@@ -290,9 +283,7 @@ async fn run_job(
                     ))));
                     job.git_worktree_path = Some(worktree_info.path.clone());
                     job.base_branch = Some(worktree_info.base_branch.clone());
-                    // Store worktree path and base branch
-                    {
-                        let mut manager = job_manager.lock().unwrap();
+                    if let Ok(mut manager) = job_manager.lock() {
                         if let Some(j) = manager.get_mut(job_id) {
                             j.git_worktree_path = Some(worktree_info.path.clone());
                             j.base_branch = Some(worktree_info.base_branch);
@@ -301,7 +292,6 @@ async fn run_job(
                     (worktree_info.path, true)
                 }
                 Err(e) => {
-                    // For multi-agent jobs or force_worktree (Shift+Enter), worktree creation failure is fatal
                     if is_multi_agent_job || job.force_worktree {
                         let reason = if is_multi_agent_job {
                             "parallel execution"
@@ -316,8 +306,7 @@ async fn run_job(
                             job_id,
                             format!("Worktree required for {}: {}", reason, e),
                         ));
-                        {
-                            let mut manager = job_manager.lock().unwrap();
+                        if let Ok(mut manager) = job_manager.lock() {
                             manager.set_status(job_id, JobStatus::Failed);
                             if let Some(j) = manager.get_mut(job_id) {
                                 j.error_message = Some(format!("Worktree creation failed: {}", e));
@@ -329,65 +318,54 @@ async fn run_job(
                         "Failed to create worktree: {}",
                         e
                     ))));
-                    // Fall back to job's workspace path instead of global work_dir
                     (job_work_dir.clone(), false)
                 }
             }
-        } else {
-            // No git manager available
-            if is_multi_agent_job || job.force_worktree {
-                let reason = if is_multi_agent_job {
-                    "parallel execution"
-                } else {
-                    "Shift+Enter submission"
-                };
-                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
-                    "Worktree required for {} but no git repository available",
-                    reason
-                ))));
-                let _ = event_tx.send(ExecutorEvent::JobFailed(
-                    job_id,
-                    format!("Git repository required for {}", reason),
-                ));
-                {
-                    let mut manager = job_manager.lock().unwrap();
-                    manager.set_status(job_id, JobStatus::Failed);
-                    if let Some(j) = manager.get_mut(job_id) {
-                        j.error_message = Some(format!("Git repository required for {}", reason));
-                    }
+        } else if is_multi_agent_job || job.force_worktree {
+            let reason = if is_multi_agent_job {
+                "parallel execution"
+            } else {
+                "Shift+Enter submission"
+            };
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                "Worktree required for {} but no git repository available",
+                reason
+            ))));
+            let _ = event_tx.send(ExecutorEvent::JobFailed(
+                job_id,
+                format!("Git repository required for {}", reason),
+            ));
+            if let Ok(mut manager) = job_manager.lock() {
+                manager.set_status(job_id, JobStatus::Failed);
+                if let Some(j) = manager.get_mut(job_id) {
+                    j.error_message = Some(format!("Git repository required for {}", reason));
                 }
-                return;
             }
-            // Fall back to job's workspace path instead of global work_dir
+            return;
+        } else {
             (job_work_dir.clone(), false)
         }
     } else {
-        // Worktrees disabled - use job's workspace path
         (job_work_dir.clone(), false)
     };
 
-    // Get agent config with mode-specific tool overrides
     let agent_config = config
         .get_agent_for_job(&job.agent_id, &job.mode)
         .unwrap_or_default();
 
-    // Mark whether this is a REPL job (for UI to show correct buttons)
     let is_repl = matches!(agent_config.session_mode, SessionMode::Repl);
-    {
-        let mut manager = job_manager.lock().unwrap();
+    if let Ok(mut manager) = job_manager.lock() {
         if let Some(j) = manager.get_mut(job_id) {
             j.is_repl = is_repl;
         }
     }
 
-    // Get adapter
     let adapter = match agent_registry.get_for_config(&agent_config) {
         Some(a) => a,
         None => {
             let error = format!("No adapter found for agent '{}'", job.agent_id);
             let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(error.clone())));
-            {
-                let mut manager = job_manager.lock().unwrap();
+            if let Ok(mut manager) = job_manager.lock() {
                 if let Some(j) = manager.get_mut(job_id) {
                     j.fail(error.clone());
                 }
@@ -398,10 +376,7 @@ async fn run_job(
         }
     };
 
-    // Create log channel for the adapter
     let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<LogEvent>(100);
-
-    // Spawn a task to forward logs
     let event_tx_clone = event_tx.clone();
     let job_manager_clone = Arc::clone(job_manager);
     let permission_job_id = job_id;
@@ -468,29 +443,30 @@ async fn run_job(
         }
     });
 
-    // Run the adapter
     match adapter
         .run(&job, &worktree_path, &agent_config, log_tx)
         .await
     {
         Ok(result) => {
-            let mut manager = job_manager.lock().unwrap();
+            let Ok(mut manager) = job_manager.lock() else {
+                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                    "Job #{} completed but lock poisoned",
+                    job_id
+                ))));
+                return;
+            };
             if let Some(j) = manager.get_mut(job_id) {
                 j.sent_prompt = result.sent_prompt.clone();
 
-                // Parse the output for YAML result block
                 if let Some(output) = &result.output_text {
-                    // Always keep the full response for display (even when a structured YAML block is present).
                     j.full_response = Some(output.clone());
                     j.parse_result(output);
                 }
 
-                // Store session ID for continuation
                 if result.session_id.is_some() {
                     j.bridge_session_id = result.session_id.clone();
                 }
 
-                // Calculate file stats from changed_files
                 let files_changed = result.changed_files.len();
                 if files_changed > 0 {
                     let (lines_added, lines_removed) = if j.git_worktree_path.is_some() {
@@ -519,13 +495,11 @@ async fn run_job(
                     let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
                 }
             }
-            // Ensure GUI cache is invalidated after job completion/failure
             manager.touch();
         }
         Err(e) => {
             let error = e.to_string();
-            {
-                let mut manager = job_manager.lock().unwrap();
+            if let Ok(mut manager) = job_manager.lock() {
                 if let Some(j) = manager.get_mut(job_id) {
                     j.fail(error.clone());
                 }
@@ -539,12 +513,9 @@ async fn run_job(
         }
     }
 
-    // Wait for log forwarder to finish
     let _ = log_forwarder.await;
 
-    // Release file locks held by this job
-    {
-        let mut manager = job_manager.lock().unwrap();
+    if let Ok(mut manager) = job_manager.lock() {
         manager.release_job_locks(job_id);
     }
 }
@@ -622,14 +593,12 @@ async fn run_chain_job(
     let job_id = job.id;
     let chain_name = job.mode.clone();
 
-    // Get the chain config
     let chain = match config.get_chain(&chain_name) {
         Some(c) => c.clone(),
         None => {
             let error = format!("Chain '{}' not found", chain_name);
             let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(error.clone())));
-            {
-                let mut manager = job_manager.lock().unwrap();
+            if let Ok(mut manager) = job_manager.lock() {
                 if let Some(j) = manager.get_mut(job_id) {
                     j.fail(error.clone());
                 }
@@ -640,9 +609,14 @@ async fn run_chain_job(
         }
     };
 
-    // Update status to running and set chain metadata
     {
-        let mut manager = job_manager.lock().unwrap();
+        let Ok(mut manager) = job_manager.lock() else {
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                "Chain job #{} failed: lock poisoned",
+                job_id
+            ))));
+            return;
+        };
         manager.set_status(job_id, JobStatus::Running);
         if let Some(j) = manager.get_mut(job_id) {
             j.chain_name = Some(chain_name.clone());
@@ -659,13 +633,11 @@ async fn run_chain_job(
         job_id
     ))));
 
-    // Determine working directory
-    // Multi-agent jobs (jobs with group_id) ALWAYS require worktrees for isolation
+    // Multi-agent jobs always require worktrees for isolation
     let is_multi_agent_job = job.group_id.is_some();
     let should_use_worktree =
         config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
 
-    // Get the effective working directory from job's workspace_path, falling back to work_dir
     let job_work_dir = job
         .workspace_path
         .clone()
@@ -699,8 +671,7 @@ async fn run_chain_job(
                     ))));
                     job.git_worktree_path = Some(worktree_info.path.clone());
                     job.base_branch = Some(worktree_info.base_branch.clone());
-                    {
-                        let mut manager = job_manager.lock().unwrap();
+                    if let Ok(mut manager) = job_manager.lock() {
                         if let Some(j) = manager.get_mut(job_id) {
                             j.git_worktree_path = Some(worktree_info.path.clone());
                             j.base_branch = Some(worktree_info.base_branch);
@@ -709,7 +680,6 @@ async fn run_chain_job(
                     (worktree_info.path, true)
                 }
                 Err(e) => {
-                    // For multi-agent jobs or force_worktree (Shift+Enter), worktree creation failure is fatal
                     if is_multi_agent_job || job.force_worktree {
                         let reason = if is_multi_agent_job {
                             "parallel execution"
@@ -724,8 +694,7 @@ async fn run_chain_job(
                             job_id,
                             format!("Worktree required for {}: {}", reason, e),
                         ));
-                        {
-                            let mut manager = job_manager.lock().unwrap();
+                        if let Ok(mut manager) = job_manager.lock() {
                             manager.set_status(job_id, JobStatus::Failed);
                             if let Some(j) = manager.get_mut(job_id) {
                                 j.error_message = Some(format!("Worktree creation failed: {}", e));
@@ -740,41 +709,35 @@ async fn run_chain_job(
                     (job_work_dir.clone(), false)
                 }
             }
-        } else {
-            // No git manager available
-            if is_multi_agent_job || job.force_worktree {
-                let reason = if is_multi_agent_job {
-                    "parallel execution"
-                } else {
-                    "Shift+Enter submission"
-                };
-                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
-                    "Worktree required for {} but no git repository available",
-                    reason
-                ))));
-                let _ = event_tx.send(ExecutorEvent::JobFailed(
-                    job_id,
-                    format!("Git repository required for {}", reason),
-                ));
-                {
-                    let mut manager = job_manager.lock().unwrap();
-                    manager.set_status(job_id, JobStatus::Failed);
-                    if let Some(j) = manager.get_mut(job_id) {
-                        j.error_message = Some(format!("Git repository required for {}", reason));
-                    }
+        } else if is_multi_agent_job || job.force_worktree {
+            let reason = if is_multi_agent_job {
+                "parallel execution"
+            } else {
+                "Shift+Enter submission"
+            };
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
+                "Worktree required for {} but no git repository available",
+                reason
+            ))));
+            let _ = event_tx.send(ExecutorEvent::JobFailed(
+                job_id,
+                format!("Git repository required for {}", reason),
+            ));
+            if let Ok(mut manager) = job_manager.lock() {
+                manager.set_status(job_id, JobStatus::Failed);
+                if let Some(j) = manager.get_mut(job_id) {
+                    j.error_message = Some(format!("Git repository required for {}", reason));
                 }
-                return;
             }
+            return;
+        } else {
             (job_work_dir.clone(), false)
         }
     } else {
         (job_work_dir.clone(), false)
     };
 
-    // Create log channel
     let (log_tx, mut log_rx) = tokio::sync::mpsc::channel::<LogEvent>(100);
-
-    // Forward logs to event_tx
     let event_tx_clone = event_tx.clone();
     let job_manager_clone = Arc::clone(job_manager);
     let permission_job_id = job_id;
@@ -841,27 +804,20 @@ async fn run_chain_job(
         }
     });
 
-    // Create chain runner
     let chain_runner = ChainRunner::new(config, agent_registry, &worktree_path);
-
-    // Create progress channel for real-time updates
     let (progress_tx, progress_rx) = std::sync::mpsc::channel::<ChainProgressEvent>();
-
-    // Spawn a task to forward progress events to the GUI
     let event_tx_progress = event_tx.clone();
     let job_manager_progress = Arc::clone(job_manager);
     let progress_job_id = job_id;
     let total_steps_for_progress = chain.steps.len();
     let progress_forwarder = tokio::spawn(async move {
         while let Ok(progress) = progress_rx.recv() {
-            // Update job's current step in real-time
             if let Ok(mut manager) = job_manager_progress.lock() {
                 if let Some(j) = manager.get_mut(progress_job_id) {
                     if progress.is_starting {
                         j.chain_current_step = Some(progress.step_index);
                     } else {
                         j.chain_current_step = Some(progress.step_index + 1);
-                        // Add completed step to history
                         if let Some(step_result) = &progress.step_result {
                             let summary = ChainStepSummary {
                                 step_index: step_result.step_index,
@@ -891,11 +847,9 @@ async fn run_chain_job(
                                     .map(|ar| ar.files_changed)
                                     .unwrap_or(0),
                             };
-                            // Only add if not already present
                             if j.chain_step_history.len() <= step_result.step_index {
                                 j.chain_step_history.push(summary.clone());
                             }
-                            // Send event for UI update
                             let _ = event_tx_progress.send(ExecutorEvent::ChainStepCompleted {
                                 job_id: progress_job_id,
                                 step_index: step_result.step_index,
@@ -914,28 +868,22 @@ async fn run_chain_job(
         }
     });
 
-    // Run the chain with progress channel
     let chain_result = chain_runner
         .run_chain(&chain_name, &chain, &job, log_tx, Some(progress_tx))
         .await;
 
-    // Progress channel is dropped when run_chain returns, so progress_forwarder will exit
-    // Give it a moment to process any remaining events
     tokio::time::sleep(Duration::from_millis(50)).await;
-    progress_forwarder.abort(); // Clean up the forwarder task
+    progress_forwarder.abort();
+    let _ = progress_forwarder.await;
 
-    // Update job with results
     let total_steps = chain_result.step_results.len();
-    {
-        let mut manager = job_manager.lock().unwrap();
+    if let Ok(mut manager) = job_manager.lock() {
         if let Some(j) = manager.get_mut(job_id) {
-            // Combine results from all steps
             let mut combined_details = Vec::new();
             let mut total_files_changed = 0;
             let mut step_history = Vec::new();
 
             for step_result in &chain_result.step_results {
-                // Build ChainStepSummary for history
                 let summary = ChainStepSummary {
                     step_index: step_result.step_index,
                     mode: step_result.mode.clone(),
@@ -976,15 +924,11 @@ async fn run_chain_job(
                         total_files_changed += ar.files_changed;
                     }
                 }
-                // Note: ChainStepCompleted events are sent in real-time by progress_forwarder,
-                // so we don't send them again here to avoid duplicates
             }
 
-            // Store chain step history in job
             j.chain_step_history = step_history;
-            j.chain_current_step = Some(total_steps); // Mark as completed
+            j.chain_current_step = Some(total_steps);
 
-            // Set the combined result
             j.result = Some(JobResult {
                 title: Some(format!("Chain '{}' completed", chain_name)),
                 commit_subject: None,
@@ -1018,11 +962,9 @@ async fn run_chain_job(
                 ));
             }
         }
-        // Ensure GUI cache is invalidated after chain completion/failure
         manager.touch();
     }
 
-    // Send chain completion event
     let _ = event_tx.send(ExecutorEvent::ChainCompleted {
         job_id,
         chain_name: chain_name.clone(),
@@ -1034,12 +976,9 @@ async fn run_chain_job(
         success: chain_result.success,
     });
 
-    // Wait for log forwarder
     let _ = log_forwarder.await;
 
-    // Release file locks held by this job
-    {
-        let mut manager = job_manager.lock().unwrap();
+    if let Ok(mut manager) = job_manager.lock() {
         manager.release_job_locks(job_id);
     }
 }

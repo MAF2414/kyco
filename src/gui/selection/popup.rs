@@ -53,7 +53,6 @@ pub fn render_selection_popup(
         0.2, // 200ms fade duration
     );
 
-    // Apply fade to the window frame
     let frame = egui::Frame::window(&ctx.style())
         .fill(Color32::from_rgba_unmultiplied(
             30,
@@ -73,21 +72,17 @@ pub fn render_selection_popup(
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .frame(frame)
         .show(ctx, |ui| {
-            // Fade content opacity
             ui.set_opacity(fade_alpha);
             ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 
-            // Header
             render_header(ui, state.selection);
 
-            // Selection preview
             if let Some(text) = &state.selection.selected_text {
                 render_selection_preview(ui, text, state.selection.line_number);
             }
 
             ui.add_space(8.0);
 
-            // Main input with microphone button
             let input_result = render_input_field(ui, state);
             if input_result.input_changed {
                 action = Some(SelectionPopupAction::InputChanged);
@@ -96,18 +91,14 @@ pub fn render_selection_popup(
                 action = Some(SelectionPopupAction::ToggleRecording);
             }
 
-            // Voice status indicator
             render_voice_status(ui, state.voice_state, state.voice_last_error);
 
-            // Suggestions dropdown
             if let Some(idx) = render_suggestions(ui, state) {
                 action = Some(SelectionPopupAction::SuggestionClicked(idx));
             }
 
-            // Status message
             render_status_message(ui, state.popup_status);
 
-            // Help bar
             render_help_bar(ui);
         });
 
@@ -154,7 +145,7 @@ fn render_selection_preview(ui: &mut egui::Ui, text: &str, start_line: Option<us
             let char_count = text.len();
 
             let line_info = if let Some(start) = start_line {
-                if line_count == 1 {
+                if line_count <= 1 {
                     format!("L{}", start)
                 } else {
                     format!("L{}-{}", start, start + line_count - 1)
@@ -255,7 +246,6 @@ fn render_input_field(ui: &mut egui::Ui, state: &mut SelectionPopupState<'_>) ->
                     }
                 }
 
-                // Microphone button
                 if render_microphone_button(ui, state) {
                     result.mic_clicked = true;
                 }
@@ -342,7 +332,6 @@ fn render_suggestions(ui: &mut egui::Ui, state: &SelectionPopupState<'_>) -> Opt
             .corner_radius(4.0)
             .inner_margin(4.0)
             .show(ui, |ui| {
-                // Only show up to MAX_SUGGESTIONS_VISIBLE suggestions
                 let visible_suggestions = state.suggestions.iter().take(MAX_SUGGESTIONS_VISIBLE);
                 for (idx, suggestion) in visible_suggestions.enumerate() {
                     let is_selected = idx == state.selected_suggestion;
@@ -431,10 +420,6 @@ fn render_help_bar(ui: &mut egui::Ui) {
     });
 }
 
-// =============================================================================
-// Batch Popup (for processing multiple files)
-// =============================================================================
-
 use crate::gui::http_server::BatchFile;
 
 /// State required for rendering the batch popup
@@ -463,29 +448,23 @@ pub fn render_batch_popup(
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 
-            // Header
             render_batch_header(ui, state.batch_files.len());
 
-            // Files preview
             render_batch_files_preview(ui, state.batch_files);
 
             ui.add_space(8.0);
 
-            // Main input (no microphone for batch)
             let input_changed = render_batch_input_field(ui, state);
             if input_changed {
                 action = Some(SelectionPopupAction::InputChanged);
             }
 
-            // Suggestions dropdown
             if let Some(idx) = render_batch_suggestions(ui, state) {
                 action = Some(SelectionPopupAction::SuggestionClicked(idx));
             }
 
-            // Status message
             render_status_message(ui, state.popup_status);
 
-            // Help bar (simplified, no voice)
             render_batch_help_bar(ui);
         });
 
@@ -536,7 +515,6 @@ fn render_batch_files_preview(ui: &mut egui::Ui, files: &[BatchFile]) {
                 );
             });
 
-            // Show first few files
             let max_display = 5;
             egui::ScrollArea::vertical()
                 .max_height(80.0)

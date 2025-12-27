@@ -310,7 +310,6 @@ impl<'a> ChainRunner<'a> {
                 .get_agent_for_job(agent_id, &step.mode)
                 .unwrap_or_default();
 
-            // Get the adapter
             let adapter = match self.agent_registry.get_for_config(&agent_config) {
                 Some(a) => a,
                 None => {
@@ -342,7 +341,6 @@ impl<'a> ChainRunner<'a> {
                 }
             };
 
-            // Run the step
             let result = adapter
                 .run(&step_job, self.work_dir, &agent_config, event_tx.clone())
                 .await;
@@ -352,7 +350,6 @@ impl<'a> ChainRunner<'a> {
                     // Store full output for state detection and context passing
                     last_output = agent_result.output_text.clone();
 
-                    // Parse the job result
                     let job_result = agent_result
                         .output_text
                         .as_ref()

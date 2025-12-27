@@ -279,7 +279,6 @@ enum ChainCommands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    // Initialize logging
     let log_level = if cli.verbose { "debug" } else { "info" };
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -288,13 +287,11 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    // Determine the working directory
     let work_dir = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let config_path = cli.config.clone();
 
     match cli.command {
         Some(Commands::Gui) => {
-            // Run the main GUI application
             kyco::gui::run_gui(work_dir.clone(), config_path.clone())?;
         }
         Some(Commands::Status { filter }) => {
@@ -480,7 +477,6 @@ async fn main() -> Result<()> {
             }
         },
         None => {
-            // Default: run the GUI
             kyco::gui::run_gui(work_dir.clone(), config_path.clone())?;
         }
     }

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Claude-specific mode options
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeModeOptions {
     /// Permission mode for Claude SDK
     /// - "default": Normal permission checks (asks for everything)
@@ -14,12 +14,20 @@ pub struct ClaudeModeOptions {
     pub permission_mode: String,
 }
 
+impl Default for ClaudeModeOptions {
+    fn default() -> Self {
+        Self {
+            permission_mode: default_claude_permission(),
+        }
+    }
+}
+
 fn default_claude_permission() -> String {
     "acceptEdits".to_string()
 }
 
 /// Codex-specific mode options
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexModeOptions {
     /// Sandbox mode for Codex SDK
     /// - "read-only": No file modifications
@@ -27,6 +35,14 @@ pub struct CodexModeOptions {
     /// - "danger-full-access": Full access including network
     #[serde(default = "default_codex_sandbox")]
     pub sandbox: String,
+}
+
+impl Default for CodexModeOptions {
+    fn default() -> Self {
+        Self {
+            sandbox: default_codex_sandbox(),
+        }
+    }
 }
 
 fn default_codex_sandbox() -> String {
@@ -79,9 +95,6 @@ pub struct ModeConfig {
     /// System prompt addition for agent context
     pub system_prompt: Option<String>,
 
-    // ═══════════════════════════════════════════════════════════════
-    // EXECUTION SETTINGS
-    // ═══════════════════════════════════════════════════════════════
     /// Session mode: oneshot (default) or session (persistent conversation)
     #[serde(default)]
     pub session_mode: ModeSessionType,
@@ -94,17 +107,11 @@ pub struct ModeConfig {
     #[serde(default)]
     pub model: Option<String>,
 
-    // ═══════════════════════════════════════════════════════════════
-    // TOOL CONTROL (Blacklist only - simpler!)
-    // ═══════════════════════════════════════════════════════════════
     /// Tools to disallow for this mode (blacklist)
     /// Examples: ["Write", "Edit", "Bash", "Bash(git push)"]
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
 
-    // ═══════════════════════════════════════════════════════════════
-    // SDK-SPECIFIC OPTIONS
-    // ═══════════════════════════════════════════════════════════════
     /// Claude SDK specific options
     #[serde(default)]
     pub claude: Option<ClaudeModeOptions>,
@@ -113,9 +120,6 @@ pub struct ModeConfig {
     #[serde(default)]
     pub codex: Option<CodexModeOptions>,
 
-    // ═══════════════════════════════════════════════════════════════
-    // LEGACY / METADATA
-    // ═══════════════════════════════════════════════════════════════
     /// Short aliases for this mode (e.g., ["r", "rev"] for review)
     #[serde(default)]
     pub aliases: Vec<String>,
@@ -144,16 +148,15 @@ impl ModeConfig {
             return claude.permission_mode.clone();
         }
 
-        // Auto-derive from disallowed_tools
         let blocks_writes = self
             .disallowed_tools
             .iter()
             .any(|t| t == "Write" || t == "Edit");
 
         if blocks_writes {
-            "default".to_string() // Read-only mode
+            "default".to_string()
         } else {
-            "acceptEdits".to_string() // Safe write mode
+            "acceptEdits".to_string()
         }
     }
 
@@ -164,7 +167,6 @@ impl ModeConfig {
             return codex.sandbox.clone();
         }
 
-        // Auto-derive from disallowed_tools
         let blocks_writes = self
             .disallowed_tools
             .iter()

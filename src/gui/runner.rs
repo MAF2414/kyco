@@ -67,7 +67,9 @@ fn start_config_watch_thread(
                         config_path.display(),
                         e
                     ))));
-                    // Keep last_modified unchanged so we retry on next tick.
+                    // Update last_modified to prevent infinite retry loop.
+                    // User must save the file again after fixing the error.
+                    last_modified = modified;
                 }
             }
         }
@@ -76,10 +78,8 @@ fn start_config_watch_thread(
 
 /// Load the KYCo app icon from embedded PNG
 fn load_kyco_icon() -> IconData {
-    // Embed the logo at compile time
     const LOGO_BYTES: &[u8] = include_bytes!("../assets/Logo.png");
 
-    // Decode PNG to RGBA
     let img = image::load_from_memory(LOGO_BYTES)
         .expect("Failed to decode embedded logo")
         .into_rgba8();
@@ -151,10 +151,8 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
         info!("[kyco] Created {}", config_path.display());
     }
 
-    // Shared config (mutable at runtime)
     let config = Arc::new(RwLock::new(config));
 
-    // Load job manager
     let job_manager = Arc::new(Mutex::new(
         JobManager::load(&work_dir).unwrap_or_else(|_| JobManager::new(&work_dir)),
     ));
@@ -234,10 +232,8 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
         Arc::clone(&max_concurrent_jobs),
     );
 
-    // Create app icon
     let icon = load_kyco_icon();
 
-    // Run GUI
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1000.0, 600.0])
@@ -308,7 +304,6 @@ fn configure_fonts(ctx: &egui::Context) {
         ("dejavu", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
     ];
 
-    // Load all available fallback fonts
     for (name, path) in font_fallbacks {
         if let Ok(font_data) = std::fs::read(path) {
             fonts

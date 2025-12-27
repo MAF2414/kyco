@@ -44,7 +44,6 @@ pub use chain::{ChainProgressEvent, ChainResult, ChainRunner, ChainStepResult};
 pub use registry::{AgentRegistry, DEFAULT_TERMINAL_SUFFIX};
 pub use runner::{AgentResult, AgentRunner};
 
-// Legacy exports - deprecated, use bridge adapters instead
 #[deprecated(note = "Use ClaudeBridgeAdapter instead")]
 pub use claude::{ClaudeAdapter, StreamEvent};
 #[deprecated(note = "Use CodexBridgeAdapter instead")]

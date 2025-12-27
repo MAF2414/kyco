@@ -141,12 +141,15 @@ impl TerminalSession {
 
         // Create a temporary shell script that does everything
         let script_file = std::env::temp_dir().join(format!("kyco_job_{}.sh", job_id));
+        let script_file_str = script_file.display().to_string();
+        // Script cleans up both the PID file and itself when done
         let script_content = format!(
-            "#!/bin/bash\ncd '{}'\necho $$ > '{}'\n{}\nrm -f '{}'\n",
+            "#!/bin/bash\ncd '{}'\necho $$ > '{}'\n{}\nrm -f '{}'\nrm -f '{}'\n",
             cwd_str.replace('\'', "'\\''"),
             pid_file_str.replace('\'', "'\\''"),
             full_command,
             pid_file_str.replace('\'', "'\\''"),
+            script_file_str.replace('\'', "'\\''"),
         );
 
         std::fs::write(&script_file, &script_content).context("Failed to write shell script")?;
@@ -162,7 +165,6 @@ impl TerminalSession {
         let script_path = script_file.display().to_string();
 
         // Use AppleScript to run the script in Terminal
-        // Simple command: just the path to our script
         let applescript = format!(
             "tell application \"Terminal\"\n\tactivate\n\tdo script \"{}\"\nend tell",
             script_path.replace('\\', "\\\\").replace('"', "\\\"")
@@ -181,7 +183,6 @@ impl TerminalSession {
         // Wait a moment for PID file to be written
         std::thread::sleep(Duration::from_millis(1500));
 
-        // Read the PID from the temp file
         let pid = std::fs::read_to_string(&pid_file)
             .ok()
             .and_then(|s| s.trim().parse::<u32>().ok());
@@ -209,14 +210,12 @@ impl TerminalSession {
             return false;
         }
 
-        // Check if the PID file still exists (deleted on exit)
         let pid_file = std::env::temp_dir().join(format!("kyco_job_{}.pid", self.job_id));
         if !pid_file.exists() {
             self.running.store(false, Ordering::SeqCst);
             return false;
         }
 
-        // Also check if the process is still alive
         if let Some(pid) = self.pid {
             if !is_process_running(pid) {
                 self.running.store(false, Ordering::SeqCst);
@@ -237,12 +236,17 @@ impl TerminalSession {
     ///
     /// Returns an error if the `open` command fails to execute.
     pub fn focus(&self) -> Result<()> {
-        // Just activate Terminal app - it will bring the most recent window to front
-        Command::new("open")
+        // Use status() instead of spawn() to properly wait for the command
+        // and avoid leaking a zombie process
+        let status = Command::new("open")
             .arg("-a")
             .arg("Terminal")
-            .spawn()
+            .status()
             .context("Failed to focus terminal")?;
+
+        if !status.success() {
+            anyhow::bail!("Failed to focus terminal: open command exited with {}", status);
+        }
 
         Ok(())
     }
@@ -343,27 +347,31 @@ static SESSIONS: once_cell::sync::Lazy<Mutex<HashMap<u64, Arc<TerminalSession>>>
 ///
 /// # Returns
 ///
-/// The session handle if found and the mutex is accessible, `None` otherwise.
+/// The session handle if found, `None` otherwise.
+/// Recovers from mutex poisoning to ensure robustness.
 pub fn get_session(job_id: u64) -> Option<Arc<TerminalSession>> {
-    SESSIONS.lock().ok()?.get(&job_id).cloned()
+    // Use unwrap_or_else to recover from poisoned mutex - we still want to
+    // access the data even if a previous holder panicked
+    let sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    sessions.get(&job_id).cloned()
 }
 
 /// Register a terminal session in the global registry.
 ///
 /// Called automatically when a new session is spawned via [`TerminalAdapter::run`].
+/// Recovers from mutex poisoning to ensure session is always registered.
 fn register_session(session: Arc<TerminalSession>) {
-    if let Ok(mut sessions) = SESSIONS.lock() {
-        sessions.insert(session.job_id, session);
-    }
+    let mut sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    sessions.insert(session.job_id, session);
 }
 
 /// Remove a terminal session from the global registry.
 ///
 /// Called automatically when a job completes.
+/// Recovers from mutex poisoning to ensure cleanup always happens.
 fn unregister_session(job_id: u64) {
-    if let Ok(mut sessions) = SESSIONS.lock() {
-        sessions.remove(&job_id);
-    }
+    let mut sessions = SESSIONS.lock().unwrap_or_else(|e| e.into_inner());
+    sessions.remove(&job_id);
 }
 
 /// Terminal-based agent adapter for REPL mode.
@@ -446,8 +454,6 @@ impl TerminalAdapter {
         let file_path = job.source_file.display().to_string();
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
-
-        // Replace template placeholders
         let ide_context = job.ide_context.as_deref().unwrap_or("");
         template
             .prompt_template
@@ -551,15 +557,11 @@ impl AgentRunner for TerminalAdapter {
         let job_id = job.id;
         let prompt = self.build_prompt(job, config);
 
-        // Log start
         let _ = event_tx
             .send(LogEvent::system(format!("Starting terminal job #{}", job_id)).for_job(job_id))
             .await;
 
-        // Build args with system prompt included
         let repl_args = self.build_repl_args(job, config);
-
-        // Spawn in terminal
         let binary = config.get_binary();
         let session = TerminalSession::spawn(job_id, &binary, &repl_args, &prompt, worktree)?;
 
@@ -597,10 +599,7 @@ impl AgentRunner for TerminalAdapter {
             }
         });
 
-        // Wait for completion
         handle.await?;
-
-        // Cleanup
         unregister_session(job_id);
 
         let _ = event_tx
@@ -624,7 +623,6 @@ impl AgentRunner for TerminalAdapter {
     }
 
     fn is_available(&self) -> bool {
-        // Check if we're on macOS and Terminal.app is available
         #[cfg(target_os = "macos")]
         {
             let binary = match self.cli_type {

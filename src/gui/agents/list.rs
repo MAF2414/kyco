@@ -19,7 +19,6 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
     );
     ui.add_space(12.0);
 
-    // Get agents from config
     let agents: Vec<(String, String, String)> = state
         .config
         .agent
@@ -69,7 +68,6 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
                 ui.add_space(4.0);
             }
 
-            // Add new agent button
             ui.add_space(12.0);
             if ui
                 .button(RichText::new("+ Add New Agent").color(ACCENT_CYAN))

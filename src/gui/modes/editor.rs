@@ -22,7 +22,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
     ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Name (only editable for new modes)
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Name:").color(TEXT_MUTED));
                 if is_new {
@@ -42,7 +41,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
-            // Aliases
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Aliases:").color(TEXT_MUTED));
                 ui.add(
@@ -55,7 +53,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
-            // Default agent
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Default Agent:").color(TEXT_MUTED));
                 ui.add(
@@ -68,7 +65,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
-            // Session mode
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Session Mode:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("mode_session_mode")
@@ -88,7 +84,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
-            // Max turns
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Max Turns:").color(TEXT_MUTED));
                 ui.add(
@@ -101,7 +96,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
-            // Model override
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Model:").color(TEXT_MUTED));
                 ui.add(
@@ -119,7 +113,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             ui.label(RichText::new("SDK Options").monospace().color(TEXT_PRIMARY));
             ui.add_space(8.0);
 
-            // Claude permission mode
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Claude Permissions:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("mode_claude_permission")
@@ -154,7 +147,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
-            // Codex sandbox
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Codex Sandbox:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("mode_codex_sandbox")
@@ -184,7 +176,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(16.0);
 
-            // Allowed tools
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Allowed Tools:").color(TEXT_MUTED));
                 ui.add(
@@ -197,7 +188,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
-            // Disallowed tools
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Disallowed Tools:").color(TEXT_MUTED));
                 ui.add(
@@ -210,7 +200,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(8.0);
 
-            // Read-only toggle (convenience)
             ui.horizontal(|ui| {
                 ui.checkbox(state.mode_edit_readonly, "");
                 ui.label(
@@ -220,7 +209,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             });
             ui.add_space(16.0);
 
-            // Prompt template
             ui.label(RichText::new("Prompt Template:").color(TEXT_MUTED));
             ui.add_space(4.0);
             ui.label(
@@ -240,7 +228,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             );
             ui.add_space(16.0);
 
-            // System prompt
             ui.label(RichText::new("System Prompt:").color(TEXT_MUTED));
             ui.add_space(4.0);
             ui.add(
@@ -252,13 +239,11 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             );
             ui.add_space(16.0);
 
-            // Chain integration section
             ui.separator();
             ui.add_space(8.0);
             ui.label(RichText::new("Chain Integration (for workflows)").color(TEXT_PRIMARY));
             ui.add_space(8.0);
 
-            // Output states
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Output States:").color(TEXT_MUTED));
                 ui.add(
@@ -276,7 +261,6 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             );
             ui.add_space(8.0);
 
-            // State prompt
             ui.label(RichText::new("State Prompt:").color(TEXT_MUTED));
             ui.add_space(4.0);
             ui.label(
@@ -295,14 +279,12 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
             );
             ui.add_space(16.0);
 
-            // Status message
             if let Some((msg, is_error)) = &state.mode_edit_status {
                 let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };
                 ui.label(RichText::new(msg.as_str()).color(color));
                 ui.add_space(8.0);
             }
 
-            // Save button
             ui.horizontal(|ui| {
                 if animated_button(ui, "Save to Config", ACCENT_GREEN, "mode_save_btn").clicked() {
                     save_mode_to_config(state, is_new);

@@ -55,13 +55,12 @@ impl SelectionContext {
             ctx.push_str(&format!("- **Lines:** {}-{}\n", start, end));
         }
 
-        // Dependencies
         if let Some(count) = self.dependency_count {
             if count > 0 {
                 ctx.push_str(&format!("\n### Dependencies ({} total", count));
                 if let Some(additional) = self.additional_dependency_count {
                     if additional > 0 {
-                        ctx.push_str(&format!(", showing {}", count - additional));
+                        ctx.push_str(&format!(", showing {}", count.saturating_sub(additional)));
                     }
                 }
                 ctx.push_str("):\n");
@@ -80,7 +79,6 @@ impl SelectionContext {
             }
         }
 
-        // Related Tests
         if let Some(ref tests) = self.related_tests {
             if !tests.is_empty() {
                 ctx.push_str("\n### Related Tests:\n");
@@ -90,7 +88,6 @@ impl SelectionContext {
             }
         }
 
-        // Diagnostics (Errors/Warnings)
         if let Some(ref diagnostics) = self.diagnostics {
             if !diagnostics.is_empty() {
                 let errors: Vec<_> = diagnostics

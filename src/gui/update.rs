@@ -68,7 +68,6 @@ impl UpdateChecker {
         let (status_tx, status_rx) = channel();
         let (check_tx, check_rx) = channel::<()>();
 
-        // Start background checker thread
         thread::spawn(move || {
             update_checker_loop(status_tx, check_rx);
         });
@@ -84,12 +83,10 @@ impl UpdateChecker {
     /// Poll for update check results (non-blocking)
     /// Also triggers periodic re-checks every 5 minutes
     pub fn poll(&mut self) -> &UpdateStatus {
-        // Check if we have a result
         while let Ok(status) = self.rx.try_recv() {
             self.status = status;
         }
 
-        // Trigger periodic check every 5 minutes
         if self.last_check.elapsed() >= CHECK_INTERVAL {
             self.trigger_check();
         }
@@ -130,11 +127,9 @@ impl Default for UpdateChecker {
 
 /// Background thread that handles update checking
 fn update_checker_loop(tx: Sender<UpdateStatus>, rx: Receiver<()>) {
-    // Initial check
     let result = do_check();
     let _ = tx.send(result);
 
-    // Wait for periodic check signals
     while rx.recv().is_ok() {
         let _ = tx.send(UpdateStatus::Checking);
         let result = do_check();
@@ -144,7 +139,6 @@ fn update_checker_loop(tx: Sender<UpdateStatus>, rx: Receiver<()>) {
 
 /// Execute the update check
 fn do_check() -> UpdateStatus {
-    // Fetch latest release from GitHub API
     let url = format!(
         "https://api.github.com/repos/{}/releases/latest",
         GITHUB_REPO
@@ -159,7 +153,6 @@ fn do_check() -> UpdateStatus {
         Err(e) => return UpdateStatus::Error(format!("Failed to fetch release info: {}", e)),
     };
 
-    // Parse JSON response
     let body = match response.into_string() {
         Ok(b) => b,
         Err(e) => return UpdateStatus::Error(format!("Failed to read response: {}", e)),
@@ -178,7 +171,6 @@ fn do_check() -> UpdateStatus {
 
     let latest_version_str = tag_name.strip_prefix('v').unwrap_or(tag_name);
 
-    // Parse versions
     let current = match Version::parse(CURRENT_VERSION) {
         Ok(v) => v,
         Err(e) => return UpdateStatus::Error(format!("Invalid current version: {}", e)),
@@ -189,12 +181,10 @@ fn do_check() -> UpdateStatus {
         Err(e) => return UpdateStatus::Error(format!("Invalid latest version: {}", e)),
     };
 
-    // Compare versions
     if latest <= current {
         return UpdateStatus::UpToDate;
     }
 
-    // Extract release info
     let release_url = json
         .get("html_url")
         .and_then(|v| v.as_str())
@@ -203,7 +193,6 @@ fn do_check() -> UpdateStatus {
 
     let release_notes = json.get("body").and_then(|v| v.as_str()).map(String::from);
 
-    // Determine platform-specific download URL
     let download_url = get_platform_download_url(latest_version_str);
 
     UpdateStatus::UpdateAvailable(UpdateInfo {
@@ -263,7 +252,6 @@ fn has_write_permission(path: &std::path::Path) -> bool {
 
 /// Download and install update, returns status message
 pub fn install_update(info: &UpdateInfo) -> Result<String, String> {
-    // Get the path to the current executable
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("Failed to get current executable path: {}", e))?;
 
@@ -287,20 +275,17 @@ fn install_update_direct(
     info: &UpdateInfo,
     current_exe: &std::path::Path,
 ) -> Result<String, String> {
-    // Download the new binary
     let response = ureq::get(&info.download_url)
         .set("User-Agent", "kyco-update-installer")
         .call()
         .map_err(|e| format!("Failed to download update: {}", e))?;
 
-    // Read binary data
     let mut binary_data = Vec::new();
     response
         .into_reader()
         .read_to_end(&mut binary_data)
         .map_err(|e| format!("Failed to read download: {}", e))?;
 
-    // Create backup of current binary
     let backup_path = current_exe.with_extension("backup");
     if backup_path.exists() {
         std::fs::remove_file(&backup_path)
@@ -309,7 +294,6 @@ fn install_update_direct(
     std::fs::rename(current_exe, &backup_path)
         .map_err(|e| format!("Failed to backup current binary: {}", e))?;
 
-    // Write new binary
     std::fs::write(current_exe, &binary_data).map_err(|e| {
         // Try to restore backup on failure
         let _ = std::fs::rename(&backup_path, current_exe);
@@ -328,7 +312,6 @@ fn install_update_direct(
             .map_err(|e| format!("Failed to set permissions: {}", e))?;
     }
 
-    // Clean up backup
     let _ = std::fs::remove_file(&backup_path);
 
     Ok(format!(

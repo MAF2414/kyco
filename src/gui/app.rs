@@ -160,10 +160,6 @@ pub(super) const ACCENT_RED: Color32 = Color32::from_rgb(255, 80, 80);
 pub(super) const ACCENT_PURPLE: Color32 = Color32::from_rgb(200, 120, 255);
 pub(super) const ACCENT_YELLOW: Color32 = Color32::from_rgb(255, 200, 50);
 
-// REMOVED: Hardcoded MODES and AGENTS constants
-// Modes and agents are now dynamically loaded from config.toml
-// via self.config.mode and self.config.agent in update_suggestions()
-
 /// View mode for the app
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewMode {
@@ -977,8 +973,13 @@ impl KycoApp {
                 Ok(()) => {
                     self.logs.push(LogEvent::system(format!(
                         "✓ Voice transcribed and pasted: \"{}\"",
-                        if text.len() > 50 {
-                            format!("{}...", &text[..50])
+                        if text.chars().count() > 50 {
+                            let end = text
+                                .char_indices()
+                                .nth(50)
+                                .map(|(i, _)| i)
+                                .unwrap_or(text.len());
+                            format!("{}...", &text[..end])
                         } else {
                             text.to_string()
                         }
@@ -1002,8 +1003,13 @@ impl KycoApp {
             } else {
                 self.logs.push(LogEvent::system(format!(
                     "✓ Voice transcribed and copied: \"{}\"",
-                    if text.len() > 50 {
-                        format!("{}...", &text[..50])
+                    if text.chars().count() > 50 {
+                        let end = text
+                            .char_indices()
+                            .nth(50)
+                            .map(|(i, _)| i)
+                            .unwrap_or(text.len());
+                        format!("{}...", &text[..end])
                     } else {
                         text.to_string()
                     }
@@ -1069,7 +1075,11 @@ impl KycoApp {
 
     /// Render settings/extensions view
     fn render_settings(&mut self, ctx: &egui::Context) {
-        let mut config = self.config.write().unwrap();
+        let Ok(mut config) = self.config.write() else {
+            // Lock poisoned - show error and return
+            self.logs.push(LogEvent::error("Config lock poisoned, cannot render settings"));
+            return;
+        };
         super::settings::render_settings(
             ctx,
             &mut super::settings::SettingsState {
@@ -1124,7 +1134,10 @@ impl KycoApp {
 
     /// Render modes configuration view
     fn render_modes(&mut self, ctx: &egui::Context) {
-        let mut config = self.config.write().unwrap();
+        let Ok(mut config) = self.config.write() else {
+            self.logs.push(LogEvent::error("Config lock poisoned, cannot render modes"));
+            return;
+        };
         super::modes::render_modes(
             ctx,
             &mut super::modes::ModeEditorState {
@@ -1154,7 +1167,10 @@ impl KycoApp {
 
     /// Render agents configuration view
     fn render_agents(&mut self, ctx: &egui::Context) {
-        let mut config = self.config.write().unwrap();
+        let Ok(mut config) = self.config.write() else {
+            self.logs.push(LogEvent::error("Config lock poisoned, cannot render agents"));
+            return;
+        };
         super::agents::render_agents(
             ctx,
             &mut super::agents::AgentEditorState {
@@ -1176,7 +1192,10 @@ impl KycoApp {
 
     /// Render chains configuration view
     fn render_chains(&mut self, ctx: &egui::Context) {
-        let mut config = self.config.write().unwrap();
+        let Ok(mut config) = self.config.write() else {
+            self.logs.push(LogEvent::error("Config lock poisoned, cannot render chains"));
+            return;
+        };
         super::chains::render_chains(
             ctx,
             &mut super::chains::ChainEditorState {
@@ -1732,7 +1751,10 @@ impl KycoApp {
         };
 
         let is_codex = {
-            let config = self.config.read().unwrap();
+            let Ok(config) = self.config.read() else {
+                self.logs.push(LogEvent::error("Config lock poisoned"));
+                return;
+            };
             config
                 .get_agent_for_job(&agent_id, &job_mode)
                 .map(|a| a.sdk_type == SdkType::Codex)
@@ -2066,7 +2088,10 @@ impl KycoApp {
 
         // Resolve agent aliases
         let resolved_agents: Vec<String> = {
-            let config = self.config.read().unwrap();
+            let Ok(config) = self.config.read() else {
+                self.logs.push(LogEvent::error("Config lock poisoned"));
+                return;
+            };
             agents
                 .iter()
                 .map(|a| {
@@ -2171,7 +2196,9 @@ impl KycoApp {
 
     /// Update autocomplete suggestions based on input
     fn update_suggestions(&mut self) {
-        let config = self.config.read().unwrap();
+        let Ok(config) = self.config.read() else {
+            return; // Skip autocomplete if lock poisoned
+        };
         self.autocomplete
             .update_suggestions(&self.popup_input, &config);
     }
@@ -2199,7 +2226,10 @@ impl KycoApp {
 
         // Resolve agent aliases
         let resolved_agents: Vec<String> = {
-            let config = self.config.read().unwrap();
+            let Ok(config) = self.config.read() else {
+                self.logs.push(LogEvent::error("Config lock poisoned"));
+                return;
+            };
             agents
                 .iter()
                 .map(|a| {
@@ -2403,7 +2433,10 @@ impl KycoApp {
         use super::detail_panel::{DetailPanelAction, DetailPanelState, render_detail_panel};
 
         let action = {
-            let config = self.config.read().unwrap();
+            let Ok(config) = self.config.read() else {
+                ui.label("Config unavailable");
+                return;
+            };
             let mut state = DetailPanelState {
                 selected_job_id: self.selected_job_id,
                 cached_jobs: &self.cached_jobs,
@@ -2894,7 +2927,9 @@ impl KycoApp {
 
     /// Apply voice config from settings to the VoiceManager
     fn apply_voice_config(&mut self) {
-        let config = self.config.read().unwrap();
+        let Ok(config) = self.config.read() else {
+            return; // Skip if lock poisoned
+        };
         let voice_settings = &config.settings.gui.voice;
         let action_registry = super::voice::VoiceActionRegistry::from_config(
             &config.mode,

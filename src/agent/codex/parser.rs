@@ -29,16 +29,10 @@ pub fn parse_codex_event(line: &str) -> CodexEventResult {
     };
 
     match event_type {
-        // Turn completed = success
         "turn.completed" => parse_turn_completed(&json),
-
-        // Item events - show reasoning and commands
         "item.completed" | "item.started" => parse_item_event(&json, event_type),
-
         // Legacy message format
         "message" => parse_message(&json),
-
-        // Error events
         "error" => parse_error(&json),
 
         // Ignore other event types silently

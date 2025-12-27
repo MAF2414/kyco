@@ -377,7 +377,7 @@ impl VoiceManager {
                 recording_path.to_str().unwrap_or("recording.wav"),
                 "trim",
                 "0",
-                &format!("{}", max_duration), // Max duration limit (safety)
+                &format!("{}", max_duration),
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -488,8 +488,6 @@ impl VoiceManager {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-
-        // Parse whisper output - it outputs the transcription directly
         let text = stdout.trim().to_string();
 
         if text.is_empty() {
@@ -565,7 +563,6 @@ impl VoiceManager {
             if let Some(ref mut process) = self.recording_process {
                 match process.try_wait() {
                     Ok(Some(_status)) => {
-                        // Recording finished (max duration reached)
                         self.recording_process = None;
                         if let Some(recording_path) = self.recording_path.take() {
                             if recording_path.exists() {
@@ -575,9 +572,7 @@ impl VoiceManager {
                             }
                         }
                     }
-                    Ok(None) => {
-                        // Still recording - waiting for user to press stop
-                    }
+                    Ok(None) => {}
                     Err(e) => {
                         self.state = VoiceState::Error;
                         self.last_error = Some(format!("Recording error: {}", e));
@@ -613,7 +608,6 @@ impl VoiceManager {
 
     /// Update configuration
     pub fn update_config(&mut self, config: VoiceConfig) {
-        // Invalidate cache if model changed
         if self.config.whisper_model != config.whisper_model {
             self.availability_cache = None;
         }
@@ -641,6 +635,31 @@ impl VoiceManager {
     /// Take the last transcription (consumes it)
     pub fn take_transcription(&mut self) -> Option<String> {
         self.last_transcription.take()
+    }
+}
+
+impl Drop for VoiceManager {
+    fn drop(&mut self) {
+        // Ensure any running recording process is killed to prevent orphaned processes
+        if let Some(mut process) = self.recording_process.take() {
+            // First try graceful SIGTERM to let sox finalize the WAV file
+            #[cfg(unix)]
+            {
+                let _ = std::process::Command::new("kill")
+                    .args(["-TERM", &process.id().to_string()])
+                    .output();
+                // Brief wait for graceful shutdown
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            // Force kill as fallback
+            let _ = process.kill();
+            let _ = process.wait();
+        }
+
+        // Clean up any leftover recording file
+        if let Some(path) = self.recording_path.take() {
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }
 

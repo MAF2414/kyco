@@ -104,13 +104,11 @@ impl Config {
     /// 2. Atomic write (temp file + rename) prevents corruption on crash
     /// 3. Parent directory is created if needed
     pub fn save_to_file(&self, path: &Path) -> Result<()> {
-        // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
         }
 
-        // Serialize config
         let content = toml::to_string_pretty(self)
             .with_context(|| "Failed to serialize config")?;
 
@@ -162,7 +160,6 @@ impl Config {
             return Self::from_file(&global_path);
         }
 
-        // Auto-init: create global config with defaults
         Self::auto_init()?;
         Self::from_file(&global_path)
     }
@@ -174,11 +171,13 @@ impl Config {
     }
 
     /// Auto-initialize global configuration when no config exists
+    ///
+    /// Uses file locking to prevent race conditions when multiple processes
+    /// try to auto-init simultaneously.
     fn auto_init() -> Result<()> {
         let config_dir = Self::global_config_dir();
         let config_path = Self::global_config_path();
 
-        // Create ~/.kyco directory
         if !config_dir.exists() {
             std::fs::create_dir_all(&config_dir).with_context(|| {
                 format!(
@@ -188,18 +187,54 @@ impl Config {
             })?;
         }
 
-        // Generate default config as TOML
-        // Note: http_token is intentionally left empty for local development.
+        // Create lock file and acquire exclusive lock to prevent race conditions
+        let lock_path = config_path.with_extension("toml.lock");
+        let lock_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&lock_path)
+            .with_context(|| format!("Failed to create lock file: {}", lock_path.display()))?;
+
+        lock_file
+            .lock_exclusive()
+            .with_context(|| "Failed to acquire config lock for auto-init")?;
+
+        // Re-check if config exists after acquiring lock (another process may have created it)
+        if config_path.exists() {
+            // Lock is released when lock_file is dropped
+            return Ok(());
+        }
+
+        // http_token intentionally left empty for local development.
         // Auth is only enforced when http_token is explicitly set.
         let default_config = Self::with_defaults();
         let config_content = toml::to_string_pretty(&default_config)
             .with_context(|| "Failed to serialize default config")?;
 
-        // Write config file
-        std::fs::write(&config_path, &config_content)
-            .with_context(|| format!("Failed to write config file: {}", config_path.display()))?;
+        // Write to temp file first (atomic write pattern)
+        let temp_path = config_path.with_extension("toml.tmp");
+        let mut temp_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&temp_path)
+            .with_context(|| format!("Failed to create temp file: {}", temp_path.display()))?;
+
+        temp_file
+            .write_all(config_content.as_bytes())
+            .with_context(|| "Failed to write config content")?;
+
+        temp_file
+            .sync_all()
+            .with_context(|| "Failed to sync config file")?;
+
+        // Atomic rename
+        std::fs::rename(&temp_path, &config_path)
+            .with_context(|| format!("Failed to rename config file: {}", config_path.display()))?;
 
         eprintln!("Created {}", config_path.display());
+        // Lock is released when lock_file is dropped
         Ok(())
     }
 
@@ -207,7 +242,6 @@ impl Config {
     pub fn with_defaults() -> Self {
         let mut config = Self::default();
 
-        // Add default Claude agent
         config.agent.insert(
             "claude".to_string(),
             AgentConfigToml {
@@ -223,7 +257,6 @@ impl Config {
             },
         );
 
-        // Add default Codex agent
         config.agent.insert(
             "codex".to_string(),
             AgentConfigToml {
@@ -239,7 +272,6 @@ impl Config {
             },
         );
 
-        // Add default modes
         config.mode.insert(
             "review".to_string(),
             ModeConfig {
@@ -261,7 +293,7 @@ impl Config {
                 aliases: vec!["r".to_string(), "rev".to_string()],
                 output_states: vec!["issues_found".to_string(), "no_issues".to_string()],
                 state_prompt: None,
-                allowed_tools: vec![], // Legacy, deprecated
+                allowed_tools: vec![],
             },
         );
 
@@ -286,7 +318,7 @@ impl Config {
                 aliases: vec!["f".to_string()],
                 output_states: vec!["fixed".to_string(), "unfixable".to_string()],
                 state_prompt: None,
-                allowed_tools: vec![], // Legacy, deprecated
+                allowed_tools: vec![],
             },
         );
 
@@ -311,7 +343,7 @@ impl Config {
                 aliases: vec!["i".to_string(), "impl".to_string()],
                 output_states: vec!["implemented".to_string(), "blocked".to_string()],
                 state_prompt: None,
-                allowed_tools: vec![], // Legacy, deprecated
+                allowed_tools: vec![],
             },
         );
 
@@ -341,11 +373,10 @@ impl Config {
                 aliases: vec!["p".to_string()],
                 output_states: vec!["plan_ready".to_string(), "needs_clarification".to_string()],
                 state_prompt: None,
-                allowed_tools: vec![], // Legacy, deprecated
+                allowed_tools: vec![],
             },
         );
 
-        // Chat mode - interactive session
         config.mode.insert(
             "chat".to_string(),
             ModeConfig {
@@ -354,12 +385,12 @@ impl Config {
                 scope_default: None,
                 prompt: Some("{description}".to_string()),
                 system_prompt: Some("You are a helpful assistant for this codebase. You can read and explore the code to answer questions.".to_string()),
-                session_mode: ModeSessionType::Session, // Persistent conversation!
-                max_turns: 0, // Unlimited
+                session_mode: ModeSessionType::Session,
+                max_turns: 0,
                 model: None,
                 disallowed_tools: vec!["Bash(git push)".to_string()],
                 claude: Some(ClaudeModeOptions {
-                    permission_mode: "default".to_string(), // Ask for edits
+                    permission_mode: "default".to_string(),
                 }),
                 codex: Some(CodexModeOptions {
                     sandbox: "workspace-write".to_string(),
@@ -367,11 +398,10 @@ impl Config {
                 aliases: vec!["c".to_string()],
                 output_states: vec![],
                 state_prompt: None,
-                allowed_tools: vec![], // Legacy, deprecated
+                allowed_tools: vec![],
             },
         );
 
-        // Add default chain: review+fix
         config.chain.insert(
             "review+fix".to_string(),
             ModeChain {
@@ -430,7 +460,6 @@ impl Config {
     /// Get the agent configuration for a given agent ID
     pub fn get_agent(&self, id: &str) -> Option<AgentConfig> {
         self.agent.get(id).map(|toml| {
-            // Build mode_templates from the mode config
             let mut mode_templates = HashMap::new();
             for (mode_name, mode_config) in &self.mode {
                 if let Some(prompt) = &mode_config.prompt {
@@ -453,7 +482,6 @@ impl Config {
                 }
             }
 
-            // Get output schema from GUI settings
             let output_schema = if !self.settings.gui.output_schema.trim().is_empty() {
                 Some(self.settings.gui.output_schema.clone())
             } else {
@@ -467,18 +495,15 @@ impl Config {
                     None
                 };
 
-            // SDK type
             let sdk_type = toml.sdk;
 
-            // Normalize session mode (legacy "print" == oneshot)
+            // Legacy: "print" and "repl" modes map to oneshot/session
             let session_mode = match toml.session_mode {
                 SessionMode::Print | SessionMode::Oneshot => SessionMode::Oneshot,
                 SessionMode::Session => SessionMode::Session,
-                // Legacy: "repl" used to spawn a separate terminal window. SDK sessions cover this use case.
                 SessionMode::Repl => SessionMode::Session,
             };
 
-            // Default permission mode based on SDK type
             let permission_mode = sdk_type.default_permission_mode().to_string();
 
             AgentConfig {
@@ -542,16 +567,12 @@ impl Config {
             }
         };
 
-        // Get mode config and apply tool overrides
         if let Some(mode_config) = self.mode.get(mode) {
-            // Mode allowed_tools override agent allowed_tools when specified
             if !mode_config.allowed_tools.is_empty() {
                 agent_config.allowed_tools = mode_config.allowed_tools.clone();
             }
 
-            // Mode disallowed_tools are added to agent disallowed_tools
             if !mode_config.disallowed_tools.is_empty() {
-                // Combine both, avoiding duplicates
                 for tool in &mode_config.disallowed_tools {
                     if !agent_config.disallowed_tools.contains(tool) {
                         agent_config.disallowed_tools.push(tool.clone());
@@ -559,7 +580,6 @@ impl Config {
                 }
             }
 
-            // Apply per-mode execution settings (but don't override Terminal REPL agents)
             if !matches!(agent_config.session_mode, SessionMode::Repl) {
                 agent_config.session_mode = match mode_config.session_mode {
                     ModeSessionType::Oneshot => SessionMode::Oneshot,
@@ -582,7 +602,6 @@ impl Config {
                     );
                 }
                 _ => {
-                    // Default to Claude-style permission modes for non-Codex SDKs
                     agent_config.permission_mode = mode_config
                         .claude
                         .as_ref()
@@ -644,13 +663,11 @@ impl Config {
     ) -> String {
         let mode_config = self.mode.get(mode);
 
-        // Get prompt template from mode or use default
         let template = mode_config
             .and_then(|m| m.prompt.as_ref())
             .map(|s| s.as_str())
             .unwrap_or("Execute '{mode}' on {target} in {scope} of `{file}`. {description}");
 
-        // Get target description
         let target_text = self
             .target
             .get(target)
@@ -658,7 +675,6 @@ impl Config {
             .map(|s| s.as_str())
             .unwrap_or(target);
 
-        // Get scope description
         let scope_text = self
             .scope
             .get(scope)

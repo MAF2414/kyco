@@ -1,6 +1,4 @@
 //! Job list UI rendering
-//!
-//! This module contains the job list panel rendering logic.
 
 use super::super::animations::{blocked_indicator, pending_indicator, queued_indicator};
 use super::super::app::{
@@ -82,14 +80,12 @@ pub fn render_job_list(
         ui.ctx().request_repaint();
     }
 
-    // Pre-calculate counts for each filter
     let count_all = cached_jobs.len();
     let count_active = JobListFilter::Active.count(cached_jobs);
     let count_finished = JobListFilter::Finished.count(cached_jobs);
     let count_failed = JobListFilter::Failed.count(cached_jobs);
 
     ui.vertical(|ui| {
-        // Header
         ui.horizontal(|ui| {
             ui.label(RichText::new("JOBS").monospace().color(TEXT_PRIMARY));
 
@@ -130,15 +126,12 @@ pub fn render_job_list(
             ] {
                 let is_selected = *filter == filter_option;
                 let label = filter_option.label();
-
-                // Format label with count
                 let label_with_count = if count > 0 {
                     format!("{} ({})", label, count)
                 } else {
                     label.to_string()
                 };
 
-                // Style based on selection and filter type
                 let (text_color, bg_color) = if is_selected {
                     (ACCENT_CYAN, BG_HIGHLIGHT)
                 } else if count > 0 {
@@ -177,7 +170,6 @@ pub fn render_job_list(
             .show(ui, |ui| {
                 ui.set_min_width(available_width);
 
-                // Filter and sort jobs
                 let mut filtered_jobs: Vec<&Job> = cached_jobs
                     .iter()
                     .filter(|j| filter.matches(j))
@@ -214,7 +206,6 @@ pub fn render_job_list(
                         .show(ui, |ui| {
                             ui.set_min_width(available_width - 16.0); // Account for margins
                             ui.horizontal(|ui| {
-                                // Status indicator with visual representation for all states
                                 let status_col = status_color(job.status);
                                 match job.status {
                                     JobStatus::Running => {
@@ -234,53 +225,43 @@ pub fn render_job_list(
                                         pending_indicator(ui, status_col, 12.0);
                                     }
                                     JobStatus::Done => {
-                                        // Checkmark for success
                                         ui.label(
                                             RichText::new("[+]").monospace().color(status_col),
                                         );
                                     }
                                     JobStatus::Failed => {
-                                        // X for failure
                                         ui.label(
                                             RichText::new("[x]").monospace().color(status_col),
                                         );
                                     }
                                     JobStatus::Rejected => {
-                                        // Minus for rejected
                                         ui.label(
                                             RichText::new("[-]").monospace().color(status_col),
                                         );
                                     }
                                     JobStatus::Merged => {
-                                        // Arrow/merge symbol
                                         ui.label(
                                             RichText::new("[>]").monospace().color(status_col),
                                         );
                                     }
                                 }
 
-                                // Job ID
                                 ui.label(
                                     RichText::new(format!("#{}", job.id))
                                         .monospace()
                                         .color(TEXT_DIM),
                                 );
-
-                                // Mode
                                 ui.label(RichText::new(&job.mode).monospace().color(TEXT_PRIMARY));
-
-                                // Agent
                                 ui.label(
                                     RichText::new(format!("[{}]", job.agent_id)).color(TEXT_MUTED),
                                 );
 
-                                // Group indicator (if job is part of a multi-agent group)
+                                // Group indicator
                                 if job.group_id.is_some() {
                                     ui.label(RichText::new("||").color(ACCENT_PURPLE).small())
                                         .on_hover_text("Part of multi-agent group");
                                 }
 
-                                // Blocked indicator (shows which job is blocking this one)
                                 if job.status == JobStatus::Blocked {
                                     if let Some(blocked_by) = job.blocked_by {
                                         let hover_text = if let Some(ref file) = job.blocked_file {
@@ -304,26 +285,30 @@ pub fn render_job_list(
                                 }
                             });
 
-                            // Second row: filename + delete button
-                            // Use fixed width layout to prevent overflow
-                            let row_width = available_width - 16.0; // Account for margins
+                            // Fixed width to prevent overflow
+                            let row_width = available_width - 16.0;
                             ui.horizontal(|ui| {
                                 ui.set_width(row_width);
 
-                                // Target - show only filename (full path available in detail panel)
+                                // Show only filename (full path in detail panel)
                                 let target = std::path::Path::new(&job.target)
                                     .file_name()
                                     .and_then(|f| f.to_str())
                                     .unwrap_or(&job.target);
 
-                                // Calculate max width for filename (row minus button space)
                                 let btn_space = if job.is_finished() { 32.0 } else { 0.0 };
                                 let max_filename_width = row_width - btn_space;
 
-                                // Truncate filename to fit available space (roughly 6px per char)
+                                // Truncate to fit (~6.5px per char)
+                                // Use char_indices to safely truncate UTF-8 strings without panicking
                                 let max_chars = ((max_filename_width / 6.5) as usize).saturating_sub(2);
-                                let display_target = if target.len() > max_chars && max_chars > 3 {
-                                    format!("{}…", &target[..max_chars])
+                                let display_target = if target.chars().count() > max_chars && max_chars > 3 {
+                                    let truncate_byte_idx = target
+                                        .char_indices()
+                                        .nth(max_chars)
+                                        .map(|(idx, _)| idx)
+                                        .unwrap_or(target.len());
+                                    format!("{}…", &target[..truncate_byte_idx])
                                 } else {
                                     target.to_string()
                                 };
@@ -331,9 +316,7 @@ pub fn render_job_list(
                                 ui.label(RichText::new(&display_target).color(TEXT_DIM))
                                     .on_hover_text(&job.target);
 
-                                // Delete button (only for finished jobs)
                                 if job.is_finished() {
-                                    // Use right-to-left layout for delete button
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                         let delete_btn = egui::Button::new(
                                             RichText::new("✕").color(ACCENT_RED).size(12.0),

@@ -112,10 +112,8 @@ pub fn render_permission_popup(
 
     let mut action: Option<PermissionAction> = None;
 
-    // Animate popup fade-in
     let fade_alpha = ctx.animate_bool_with_time(Id::new("permission_popup_fade"), true, 0.15);
 
-    // Orange/warning themed frame
     let frame = egui::Frame::window(&ctx.style())
         .fill(Color32::from_rgba_unmultiplied(
             42,
@@ -138,7 +136,6 @@ pub fn render_permission_popup(
             ui.set_opacity(fade_alpha);
             ui.spacing_mut().item_spacing = egui::vec2(8.0, 12.0);
 
-            // Header
             ui.horizontal(|ui| {
                 ui.add_space(8.0);
                 ui.label(RichText::new("⚠️").size(24.0));
@@ -161,7 +158,6 @@ pub fn render_permission_popup(
             ui.separator();
             ui.add_space(8.0);
 
-            // Tool info
             egui::Frame::new()
                 .fill(BG_SECONDARY)
                 .inner_margin(12.0)
@@ -179,7 +175,6 @@ pub fn render_permission_popup(
 
                     ui.add_space(8.0);
 
-                    // Show relevant tool input
                     ui.label(RichText::new("Parameters:").color(TEXT_MUTED));
 
                     egui::ScrollArea::vertical()
@@ -191,7 +186,6 @@ pub fn render_permission_popup(
 
             ui.add_space(12.0);
 
-            // Pending count indicator
             if state.pending_requests.len() > 0 {
                 ui.horizontal(|ui| {
                     ui.label(
@@ -207,10 +201,8 @@ pub fn render_permission_popup(
 
             ui.add_space(8.0);
 
-            // Action buttons
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Deny button (red)
                     if ui
                         .add(
                             egui::Button::new(RichText::new("✗ Deny").color(Color32::WHITE))
@@ -227,7 +219,6 @@ pub fn render_permission_popup(
 
                     ui.add_space(12.0);
 
-                    // Allow button (green)
                     if ui
                         .add(
                             egui::Button::new(RichText::new("✓ Allow").color(Color32::WHITE))
@@ -241,7 +232,6 @@ pub fn render_permission_popup(
 
                     ui.add_space(12.0);
 
-                    // Allow All button (for remaining requests)
                     if state.pending_requests.len() > 0 {
                         if ui
                             .add(
@@ -267,7 +257,6 @@ pub fn render_permission_popup(
             });
         });
 
-    // Handle close on Escape
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         if let Some(req) = &state.current_request {
             action = Some(PermissionAction::Dismiss(req.request_id.clone()));
@@ -298,7 +287,6 @@ fn render_tool_input(
 ) {
     match tool_name {
         "Bash" => {
-            // Show the command being executed
             if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
                 ui.add_space(4.0);
                 egui::Frame::new()
@@ -320,7 +308,6 @@ fn render_tool_input(
             }
         }
         "Write" | "Edit" => {
-            // Show file path and preview
             if let Some(path) = input.get("file_path").and_then(|v| v.as_str()) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("📄 File:").color(TEXT_MUTED));
@@ -333,8 +320,13 @@ fn render_tool_input(
             }
             if let Some(content) = input.get("content").and_then(|v| v.as_str()) {
                 ui.add_space(4.0);
-                let preview = if content.len() > 200 {
-                    format!("{}...", &content[..200])
+                let preview = if content.chars().count() > 200 {
+                    let end = content
+                        .char_indices()
+                        .nth(200)
+                        .map(|(i, _)| i)
+                        .unwrap_or(content.len());
+                    format!("{}...", &content[..end])
                 } else {
                     content.to_string()
                 };
@@ -353,7 +345,6 @@ fn render_tool_input(
             }
         }
         _ => {
-            // Generic JSON display
             for (key, value) in input {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(format!("{}:", key)).color(TEXT_MUTED));
@@ -361,8 +352,13 @@ fn render_tool_input(
                         serde_json::Value::String(s) => s.clone(),
                         other => other.to_string(),
                     };
-                    let display = if value_str.len() > 100 {
-                        format!("{}...", &value_str[..100])
+                    let display = if value_str.chars().count() > 100 {
+                        let end = value_str
+                            .char_indices()
+                            .nth(100)
+                            .map(|(i, _)| i)
+                            .unwrap_or(value_str.len());
+                        format!("{}...", &value_str[..end])
                     } else {
                         value_str
                     };
@@ -379,8 +375,13 @@ fn render_tool_input(
 
 /// Truncate a session ID for display
 fn truncate_id(id: &str) -> String {
-    if id.len() > 12 {
-        format!("{}...", &id[..12])
+    if id.chars().count() > 12 {
+        let end = id
+            .char_indices()
+            .nth(12)
+            .map(|(i, _)| i)
+            .unwrap_or(id.len());
+        format!("{}...", &id[..end])
     } else {
         id.to_string()
     }

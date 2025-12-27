@@ -27,7 +27,6 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
     );
     ui.add_space(12.0);
 
-    // Get chains from config with more details (sorted alphabetically for consistent UX)
     let mut chains: Vec<(String, String, usize, usize, Vec<String>)> = state
         .config
         .chain
@@ -42,7 +41,6 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
         .collect();
     chains.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
 
-    // Track chain to duplicate
     let mut chain_to_duplicate: Option<String> = None;
 
     ScrollArea::vertical()
@@ -57,12 +55,9 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                     .corner_radius(4.0)
                     .inner_margin(12.0)
                     .show(ui, |ui| {
-                        // Header row with name and actions
                         ui.horizontal(|ui| {
-                            // Name
                             ui.label(RichText::new(name).monospace().color(ACCENT_YELLOW));
 
-                            // Stats
                             ui.label(
                                 RichText::new(format!("{} steps", step_count))
                                     .small()
@@ -79,7 +74,6 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    // Duplicate button
                                     if ui
                                         .button(RichText::new("⧉").color(TEXT_DIM))
                                         .on_hover_text("Duplicate chain")
@@ -92,12 +86,10 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                             );
                         });
 
-                        // Description
                         if !description.is_empty() {
                             ui.label(RichText::new(description).small().color(TEXT_DIM));
                         }
 
-                        // Flow preview
                         ui.add_space(4.0);
                         ui.horizontal_wrapped(|ui| {
                             for (i, mode) in step_modes.iter().enumerate() {
@@ -110,7 +102,6 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                             }
                         });
 
-                        // Usage hint
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Use:").small().color(TEXT_DIM));
@@ -135,14 +126,12 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                     load_chain_for_editing(state, name);
                 }
 
-                // Show hover cursor
                 if card_interact.hovered() {
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
                 ui.add_space(4.0);
             }
 
-            // Add new chain button
             ui.add_space(12.0);
             if ui
                 .button(RichText::new("+ Add New Chain").color(ACCENT_CYAN))
@@ -162,7 +151,6 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
     // Handle chain duplication outside the UI loop
     if let Some(source_name) = chain_to_duplicate {
         if let Some(source_chain) = state.config.chain.get(&source_name) {
-            // Generate a unique name
             let mut new_name = format!("{}_copy", source_name);
             let mut counter = 1;
             while state.config.chain.contains_key(&new_name) {
@@ -170,7 +158,6 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                 new_name = format!("{}_{}", source_name, counter);
             }
 
-            // Load the source chain into the editor
             *state.selected_chain = Some("__new__".to_string());
             *state.chain_edit_name = new_name;
             *state.chain_edit_description = source_chain.description.clone().unwrap_or_default();

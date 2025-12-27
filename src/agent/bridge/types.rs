@@ -9,10 +9,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ClaudeAgentDefinition, McpServerConfig};
 
-// ============================================================================
-// Request Types
-// ============================================================================
-
 /// Permission mode for Claude sessions
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -228,10 +224,6 @@ pub enum ToolDecision {
     Ask,
 }
 
-// ============================================================================
-// Event Types (streamed from bridge)
-// ============================================================================
-
 /// Bridge event - union of all possible events
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -357,10 +349,6 @@ pub struct UsageStats {
     pub cache_write_tokens: Option<u64>,
 }
 
-// ============================================================================
-// Session Types
-// ============================================================================
-
 /// Stored session metadata
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -375,10 +363,6 @@ pub struct StoredSession {
     pub total_tokens: u64,
     pub total_cost_usd: f64,
 }
-
-// ============================================================================
-// Bridge Status Types
-// ============================================================================
 
 /// Health check response
 #[derive(Debug, Clone, Deserialize)]

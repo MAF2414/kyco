@@ -891,12 +891,10 @@ pub fn ensure_config_exists(_workspace_path: &Path) -> bool {
         .join(".kyco");
     let config_path = config_dir.join("config.toml");
 
-    // Global config already exists
     if config_path.exists() {
         return false;
     }
 
-    // Create ~/.kyco directory if needed
     if !config_dir.exists() {
         if let Err(e) = std::fs::create_dir_all(&config_dir) {
             info!("Failed to create ~/.kyco directory: {}", e);
@@ -904,7 +902,6 @@ pub fn ensure_config_exists(_workspace_path: &Path) -> bool {
         }
     }
 
-    // Write default config
     if let Err(e) = std::fs::write(&config_path, DEFAULT_CONFIG) {
         info!("Failed to write default config: {}", e);
         return false;
@@ -922,7 +919,6 @@ pub async fn init_command(
     config_path: Option<PathBuf>,
     force: bool,
 ) -> Result<()> {
-    // Default to global config path
     let config_path = config_path.unwrap_or_else(|| {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
@@ -937,14 +933,12 @@ pub async fn init_command(
         );
     }
 
-    // Create parent directory (if any)
     if let Some(parent) = config_path.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent)?;
         }
     }
 
-    // Write config (http_token is empty by default for local development)
     std::fs::write(&config_path, DEFAULT_CONFIG)?;
     println!("Created: {}", config_path.display());
 

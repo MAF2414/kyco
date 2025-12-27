@@ -89,7 +89,7 @@ fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> Pa
     match config_override {
         Some(p) if p.is_absolute() => p.clone(),
         Some(p) => work_dir.join(p),
-        None => Config::global_config_path(), // Use global config as default
+        None => Config::global_config_path(),
     }
 }
 

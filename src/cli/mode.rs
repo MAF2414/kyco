@@ -13,7 +13,7 @@ fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> Pa
     match config_override {
         Some(p) if p.is_absolute() => p.clone(),
         Some(p) => work_dir.join(p),
-        None => Config::global_config_path(), // Use global config as default
+        None => Config::global_config_path(),
     }
 }
 
@@ -28,7 +28,6 @@ fn notify_gui_config_changed(config: &Config) {
         req = req.set(AUTH_HEADER, token);
     }
 
-    // Best-effort: ignore errors (GUI might not be running)
     let _ = req.send_string("{}");
 }
 
@@ -44,13 +43,11 @@ fn load_or_init_config(
         return Ok((cfg, config_path));
     }
 
-    // For explicit config override, load from that file
     if config_path.exists() {
         let cfg = Config::from_file(&config_path)?;
         return Ok((cfg, config_path));
     }
 
-    // Create the specified config with defaults
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;

@@ -329,33 +329,32 @@ impl<R: std::io::Read> Iterator for EventStream<R> {
     type Item = Result<BridgeEvent>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.buffer.clear();
+        // Use a loop instead of recursion to skip empty lines (avoids stack overflow)
+        loop {
+            self.buffer.clear();
 
-        match self.reader.read_line(&mut self.buffer) {
-            Ok(0) => None, // EOF
-            Ok(_) => {
-                let trimmed = self.buffer.trim();
-                if trimmed.is_empty() {
-                    return self.next(); // Skip empty lines
-                }
+            match self.reader.read_line(&mut self.buffer) {
+                Ok(0) => return None, // EOF
+                Ok(_) => {
+                    let trimmed = self.buffer.trim();
+                    if trimmed.is_empty() {
+                        continue; // Skip empty lines without recursion
+                    }
 
-                match serde_json::from_str::<BridgeEvent>(trimmed) {
-                    Ok(event) => Some(Ok(event)),
-                    Err(e) => Some(Err(anyhow::anyhow!(
-                        "Failed to parse event: {} (line: {})",
-                        e,
-                        trimmed
-                    ))),
+                    return match serde_json::from_str::<BridgeEvent>(trimmed) {
+                        Ok(event) => Some(Ok(event)),
+                        Err(e) => Some(Err(anyhow::anyhow!(
+                            "Failed to parse event: {} (line: {})",
+                            e,
+                            trimmed
+                        ))),
+                    };
                 }
+                Err(e) => return Some(Err(anyhow::anyhow!("Failed to read from stream: {}", e))),
             }
-            Err(e) => Some(Err(anyhow::anyhow!("Failed to read from stream: {}", e))),
         }
     }
 }
-
-// ============================================================================
-// Bridge Process Management
-// ============================================================================
 
 /// Manages the lifecycle of the bridge Node.js process
 pub struct BridgeProcess {
@@ -406,7 +405,6 @@ impl BridgeProcess {
             }
         }
 
-        // Build the bridge if dist doesn't exist
         let dist_dir = bridge_dir.join("dist");
         if !dist_dir.exists() {
             tracing::info!("Building bridge...");
@@ -422,22 +420,22 @@ impl BridgeProcess {
             }
         }
 
-        // Start the bridge server
         tracing::info!("Starting SDK bridge server...");
-        let child = Command::new("node")
+        // Use Stdio::null() instead of piped() since we don't read the output.
+        // Piped stdout/stderr without consumption can cause the child process to
+        // block when the pipe buffers fill up (~64KB).
+        let mut child = Command::new("node")
             .arg("dist/server.js")
             .current_dir(&bridge_dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .context("Failed to spawn bridge process")?;
 
         let running = Arc::new(AtomicBool::new(true));
 
-        // Wait a moment for the server to start
         std::thread::sleep(Duration::from_millis(1500));
 
-        // Verify it's running with a health check
         let client = BridgeClient::new();
         for attempt in 0..5 {
             match client.health_check() {
@@ -452,17 +450,22 @@ impl BridgeProcess {
                     std::thread::sleep(Duration::from_millis(500));
                 }
                 Err(e) => {
+                    // Kill the orphan process before bailing
+                    let _ = child.kill();
+                    let _ = child.wait();
                     anyhow::bail!("Bridge server failed to start: {}", e);
                 }
             }
         }
 
+        // Kill the orphan process before bailing
+        let _ = child.kill();
+        let _ = child.wait();
         anyhow::bail!("Bridge server failed to become healthy")
     }
 
     /// Find the bridge directory, downloading it if necessary
     fn find_bridge_dir() -> Result<PathBuf> {
-        // Check environment variable
         if let Ok(path) = std::env::var("KYCO_BRIDGE_PATH") {
             let path = PathBuf::from(path);
             if path.exists() {
@@ -470,7 +473,6 @@ impl BridgeProcess {
             }
         }
 
-        // Check relative to executable
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
                 let bridge_dir = exe_dir.join("bridge");
@@ -478,7 +480,6 @@ impl BridgeProcess {
                     return Ok(bridge_dir);
                 }
 
-                // Also check parent (for development)
                 if let Some(parent) = exe_dir.parent() {
                     let bridge_dir = parent.join("bridge");
                     if bridge_dir.exists() {
@@ -488,7 +489,6 @@ impl BridgeProcess {
             }
         }
 
-        // Check ~/.kyco/bridge/
         let kyco_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".kyco");
@@ -498,13 +498,11 @@ impl BridgeProcess {
             return Ok(bridge_dir);
         }
 
-        // Check current working directory (for development)
         let cwd_bridge = PathBuf::from("bridge");
         if cwd_bridge.exists() {
             return Ok(cwd_bridge);
         }
 
-        // Bridge not found - download it automatically
         tracing::info!("SDK Bridge not found, downloading from GitHub Releases...");
         Self::download_and_install_bridge(&kyco_dir)?;
 
@@ -513,7 +511,6 @@ impl BridgeProcess {
 
     /// Download and install the bridge from GitHub Releases
     fn download_and_install_bridge(kyco_dir: &PathBuf) -> Result<()> {
-        // Create ~/.kyco directory if needed
         std::fs::create_dir_all(kyco_dir).context("Failed to create ~/.kyco directory")?;
 
         let download_url = format!(
@@ -522,7 +519,6 @@ impl BridgeProcess {
         );
         let tarball_path = kyco_dir.join("kyco-bridge.tar.gz");
 
-        // Download the tarball using curl
         tracing::info!("Downloading bridge from {}...", download_url);
         let output = Command::new("curl")
             .args([
@@ -541,7 +537,6 @@ impl BridgeProcess {
             anyhow::bail!("Failed to download bridge: {}", stderr);
         }
 
-        // Extract the tarball
         tracing::info!("Extracting bridge...");
         let output = Command::new("tar")
             .args([
@@ -558,7 +553,6 @@ impl BridgeProcess {
             anyhow::bail!("Failed to extract bridge: {}", stderr);
         }
 
-        // Clean up the tarball
         let _ = std::fs::remove_file(&tarball_path);
 
         tracing::info!(

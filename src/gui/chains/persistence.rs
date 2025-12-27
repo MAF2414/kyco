@@ -26,17 +26,14 @@ fn validate_states(states: &[StateDefinitionEdit]) -> Result<HashSet<String>, St
     for (i, state_def) in states.iter().enumerate() {
         let id = state_def.id.trim();
 
-        // Check ID is non-empty
         if id.is_empty() {
             return Err(format!("State {} has empty ID", i + 1));
         }
 
-        // Check ID is unique
         if !state_ids.insert(id.to_string()) {
             return Err(format!("Duplicate state ID: '{}'", id));
         }
 
-        // Check patterns are non-empty
         let patterns: Vec<&str> = state_def
             .patterns
             .lines()
@@ -48,7 +45,6 @@ fn validate_states(states: &[StateDefinitionEdit]) -> Result<HashSet<String>, St
             return Err(format!("State '{}' has no patterns defined", id));
         }
 
-        // Validate regex patterns if is_regex is enabled
         if state_def.is_regex {
             for pattern in &patterns {
                 if let Err(e) = Regex::new(pattern) {
@@ -75,7 +71,6 @@ fn validate_step_state_refs(
             continue;
         }
 
-        // Validate trigger_on references
         for state_ref in step
             .trigger_on
             .split(',')
@@ -96,7 +91,6 @@ fn validate_step_state_refs(
             }
         }
 
-        // Validate skip_on references
         for state_ref in step
             .skip_on
             .split(',')
@@ -134,7 +128,6 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         return;
     }
 
-    // Warn about overwriting existing chain when creating new
     if is_new && state.config.chain.contains_key(&name) {
         *state.chain_edit_status = Some((
             format!(
@@ -151,7 +144,6 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         return;
     }
 
-    // Check all steps have valid modes
     for (i, step) in state.chain_edit_steps.iter().enumerate() {
         let mode_name = step.mode.trim();
         if mode_name.is_empty() {
@@ -159,7 +151,6 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
                 Some((format!("Step {} must have a mode selected", i + 1), true));
             return;
         }
-        // Validate that mode exists in config
         if !state.config.mode.contains_key(mode_name) {
             *state.chain_edit_status = Some((
                 format!("Step {}: mode '{}' does not exist", i + 1, mode_name),
@@ -169,7 +160,6 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         }
     }
 
-    // Validate state definitions (if any exist)
     let valid_state_ids = if !state.chain_edit_states.is_empty() {
         match validate_states(&state.chain_edit_states) {
             Ok(ids) => ids,
@@ -182,7 +172,6 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         HashSet::new()
     };
 
-    // Validate trigger_on/skip_on references (only if states are defined)
     if !valid_state_ids.is_empty() {
         if let Err(e) = validate_step_state_refs(&state.chain_edit_steps, &valid_state_ids) {
             *state.chain_edit_status = Some((e, true));
@@ -190,7 +179,6 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         }
     }
 
-    // Build chain
     let chain = ModeChain {
         description: if state.chain_edit_description.trim().is_empty() {
             None
@@ -211,11 +199,16 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
         pass_full_response: *state.chain_edit_pass_full_response,
     };
 
-    // Update config
-    state.config.chain.insert(name.clone(), chain);
+    // Store old value for rollback on save failure
+    let old_chain = state.config.chain.insert(name.clone(), chain);
 
-    // Save to file
     if let Err(e) = save_config_to_file(state) {
+        // Rollback: restore previous state on save failure
+        if let Some(old) = old_chain {
+            state.config.chain.insert(name.clone(), old);
+        } else {
+            state.config.chain.remove(&name);
+        }
         *state.chain_edit_status = Some((format!("Failed to save: {}", e), true));
         return;
     }
@@ -235,9 +228,14 @@ pub fn delete_chain_from_config(state: &mut ChainEditorState<'_>) {
         None => return,
     };
 
-    state.config.chain.remove(&name);
+    // Remove and keep value for potential rollback
+    let removed_chain = state.config.chain.remove(&name);
 
     if let Err(e) = save_config_to_file(state) {
+        // Rollback: restore the chain on save failure
+        if let Some(chain) = removed_chain {
+            state.config.chain.insert(name, chain);
+        }
         *state.chain_edit_status = Some((format!("Failed to delete: {}", e), true));
         return;
     }

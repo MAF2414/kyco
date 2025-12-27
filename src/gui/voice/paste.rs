@@ -10,7 +10,6 @@ use std::process::Command;
 
 /// Copy text to clipboard and optionally auto-paste into the focused application
 pub fn copy_and_paste(text: &str, auto_paste: bool) -> Result<(), String> {
-    // Copy to clipboard
     let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
     clipboard
         .set_text(text)
@@ -29,7 +28,6 @@ pub fn paste_from_clipboard() -> Result<(), String> {
     // Small delay to ensure clipboard is ready
     std::thread::sleep(std::time::Duration::from_millis(50));
 
-    // Use osascript to simulate Cmd+V
     let output = Command::new("osascript")
         .args([
             "-e",

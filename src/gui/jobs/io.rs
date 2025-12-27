@@ -1,7 +1,3 @@
-//! Job file I/O operations
-//!
-//! This module handles reading and writing job files to disk.
-
 use super::super::selection::SelectionContext;
 use std::path::PathBuf;
 
@@ -23,7 +19,7 @@ pub fn write_job_request(
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .unwrap_or_default()
         .as_millis();
     let job_file = jobs_dir.join(format!("job_{}.json", timestamp));
 

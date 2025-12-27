@@ -10,10 +10,7 @@ use crate::{AgentGroupId, AgentRunGroup, GroupStatus, Job, JobId, JobStatus};
 
 /// Manages agent run groups for parallel multi-agent execution
 pub struct GroupManager {
-    /// All known groups
     groups: HashMap<AgentGroupId, AgentRunGroup>,
-
-    /// Next group ID
     next_id: AtomicU64,
 }
 
@@ -82,18 +79,15 @@ impl GroupManager {
             None => return,
         };
 
-        // Only update if group is still running
         if group.status != GroupStatus::Running {
             return;
         }
 
-        // Get jobs that belong to this group
         let group_jobs: Vec<_> = jobs
             .iter()
             .filter(|j| j.group_id == Some(group_id))
             .collect();
 
-        // Check if all jobs are finished
         let all_finished = group_jobs.iter().all(|j| j.is_finished());
         let any_succeeded = group_jobs.iter().any(|j| j.status == JobStatus::Done);
 
@@ -168,8 +162,14 @@ impl GroupManager {
         };
 
         if let Some(group) = self.groups.get_mut(&group_id) {
-            group.job_ids.remove(idx);
-            group.agent_names.remove(idx);
+            // Defensive: ensure idx is valid for both vectors before removing
+            // This prevents panic if vectors are somehow out of sync
+            if idx < group.job_ids.len() {
+                group.job_ids.remove(idx);
+            }
+            if idx < group.agent_names.len() {
+                group.agent_names.remove(idx);
+            }
 
             if group.selected_job == Some(job_id) {
                 group.selected_job = None;

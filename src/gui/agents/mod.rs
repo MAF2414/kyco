@@ -24,7 +24,6 @@ pub fn render_agents(ctx: &egui::Context, state: &mut AgentEditorState<'_>) {
         .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(16.0))
         .show(ctx, |ui| {
             ui.vertical(|ui| {
-                // Header
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new("AGENTS")

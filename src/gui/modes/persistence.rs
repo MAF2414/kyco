@@ -52,7 +52,6 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         return;
     }
 
-    // Build aliases
     let aliases: Vec<String> = state
         .mode_edit_aliases
         .split(',')
@@ -60,7 +59,6 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         .filter(|s| !s.is_empty())
         .collect();
 
-    // Build allowed/disallowed tools
     let allowed_tools: Vec<String> = state
         .mode_edit_allowed_tools
         .split(',')
@@ -106,7 +104,6 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         }),
     };
 
-    // Build output_states
     let output_states: Vec<String> = state
         .mode_edit_output_states
         .split(',')
@@ -114,31 +111,33 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         .filter(|s| !s.is_empty())
         .collect();
 
-    // Build state_prompt
     let state_prompt = if state.mode_edit_state_prompt.trim().is_empty() {
         None
     } else {
-        Some(state.mode_edit_state_prompt.clone())
+        Some(state.mode_edit_state_prompt.trim().to_string())
     };
 
-    // Create the ModeConfig struct
+    let agent = state.mode_edit_agent.trim();
+    let prompt = state.mode_edit_prompt.trim();
+    let system_prompt = state.mode_edit_system_prompt.trim();
+
     let mode_config = ModeConfig {
-        agent: if state.mode_edit_agent.is_empty() {
+        agent: if agent.is_empty() {
             None
         } else {
-            Some(state.mode_edit_agent.clone())
+            Some(agent.to_string())
         },
         target_default: None,
         scope_default: None,
-        prompt: if state.mode_edit_prompt.is_empty() {
+        prompt: if prompt.is_empty() {
             None
         } else {
-            Some(state.mode_edit_prompt.clone())
+            Some(prompt.to_string())
         },
-        system_prompt: if state.mode_edit_system_prompt.is_empty() {
+        system_prompt: if system_prompt.is_empty() {
             None
         } else {
-            Some(state.mode_edit_system_prompt.clone())
+            Some(system_prompt.to_string())
         },
         session_mode,
         max_turns,
@@ -152,12 +151,18 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         allowed_tools, // Legacy, deprecated
     };
 
-    // Update the in-memory config (insert or replace)
-    state.config.mode.insert(name.clone(), mode_config);
+    // Store old value for rollback on save failure
+    let old_value = state.config.mode.insert(name.clone(), mode_config);
 
     // Save config with atomic write and file locking
     let config_path = Config::global_config_path();
     if let Err(e) = state.config.save_to_file(&config_path) {
+        // Rollback: restore previous state on save failure
+        if let Some(old) = old_value {
+            state.config.mode.insert(name.clone(), old);
+        } else {
+            state.config.mode.remove(&name);
+        }
         *state.mode_edit_status = Some((format!("Failed to save config: {}", e), true));
         return;
     }
@@ -177,12 +182,16 @@ pub fn delete_mode_from_config(state: &mut ModeEditorState<'_>) {
             return;
         }
 
-        // Remove from in-memory config
-        state.config.mode.remove(name);
+        // Store old value for rollback on save failure
+        let old_value = state.config.mode.remove(name);
 
         // Save config with atomic write and file locking
         let config_path = Config::global_config_path();
         if let Err(e) = state.config.save_to_file(&config_path) {
+            // Rollback: restore the removed mode on save failure
+            if let Some(old) = old_value {
+                state.config.mode.insert(name.clone(), old);
+            }
             *state.mode_edit_status = Some((format!("Failed to save config: {}", e), true));
             return;
         }

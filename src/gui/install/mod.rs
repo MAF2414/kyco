@@ -21,11 +21,14 @@ fn get_kyco_cache_dir() -> PathBuf {
 
 /// Download a file from a URL using curl
 fn download_file(url: &str, dest: &Path) -> Result<(), String> {
-    // Create parent directory if needed
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
+
+    let dest_str = dest
+        .to_str()
+        .ok_or_else(|| format!("Invalid path (non-UTF8): {}", dest.display()))?;
 
     let output = Command::new("curl")
         .args([
@@ -33,7 +36,7 @@ fn download_file(url: &str, dest: &Path) -> Result<(), String> {
             "-f", // Fail on HTTP errors
             "-s", // Silent
             "-o",
-            dest.to_str().unwrap_or(""),
+            dest_str,
             url,
         ])
         .output()
@@ -81,7 +84,6 @@ pub fn install_vscode_extension(work_dir: &Path) -> ExtensionInstallResult {
     let cache_dir = get_kyco_cache_dir();
     let vsix_path = cache_dir.join("kyco-vscode.vsix");
 
-    // Download the extension from GitHub Releases
     let download_url = format!(
         "https://github.com/{}/releases/latest/download/kyco-vscode.vsix",
         GITHUB_REPO
@@ -94,29 +96,39 @@ pub fn install_vscode_extension(work_dir: &Path) -> ExtensionInstallResult {
         ));
     }
 
-    // Install using VS Code CLI
     install_vsix(&vsix_path)
 }
 
 /// Install a .vsix file using the VS Code CLI
 fn install_vsix(vsix_path: &Path) -> ExtensionInstallResult {
+    let vsix_path_str = match vsix_path.to_str() {
+        Some(s) => s,
+        None => {
+            return ExtensionInstallResult::error(format!(
+                "Invalid extension path (non-UTF8): {}",
+                vsix_path.display()
+            ));
+        }
+    };
+
     let install_result = Command::new("code")
-        .args([
-            "--install-extension",
-            vsix_path.to_str().unwrap_or("kyco-0.1.0.vsix"),
-        ])
+        .args(["--install-extension", vsix_path_str])
         .output();
 
     match install_result {
         Ok(output) if output.status.success() => ExtensionInstallResult::success(
             "VS Code extension installed! Restart VS Code to activate.\nHotkey: Cmd+Option+Y (Ctrl+Alt+Y on Windows/Linux)",
         ),
-        Ok(_) => ExtensionInstallResult::success(format!(
-            "Extension packaged! Install manually:\ncode --install-extension {}",
-            vsix_path.display()
-        )),
-        Err(_) => ExtensionInstallResult::success(format!(
-            "Extension packaged! VS Code CLI not found.\nRun: code --install-extension {}",
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            ExtensionInstallResult::error(format!(
+                "VS Code CLI failed to install extension.\n\nError: {}\n\nTry manually:\ncode --install-extension {}",
+                stderr.trim(),
+                vsix_path.display()
+            ))
+        }
+        Err(_) => ExtensionInstallResult::error(format!(
+            "VS Code CLI not found. Install VS Code or run manually:\ncode --install-extension {}",
             vsix_path.display()
         )),
     }
@@ -132,7 +144,6 @@ pub fn install_jetbrains_plugin(work_dir: &Path) -> ExtensionInstallResult {
     let cache_dir = get_kyco_cache_dir();
     let zip_path = cache_dir.join("kyco-jetbrains.zip");
 
-    // Download the plugin from GitHub Releases
     let download_url = format!(
         "https://github.com/{}/releases/latest/download/kyco-jetbrains.zip",
         GITHUB_REPO

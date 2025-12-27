@@ -138,12 +138,10 @@ fn vad_listener_thread(
     let mut recording_process: Option<Child> = None;
     let mut speech_start: Option<Instant> = None;
 
-    // Ensure .kyco directory exists
     let kyco_dir = work_dir.join(".kyco");
     let _ = std::fs::create_dir_all(&kyco_dir);
 
     loop {
-        // Check for commands (non-blocking with timeout)
         match command_rx.recv_timeout(Duration::from_millis(10)) {
             Ok(VadCommand::Start) => {
                 if state == VadState::Idle {
@@ -152,7 +150,6 @@ fn vad_listener_thread(
                 }
             }
             Ok(VadCommand::Stop) => {
-                // Stop any recording
                 if let Some(mut proc) = recording_process.take() {
                     let _ = proc.kill();
                     let _ = proc.wait();
@@ -163,16 +160,10 @@ fn vad_listener_thread(
             Ok(VadCommand::UpdateConfig(new_config)) => {
                 config = new_config;
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Continue processing
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                // Channel closed, exit thread
-                break;
-            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
 
-        // Only process audio when listening
         if state == VadState::Idle {
             continue;
         }
@@ -185,12 +176,21 @@ fn vad_listener_thread(
         // 3. Only start whisper when speech is detected
 
         if state == VadState::Listening {
-            // Start a recording process that waits for speech
             let recording_path = kyco_dir.join("vad_recording.wav");
 
             // sox rec with silence detection:
             // - silence 1 0.1 1% : wait for sound to start
             // - 1 1.0 1% : stop after 1 second of silence
+            let recording_path_str = match recording_path.to_str() {
+                Some(s) => s.to_string(),
+                None => {
+                    let _ = event_tx.send(VadEvent::Error(
+                        "Recording path contains invalid UTF-8 characters".to_string(),
+                    ));
+                    state = VadState::Idle;
+                    continue;
+                }
+            };
             let result = Command::new("rec")
                 .args([
                     "-r",
@@ -199,7 +199,7 @@ fn vad_listener_thread(
                     "1",
                     "-b",
                     "16",
-                    recording_path.to_str().unwrap_or("recording.wav"),
+                    &recording_path_str,
                     "silence",
                     "1",
                     "0.1",
@@ -231,36 +231,51 @@ fn vad_listener_thread(
             }
         }
 
-        // Check if recording finished
         if state == VadState::Recording {
-            if let Some(ref mut proc) = recording_process {
-                match proc.try_wait() {
-                    Ok(Some(_)) => {
-                        // Recording finished
-                        let duration_ms = speech_start
-                            .map(|s| s.elapsed().as_millis() as u32)
-                            .unwrap_or(0);
+            // Check process status, then handle cleanup outside the borrow
+            let process_result = recording_process
+                .as_mut()
+                .map(|proc| proc.try_wait());
 
-                        let audio_path = kyco_dir.join("vad_recording.wav");
-                        if audio_path.exists() {
-                            let _ = event_tx.send(VadEvent::SpeechEnded {
-                                duration_ms,
-                                audio_path,
-                            });
-                        }
+            match process_result {
+                Some(Ok(Some(_))) => {
+                    // Process completed normally
+                    let duration_ms = speech_start
+                        .map(|s| s.elapsed().as_millis() as u32)
+                        .unwrap_or(0);
 
-                        recording_process = None;
-                        speech_start = None;
-                        state = VadState::Listening; // Go back to listening
+                    let audio_path = kyco_dir.join("vad_recording.wav");
+                    if audio_path.exists() {
+                        let _ = event_tx.send(VadEvent::SpeechEnded {
+                            duration_ms,
+                            audio_path,
+                        });
                     }
-                    Ok(None) => {
-                        // Still recording
+
+                    recording_process = None;
+                    speech_start = None;
+                    state = VadState::Listening;
+                }
+                Some(Ok(None)) => {
+                    // Process still running, nothing to do
+                }
+                Some(Err(e)) => {
+                    let _ = event_tx.send(VadEvent::Error(format!("Recording error: {}", e)));
+                    // Kill the process to prevent zombie/resource leak
+                    if let Some(mut proc) = recording_process.take() {
+                        let _ = proc.kill();
+                        let _ = proc.wait();
                     }
-                    Err(e) => {
-                        let _ = event_tx.send(VadEvent::Error(format!("Recording error: {}", e)));
-                        recording_process = None;
-                        state = VadState::Listening;
-                    }
+                    speech_start = None;
+                    state = VadState::Listening;
+                }
+                None => {
+                    // Inconsistent state: Recording but no process
+                    let _ = event_tx.send(VadEvent::Error(
+                        "Internal error: Recording state but no process".to_string(),
+                    ));
+                    speech_start = None;
+                    state = VadState::Listening;
                 }
             }
         }
@@ -269,7 +284,6 @@ fn vad_listener_thread(
 
 /// Check if VAD dependencies are available
 pub fn is_vad_available() -> bool {
-    // Check for sox/rec
     Command::new("which")
         .arg("rec")
         .output()

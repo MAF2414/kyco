@@ -132,7 +132,6 @@ pub fn render_detail_panel(
 ) -> Option<DetailPanelAction> {
     let mut action: Option<DetailPanelAction> = None;
 
-    // Get the full available size at the start
     let available_width = ui.available_width();
     let available_height = ui.available_height();
 
@@ -148,7 +147,6 @@ pub fn render_detail_panel(
                 .show(ui, |ui| {
                     ui.set_min_width(available_width - 16.0);
 
-                    // Job info section
                     render_job_info(ui, job);
                     render_result_section(ui, job, state.commonmark_cache);
 
@@ -165,22 +163,18 @@ pub fn render_detail_panel(
                     ui.add_space(8.0);
                     ui.separator();
 
-                    // Chain Progress Section (if this is a chain job)
                     if job.chain_name.is_some() || !job.chain_step_history.is_empty() {
                         render_chain_progress_section_with_height(ui, job, state.commonmark_cache, available_width);
                         ui.add_space(4.0);
                     }
 
-                    // Prompt Section (collapsed by default)
                     render_prompt_section_collapsible(ui, job, state.config);
 
                     ui.add_space(4.0);
 
-                    // Diff Section
                     if let Some(diff_content) = state.diff_content {
                         render_diff_section_inline(ui, diff_content, available_width);
                     } else {
-                        // No diff available - show placeholder
                         ui.add_space(8.0);
                         egui::Frame::NONE
                             .fill(BG_SECONDARY)
@@ -197,7 +191,6 @@ pub fn render_detail_panel(
 
                     ui.add_space(4.0);
 
-                    // Activity Log Section (collapsed by default)
                     render_activity_log_inline(
                         ui,
                         job,
@@ -220,7 +213,6 @@ pub fn render_detail_panel(
     action
 }
 
-/// Render the panel header
 fn render_header(ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("DETAILS").monospace().color(TEXT_PRIMARY));
@@ -229,7 +221,6 @@ fn render_header(ui: &mut egui::Ui) {
     ui.separator();
 }
 
-/// Render job information section
 fn render_job_info(ui: &mut egui::Ui, job: &Job) {
     ui.horizontal(|ui| {
         ui.label(
@@ -329,24 +320,19 @@ fn render_result_section(
             .corner_radius(4.0)
             .inner_margin(8.0)
             .show(ui, |ui| {
-                // Check if this is structured YAML or raw text fallback
                 let has_structured =
                     result.title.is_some() || result.status.is_some() || result.details.is_some();
 
                 if has_structured {
-                    // Structured YAML result
-                    // Title
                     if let Some(title) = &result.title {
                         ui.label(RichText::new(title).monospace().color(TEXT_PRIMARY));
                     }
 
-                    // Details
                     if let Some(details) = &result.details {
                         ui.add_space(4.0);
                         ui.label(RichText::new(details).color(TEXT_DIM));
                     }
 
-                    // Summary (if present)
                     if let Some(summary) = &result.summary {
                         if !summary.is_empty() {
                             ui.add_space(6.0);
@@ -357,7 +343,6 @@ fn render_result_section(
                         }
                     }
 
-                    // Stats bar
                     ui.add_space(8.0);
                     render_stats_bar(ui, job, result);
                 }
@@ -425,10 +410,8 @@ fn render_result_section(
     }
 }
 
-/// Render stats bar within result section
 fn render_stats_bar(ui: &mut egui::Ui, job: &Job, result: &crate::JobResult) {
     ui.horizontal(|ui| {
-        // Status from result
         if let Some(status) = &result.status {
             let result_status_color = match status.as_str() {
                 "success" => ACCENT_GREEN,
@@ -440,7 +423,6 @@ fn render_stats_bar(ui: &mut egui::Ui, job: &Job, result: &crate::JobResult) {
             ui.add_space(8.0);
         }
 
-        // Files changed
         if let Some(stats) = &job.stats {
             if stats.files_changed > 0 {
                 ui.label(RichText::new(format!("{} files", stats.files_changed)).color(TEXT_MUTED));
@@ -455,7 +437,6 @@ fn render_stats_bar(ui: &mut egui::Ui, job: &Job, result: &crate::JobResult) {
             }
         }
 
-        // Duration
         if let Some(duration) = job.duration_string() {
             ui.label(RichText::new(duration).color(TEXT_MUTED));
         }
@@ -630,7 +611,6 @@ fn render_action_buttons(
                     .desired_width(ui.available_width() - 80.0),
             );
 
-            // Submit on Enter or button click
             let submitted = response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             let button_clicked = ui
                 .button(RichText::new("▶ Send").color(ACCENT_GREEN))
@@ -713,7 +693,6 @@ fn render_prompt_section_collapsible(ui: &mut egui::Ui, job: &Job, config: &Conf
         ),
     };
 
-    // Count lines for display
     let line_count = prompt_text.lines().count();
 
     egui::CollapsingHeader::new(
@@ -741,7 +720,6 @@ fn render_prompt_section_collapsible(ui: &mut egui::Ui, job: &Job, config: &Conf
 
 /// Render diff section inline (no inner scroll - parent handles scrolling)
 fn render_diff_section_inline(ui: &mut egui::Ui, diff_content: &str, available_width: f32) {
-    // Count changes for header
     let added = diff_content
         .lines()
         .filter(|l| l.starts_with('+') && !l.starts_with("+++"))
@@ -950,7 +928,6 @@ fn render_chain_progress_section_with_height(
         .count();
     let is_running = job.status == JobStatus::Running;
 
-    // Header with chain name and progress
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(format!("⛓ {}", chain_name))
@@ -959,7 +936,6 @@ fn render_chain_progress_section_with_height(
         );
         ui.add_space(8.0);
 
-        // Progress text
         if is_running && total_steps > 0 {
             ui.label(
                 RichText::new(format!("Step {}/{}", current_step + 1, total_steps))
@@ -984,7 +960,6 @@ fn render_chain_progress_section_with_height(
 
     ui.add_space(4.0);
 
-    // Progress bar - use full width
     if total_steps > 0 {
         let progress = if is_running {
             current_step as f32 / total_steps as f32
@@ -1006,7 +981,6 @@ fn render_chain_progress_section_with_height(
 
     ui.add_space(8.0);
 
-    // Step history (collapsible, no inner scroll)
     if !job.chain_step_history.is_empty() {
         egui::CollapsingHeader::new(
             RichText::new(format!("CHAIN STEPS ({})", job.chain_step_history.len()))
@@ -1054,7 +1028,6 @@ fn render_chain_step_full_width(
         .show(ui, |ui| {
             ui.set_min_width(width);
 
-            // Step header
             ui.horizontal(|ui| {
                 ui.label(RichText::new(status_icon).color(status_color));
                 ui.label(
@@ -1073,12 +1046,10 @@ fn render_chain_step_full_width(
                 }
             });
 
-            // Title if available
             if let Some(title) = &step.title {
                 ui.label(RichText::new(title).color(TEXT_DIM));
             }
 
-            // Error if failed
             if let Some(error) = &step.error {
                 ui.label(
                     RichText::new(format!("Error: {}", error))
@@ -1087,20 +1058,27 @@ fn render_chain_step_full_width(
                 );
             }
 
-            // Summary (short version)
             if let Some(summary) = &step.summary {
                 ui.add_space(4.0);
                 ui.label(RichText::new("Summary:").small().color(TEXT_MUTED));
-                // Truncate long summaries
-                let truncated = if summary.len() > 200 {
-                    format!("{}...", &summary[..200])
+                // Truncate long summaries safely at character boundary
+                let truncated = if summary.chars().count() > 200 {
+                    let mut end = summary
+                        .char_indices()
+                        .nth(200)
+                        .map(|(i, _)| i)
+                        .unwrap_or(summary.len());
+                    // Ensure we don't split in the middle of a grapheme cluster
+                    while !summary.is_char_boundary(end) && end > 0 {
+                        end -= 1;
+                    }
+                    format!("{}...", &summary[..end])
                 } else {
                     summary.clone()
                 };
                 ui.label(RichText::new(truncated).color(TEXT_DIM).small());
             }
 
-            // Full response (collapsible, no inner scroll)
             if let Some(response) = &step.full_response {
                 ui.add_space(4.0);
                 egui::CollapsingHeader::new(

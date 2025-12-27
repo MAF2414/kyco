@@ -5,7 +5,6 @@ use crate::config::Config;
 
 /// Build prompt preview for a job (before it runs)
 pub fn build_prompt_preview(job: &Job, config: &Config) -> String {
-    // Get agent config to access mode templates
     let agent_config = config.get_agent(&job.agent_id).unwrap_or_default();
     let template = agent_config.get_mode_template(&job.mode);
 
@@ -13,7 +12,6 @@ pub fn build_prompt_preview(job: &Job, config: &Config) -> String {
     let line = job.source_line;
     let description = job.description.as_deref().unwrap_or("");
 
-    // Build the main prompt
     let ide_context = job.ide_context.as_deref().unwrap_or("");
     let prompt = template
         .prompt_template
@@ -25,7 +23,6 @@ pub fn build_prompt_preview(job: &Job, config: &Config) -> String {
         .replace("{scope_type}", "file")
         .replace("{ide_context}", ide_context);
 
-    // Build system prompt if available
     let mut full_prompt = String::new();
 
     if let Some(system_prompt) = &template.system_prompt {

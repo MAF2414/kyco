@@ -42,7 +42,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         return;
     }
 
-    // Build aliases
     let aliases: Vec<String> = state
         .agent_edit_aliases
         .split(',')
@@ -64,7 +63,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         .filter(|s| !s.is_empty())
         .collect();
 
-    // Parse enums from string values
     let sdk = match state.agent_edit_cli_type.as_str() {
         "claude" => SdkType::Claude,
         "codex" => SdkType::Codex,
@@ -90,7 +88,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         .map(|a| (a.env.clone(), a.mcp_servers.clone(), a.agents.clone()))
         .unwrap_or_else(|| (HashMap::new(), HashMap::new(), HashMap::new()));
 
-    // Create the AgentConfigToml struct
     let agent_config = AgentConfigToml {
         aliases,
         sdk,
@@ -103,7 +100,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         agents,
     };
 
-    // Update the in-memory config (insert or replace)
     state.config.agent.insert(name.clone(), agent_config);
 
     // Save config with atomic write and file locking
@@ -128,7 +124,6 @@ pub fn delete_agent_from_config(state: &mut AgentEditorState<'_>) {
             return;
         }
 
-        // Remove from in-memory config
         state.config.agent.remove(name);
 
         // Save config with atomic write and file locking

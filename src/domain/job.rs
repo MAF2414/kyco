@@ -217,7 +217,6 @@ impl JobResult {
             remaining[..end_idx].trim()
         };
 
-        // Skip if content is empty or too short
         if yaml_content.is_empty() || yaml_content.len() < 5 {
             return None;
         }
@@ -277,7 +276,6 @@ impl JobResult {
             }
         }
 
-        // Only return if we got at least a title or status
         if result.title.is_some()
             || result.status.is_some()
             || result.commit_subject.is_some()
@@ -656,7 +654,6 @@ impl Job {
     /// This prevents unbounded memory growth from tool call accumulation.
     pub fn add_log_event(&mut self, event: LogEvent) {
         self.log_events.push(event);
-        // Remove oldest entries if over limit (FIFO eviction)
         if self.log_events.len() > MAX_JOB_LOG_EVENTS {
             let excess = self.log_events.len() - MAX_JOB_LOG_EVENTS;
             self.log_events.drain(0..excess);

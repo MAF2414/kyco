@@ -37,7 +37,7 @@ fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> Pa
     match config_override {
         Some(p) if p.is_absolute() => p.clone(),
         Some(p) => work_dir.join(p),
-        None => Config::global_config_path(), // Use global config as default
+        None => Config::global_config_path(),
     }
 }
 
@@ -123,26 +123,22 @@ pub fn job_list_command(
     let parsed: JobsListResponse =
         serde_json::from_value(value).context("Invalid /ctl/jobs response")?;
 
-    // Apply filters
     let search_lower = search.map(|s| s.to_lowercase());
     let mut jobs: Vec<Job> = parsed
         .jobs
         .into_iter()
         .filter(|job| {
-            // Status filter
             if let Some(status) = status_filter {
                 let job_status = format!("{}", job.status).to_lowercase();
                 if !job_status.contains(&status.to_lowercase()) {
                     return false;
                 }
             }
-            // Mode filter
             if let Some(mode) = mode_filter {
                 if !job.mode.to_lowercase().contains(&mode.to_lowercase()) {
                     return false;
                 }
             }
-            // Search filter (searches in description, target, and mode)
             if let Some(ref query) = search_lower {
                 let desc_match = job
                     .description
@@ -162,7 +158,6 @@ pub fn job_list_command(
     // Sort by ID descending (newest first)
     jobs.sort_by(|a, b| b.id.cmp(&a.id));
 
-    // Apply limit
     if let Some(n) = limit {
         jobs.truncate(n);
     }
@@ -177,7 +172,6 @@ pub fn job_list_command(
         return Ok(());
     }
 
-    // Build filter info string
     let mut filters = Vec::new();
     if let Some(s) = status_filter {
         filters.push(format!("status={}", s));
@@ -205,9 +199,13 @@ pub fn job_list_command(
         );
         if let Some(desc) = job.description {
             if !desc.trim().is_empty() {
-                // Truncate long descriptions
-                let truncated = if desc.len() > 100 {
-                    format!("{}...", &desc[..97])
+                let truncated = if desc.chars().count() > 100 {
+                    let truncate_at = desc
+                        .char_indices()
+                        .nth(97)
+                        .map(|(i, _)| i)
+                        .unwrap_or(desc.len());
+                    format!("{}...", &desc[..truncate_at])
                 } else {
                     desc
                 };

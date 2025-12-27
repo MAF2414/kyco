@@ -88,7 +88,6 @@ impl VoiceAction {
         let text_lower = text.to_lowercase();
         let text_trimmed = text_lower.trim();
 
-        // Check all wakewords and aliases
         let all_triggers: Vec<&str> = self
             .wakewords
             .iter()
@@ -100,8 +99,16 @@ impl VoiceAction {
             let trigger_lower = trigger.to_lowercase();
 
             if text_trimmed.starts_with(&trigger_lower) {
-                // Extract the rest of the text after the wakeword
-                let rest = text[trigger_lower.len()..].trim();
+                // Safe unicode slicing: count characters in trigger, then find the byte
+                // position after that many characters in the original text.
+                // This handles cases where lowercase/uppercase have different byte lengths.
+                let trigger_char_count = trigger_lower.chars().count();
+                let rest_start_byte = text
+                    .char_indices()
+                    .nth(trigger_char_count)
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(text.len());
+                let rest = text[rest_start_byte..].trim();
 
                 return Some(WakewordMatch {
                     wakeword: trigger.to_string(),
@@ -261,17 +268,23 @@ impl VoiceActionRegistry {
             let text_lower = text.to_lowercase();
 
             if text_lower.starts_with(&prefix_lower) {
-                // Remove prefix and trim
-                text[prefix_lower.len()..].trim()
+                // Safe unicode slicing: count characters in the lowercased prefix,
+                // then find the byte position after that many characters in the original text.
+                // This handles cases where lowercase/uppercase have different byte lengths.
+                let prefix_char_count = prefix_lower.chars().count();
+                let rest_start_byte = text
+                    .char_indices()
+                    .nth(prefix_char_count)
+                    .map(|(idx, _)| idx)
+                    .unwrap_or(text.len());
+                text[rest_start_byte..].trim()
             } else {
-                // Doesn't start with prefix, no match
                 return None;
             }
         } else {
             text
         };
 
-        // Try to match against all actions
         for action in &self.actions {
             if let Some(m) = action.matches(text_to_match) {
                 return Some(m);

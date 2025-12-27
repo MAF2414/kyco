@@ -5,13 +5,11 @@
 
 use eframe::egui::{self, Color32, Frame, RichText, ScrollArea, Stroke, Vec2};
 
-// Import color constants from parent module
 use super::app::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_HIGHLIGHT, BG_PRIMARY, BG_SECONDARY, TEXT_DIM,
     TEXT_MUTED, TEXT_PRIMARY,
 };
 
-/// Background colors for diff lines
 const BG_ADDED: Color32 = Color32::from_rgb(30, 50, 35);
 const BG_REMOVED: Color32 = Color32::from_rgb(55, 30, 35);
 const BG_HUNK: Color32 = Color32::from_rgb(30, 45, 55);
@@ -40,7 +38,6 @@ impl DiffState {
 
     /// Set the diff content to display
     pub fn set_content(&mut self, content: String) {
-        // Extract file path from diff header
         self.file_path = extract_file_path(&content);
         self.content = Some(content);
     }
@@ -111,7 +108,6 @@ fn parse_hunk_header(line: &str) -> Option<HunkInfo> {
 pub fn render_diff_popup(ctx: &egui::Context, diff_state: &DiffState) -> bool {
     let mut should_close = false;
 
-    // Check for Escape key
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         return true;
     }
@@ -133,7 +129,6 @@ pub fn render_diff_popup(ctx: &egui::Context, diff_state: &DiffState) -> bool {
                 .corner_radius(8.0),
         )
         .show(ctx, |ui| {
-            // File header
             if let Some(path) = &diff_state.file_path {
                 Frame::group(ui.style())
                     .fill(BG_SECONDARY)
@@ -153,7 +148,6 @@ pub fn render_diff_popup(ctx: &egui::Context, diff_state: &DiffState) -> bool {
                 ui.add_space(8.0);
             }
 
-            // Diff content
             if let Some(diff) = &diff_state.content {
                 let available_height = ui.available_height() - 40.0; // Reserve space for button
 
@@ -178,7 +172,6 @@ pub fn render_diff_popup(ctx: &egui::Context, diff_state: &DiffState) -> bool {
 
             ui.add_space(8.0);
 
-            // Bottom bar with close button
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
@@ -203,18 +196,15 @@ pub fn render_diff_content(ui: &mut egui::Ui, diff: &str) {
     let mut in_header = true;
 
     for line in diff.lines() {
-        // Check if we're still in the header section
         if in_header {
             if line.starts_with("@@") {
                 in_header = false;
             } else {
-                // Render header lines (diff --git, index, ---, +++)
                 render_header_line(ui, line);
                 continue;
             }
         }
 
-        // Handle hunk headers
         if line.starts_with("@@") {
             if let Some(info) = parse_hunk_header(line) {
                 old_line_num = info.old_start;
@@ -224,7 +214,6 @@ pub fn render_diff_content(ui: &mut egui::Ui, diff: &str) {
             continue;
         }
 
-        // Determine line type and render
         let (line_type, display_line) = if let Some(rest) = line.strip_prefix('+') {
             (LineType::Added, rest)
         } else if let Some(rest) = line.strip_prefix('-') {
@@ -235,7 +224,6 @@ pub fn render_diff_content(ui: &mut egui::Ui, diff: &str) {
             (LineType::Context, line)
         };
 
-        // Calculate line numbers for display
         let (old_num, new_num) = match line_type {
             LineType::Added => {
                 let n = new_line_num;
@@ -318,7 +306,6 @@ fn render_diff_line(
         .inner_margin(egui::vec2(0.0, 1.0))
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                // Old line number column
                 let old_str = old_num
                     .map(|n| format!("{:4}", n))
                     .unwrap_or_else(|| "    ".to_string());
@@ -329,7 +316,6 @@ fn render_diff_line(
                         .size(11.0),
                 );
 
-                // New line number column
                 let new_str = new_num
                     .map(|n| format!("{:4}", n))
                     .unwrap_or_else(|| "    ".to_string());
@@ -340,10 +326,8 @@ fn render_diff_line(
                         .size(11.0),
                 );
 
-                // Separator
                 ui.label(RichText::new("│").color(BG_HIGHLIGHT).size(12.0));
 
-                // Prefix (+, -, space)
                 ui.label(
                     RichText::new(prefix)
                         .monospace()
@@ -351,7 +335,6 @@ fn render_diff_line(
                         .size(12.0),
                 );
 
-                // Line content
                 ui.label(
                     RichText::new(content)
                         .monospace()

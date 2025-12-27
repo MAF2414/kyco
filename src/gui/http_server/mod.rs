@@ -468,7 +468,6 @@ fn handle_selection_request(
     body: &str,
     request: tiny_http::Request,
 ) {
-    // Parse JSON
     match serde_json::from_str::<SelectionRequest>(body) {
         Ok(selection) => {
             info!(
@@ -704,9 +703,28 @@ fn handle_control_job_abort(control: &ControlApiState, path: &str, request: tiny
         }
 
         // Mark job as failed ("aborted")
-        if let Ok(mut manager) = control.job_manager.lock() {
-            if let Some(job) = manager.get_mut(job_id) {
-                job.fail("Job aborted by user".to_string());
+        match control.job_manager.lock() {
+            Ok(mut manager) => {
+                if let Some(job) = manager.get_mut(job_id) {
+                    job.fail("Job aborted by user".to_string());
+                } else {
+                    // Job was deleted by another request between our first lock and now
+                    let _ = control
+                        .executor_tx
+                        .send(ExecutorEvent::Log(LogEvent::error(format!(
+                            "Job #{} no longer exists during abort",
+                            job_id
+                        ))));
+                }
+            }
+            Err(e) => {
+                // Lock poisoned - log the error but continue to respond
+                let _ = control
+                    .executor_tx
+                    .send(ExecutorEvent::Log(LogEvent::error(format!(
+                        "Lock poisoned during job #{} abort: {}",
+                        job_id, e
+                    ))));
             }
         }
 
@@ -994,20 +1012,29 @@ fn handle_control_job_delete(
         }
     };
 
-    let mut removed: Option<Job> = None;
-    if let Ok(mut manager) = control.job_manager.lock() {
-        if let Some(job) = manager.get(job_id) {
-            if matches!(job.status, JobStatus::Running) {
-                respond_json(
-                    request,
-                    400,
-                    serde_json::json!({ "error": "job_running", "job_id": job_id }),
-                );
-                return;
+    let removed: Option<Job> = match control.job_manager.lock() {
+        Ok(mut manager) => {
+            if let Some(job) = manager.get(job_id) {
+                if matches!(job.status, JobStatus::Running) {
+                    respond_json(
+                        request,
+                        400,
+                        serde_json::json!({ "error": "job_running", "job_id": job_id }),
+                    );
+                    return;
+                }
             }
+            manager.remove_job(job_id)
         }
-        removed = manager.remove_job(job_id);
-    }
+        Err(_) => {
+            respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": "job_manager_lock" }),
+            );
+            return;
+        }
+    };
 
     let Some(job) = removed else {
         respond_json(request, 404, serde_json::json!({ "error": "not_found" }));

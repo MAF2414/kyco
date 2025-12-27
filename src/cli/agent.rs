@@ -11,23 +11,21 @@ fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> Pa
     match config_override {
         Some(p) if p.is_absolute() => p.clone(),
         Some(p) => work_dir.join(p),
-        None => Config::global_config_path(), // Use global config as default
+        None => Config::global_config_path(),
     }
 }
 
-fn load_or_init_config(_work_dir: &Path, config_override: Option<&PathBuf>) -> Result<Config> {
+fn load_or_init_config(work_dir: &Path, config_override: Option<&PathBuf>) -> Result<Config> {
     // If using default global config, use Config::load() which handles auto-init
     if config_override.is_none() {
         return Config::load();
     }
 
-    // For explicit config override, load from that file
-    let config_path = resolve_config_path(_work_dir, config_override);
+    let config_path = resolve_config_path(work_dir, config_override);
     if config_path.exists() {
         return Config::from_file(&config_path);
     }
 
-    // Create the specified config with defaults
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;

@@ -15,10 +15,7 @@ pub struct JobManager {
     #[allow(dead_code)]
     root: PathBuf,
 
-    /// All known jobs
     jobs: HashMap<JobId, Job>,
-
-    /// Next job ID
     next_id: AtomicU64,
 
     /// File locks for concurrent job isolation
@@ -30,7 +27,6 @@ pub struct JobManager {
 }
 
 impl JobManager {
-    /// Create a new job manager
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
 
@@ -71,7 +67,6 @@ impl JobManager {
         // Always use file scope - the agent will determine the actual scope from context
         let scope_def = ScopeDefinition::file(tag.file_path.clone());
 
-        // Format target with line range if available
         let target = if let Some(end) = line_end {
             if end != tag.line_number {
                 format!("{}:{}-{}", tag.file_path.display(), tag.line_number, end)
@@ -102,7 +97,6 @@ impl JobManager {
             },
         );
 
-        // Set workspace_path for proper job isolation
         job.workspace_path = workspace_path;
 
         self.jobs.insert(id, job);
@@ -111,22 +105,18 @@ impl JobManager {
         Ok(id)
     }
 
-    /// Get a job by ID
     pub fn get(&self, id: JobId) -> Option<&Job> {
         self.jobs.get(&id)
     }
 
-    /// Get a mutable job by ID
     pub fn get_mut(&mut self, id: JobId) -> Option<&mut Job> {
         self.jobs.get_mut(&id)
     }
 
-    /// Get all jobs
     pub fn jobs(&self) -> Vec<&Job> {
         self.jobs.values().collect()
     }
 
-    /// Get all pending jobs
     pub fn pending_jobs(&self) -> Vec<&Job> {
         self.jobs
             .values()
@@ -134,7 +124,6 @@ impl JobManager {
             .collect()
     }
 
-    /// Get all running jobs
     pub fn running_jobs(&self) -> Vec<&Job> {
         self.jobs
             .values()
@@ -142,7 +131,6 @@ impl JobManager {
             .collect()
     }
 
-    /// Update job status
     pub fn set_status(&mut self, id: JobId, status: JobStatus) {
         if let Some(job) = self.jobs.get_mut(&id) {
             job.set_status(status);
@@ -168,12 +156,10 @@ impl JobManager {
         }
     }
 
-    /// Release a file lock
     pub fn release_lock(&mut self, path: &Path) {
         self.file_locks.remove(path);
     }
 
-    /// Release all locks held by a job
     pub fn release_job_locks(&mut self, job_id: JobId) {
         self.file_locks.retain(|_, id| *id != job_id);
     }
@@ -194,7 +180,6 @@ impl JobManager {
         }
     }
 
-    /// Get all file locks held by a specific job
     pub fn get_job_locks(&self, job_id: JobId) -> Vec<PathBuf> {
         self.file_locks
             .iter()
@@ -244,7 +229,6 @@ impl JobManager {
         // Always use file scope - the agent will determine the actual scope from context
         let scope_def = ScopeDefinition::file(tag.file_path.clone());
 
-        // Format target with line range if available
         let target = if let Some(end) = line_end {
             if end != tag.line_number {
                 format!("{}:{}-{}", tag.file_path.display(), tag.line_number, end)
@@ -279,7 +263,6 @@ impl JobManager {
         Ok(id)
     }
 
-    /// Get all jobs for a specific workspace
     pub fn jobs_for_workspace(&self, workspace_id: WorkspaceId) -> Vec<&Job> {
         self.jobs
             .values()
@@ -287,7 +270,6 @@ impl JobManager {
             .collect()
     }
 
-    /// Get pending jobs for a specific workspace
     pub fn pending_jobs_for_workspace(&self, workspace_id: WorkspaceId) -> Vec<&Job> {
         self.jobs
             .values()
@@ -295,7 +277,6 @@ impl JobManager {
             .collect()
     }
 
-    /// Get running jobs for a specific workspace
     pub fn running_jobs_for_workspace(&self, workspace_id: WorkspaceId) -> Vec<&Job> {
         self.jobs
             .values()
@@ -303,7 +284,7 @@ impl JobManager {
             .collect()
     }
 
-    /// Get all jobs without a workspace (legacy jobs)
+    /// Returns legacy jobs (those without workspace association)
     pub fn jobs_without_workspace(&self) -> Vec<&Job> {
         self.jobs
             .values()
@@ -311,7 +292,6 @@ impl JobManager {
             .collect()
     }
 
-    /// Associate an existing job with a workspace
     pub fn set_job_workspace(
         &mut self,
         job_id: JobId,

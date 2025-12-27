@@ -197,7 +197,6 @@ impl AgentRunner for ClaudeBridgeAdapter {
         let prompt = self.build_prompt(job, config, worktree);
         let cwd = bridge_cwd(worktree);
 
-        // Log start
         let _ = event_tx
             .send(LogEvent::system(format!("Starting Claude SDK job #{}", job_id)).for_job(job_id))
             .await;
@@ -205,7 +204,6 @@ impl AgentRunner for ClaudeBridgeAdapter {
             .send(LogEvent::system(format!(">>> {}", prompt)).for_job(job_id))
             .await;
 
-        // Build request
         let request = ClaudeQueryRequest {
             prompt: prompt.clone(),
             images: None,
@@ -321,7 +319,6 @@ impl AgentRunner for ClaudeBridgeAdapter {
             }
         });
 
-        // Process events from channel
         while let Some(event_result) = rx.recv().await {
             let event = match event_result {
                 Ok(e) => e,
@@ -342,13 +339,15 @@ impl AgentRunner for ClaudeBridgeAdapter {
                 } => {
                     // Capture session_id for continuation
                     captured_session_id = Some(session_id.clone());
+                    // Safely truncate session_id for display (avoid panic on UTF-8 boundary)
+                    let session_preview = session_id.get(..12).unwrap_or(&session_id);
                     let _ = event_tx
                         .send(
                             LogEvent::system(format!(
                                 "Session started: {} tools available, model: {} (session: {})",
                                 tools.len(),
                                 model,
-                                &session_id[..12.min(session_id.len())]
+                                session_preview
                             ))
                             .with_tool_args(serde_json::json!({ "session_id": session_id }))
                             .for_job(job_id),
@@ -518,7 +517,6 @@ impl AgentRunner for ClaudeBridgeAdapter {
             }
         }
 
-        // Set the session ID for continuation
         result.session_id = captured_session_id.or_else(|| job.bridge_session_id.clone());
 
         Ok(result)
@@ -529,7 +527,6 @@ impl AgentRunner for ClaudeBridgeAdapter {
     }
 
     fn is_available(&self) -> bool {
-        // Check if the bridge is running
         self.client.health_check().is_ok()
     }
 }
@@ -697,12 +694,10 @@ impl AgentRunner for CodexBridgeAdapter {
         let prompt = self.build_prompt(job, config, worktree);
         let cwd = bridge_cwd(worktree);
 
-        // Log start
         let _ = event_tx
             .send(LogEvent::system(format!("Starting Codex SDK job #{}", job_id)).for_job(job_id))
             .await;
 
-        // Build request
         let request = CodexQueryRequest {
             prompt: prompt.clone(),
             images: None,

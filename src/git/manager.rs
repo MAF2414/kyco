@@ -106,7 +106,6 @@ fn sanitize_commit_subject(raw: &str) -> String {
 /// Find the git repository root for a given path.
 /// Returns None if the path is not inside a git repository.
 pub fn find_git_root(path: &Path) -> Option<PathBuf> {
-    // Determine the directory to start from
     let start_dir = if path.is_file() {
         path.parent()?
     } else {
@@ -146,7 +145,6 @@ impl GitManager {
     pub fn new(root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
 
-        // Verify this is a git repository
         if !root.join(".git").exists() {
             bail!("Not a git repository: {}", root.display());
         }
@@ -241,7 +239,6 @@ impl GitManager {
             }
         }
 
-        // Get the current branch name (base branch for the worktree)
         let base_branch = self.current_branch()?;
 
         // Check if worktrees directory exists and has wrong ownership
@@ -265,7 +262,6 @@ impl GitManager {
             }
         }
 
-        // Ensure the worktrees directory exists
         std::fs::create_dir_all(&self.worktrees_dir)?;
 
         let mut existing_worktree_names = HashSet::new();
@@ -313,7 +309,6 @@ impl GitManager {
 
             let worktree_path = self.worktrees_dir.join(&worktree_dir_name);
 
-            // Skip if worktree path already exists on disk
             if worktree_path.exists() {
                 existing_worktree_names.insert(worktree_dir_name.clone());
                 continue;
@@ -325,7 +320,6 @@ impl GitManager {
                 continue;
             }
 
-            // Try to create the branch
             let output = Command::new("git")
                 .args(["branch", &branch_name])
                 .current_dir(&self.root)
@@ -345,7 +339,6 @@ impl GitManager {
                 .to_str()
                 .ok_or_else(|| anyhow!("Worktree path contains invalid UTF-8"))?;
 
-            // Try to create the worktree
             let output = Command::new("git")
                 .args(["worktree", "add", worktree_path_str, &branch_name])
                 .current_dir(&self.root)
@@ -360,12 +353,15 @@ impl GitManager {
             }
 
             let stderr = String::from_utf8_lossy(&output.stderr);
+
+            // Always clean up the branch we created since worktree creation failed
+            let _ = Command::new("git")
+                .args(["branch", "-D", &branch_name])
+                .current_dir(&self.root)
+                .output();
+
             if stderr.contains("already exists") || stderr.contains("is already checked out") {
-                // Worktree conflict, clean up the branch we just created and try next suffix
-                let _ = Command::new("git")
-                    .args(["branch", "-D", &branch_name])
-                    .current_dir(&self.root)
-                    .output();
+                // Worktree conflict, try next suffix
                 existing_worktree_names.insert(worktree_dir_name);
                 existing_branch_names.insert(branch_name);
                 continue;
@@ -408,7 +404,6 @@ impl GitManager {
         worktree_path: &Path,
         branch_name: &str,
     ) -> Result<()> {
-        // Remove the worktree
         if worktree_path.exists() {
             let worktree_path_str = worktree_path
                 .to_str()
@@ -427,7 +422,6 @@ impl GitManager {
             }
         }
 
-        // Delete the branch
         let output = Command::new("git")
             .args(["branch", "-D", &branch_name])
             .current_dir(&self.root)
@@ -602,7 +596,6 @@ impl GitManager {
             );
         }
 
-        // First, check if there are uncommitted changes and commit them
         let status_output = Command::new("git")
             .args(["status", "--porcelain"])
             .current_dir(worktree)
@@ -610,7 +603,6 @@ impl GitManager {
             .context("Failed to check worktree status")?;
 
         if !status_output.stdout.is_empty() {
-            // There are uncommitted changes - commit them so the merge is clean.
             let fallback = CommitMessage {
                 subject: "Auto-commit remaining changes before merge".to_string(),
                 body: None,
@@ -619,7 +611,6 @@ impl GitManager {
             let _ = self.commit_all_in_dir(worktree, message)?;
         }
 
-        // Get the branch name of the worktree
         let branch_output = Command::new("git")
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
             .current_dir(worktree)
@@ -637,11 +628,9 @@ impl GitManager {
             .trim()
             .to_string();
 
-        // Get the current branch in the main repo so we can restore it
         let current_branch = self.current_branch()?;
         let should_restore_branch = current_branch != base_branch && current_branch != "HEAD";
 
-        // Checkout the base branch if we're not already on it
         if current_branch != base_branch {
             let checkout_output = Command::new("git")
                 .args(["checkout", base_branch])
@@ -658,7 +647,6 @@ impl GitManager {
             }
         }
 
-        // Merge the worktree branch into the base branch
         let merge_output = Command::new("git")
             .args(["merge", &worktree_branch, "--no-edit"])
             .current_dir(&self.root)

@@ -42,7 +42,6 @@ impl AutocompleteState {
         let input_lower = input.to_lowercase();
         let input_trimmed = input_lower.trim();
 
-        // Get default agent from config
         let default_agent = &config.settings.gui.default_agent;
 
         if input_trimmed.is_empty() {
@@ -69,7 +68,6 @@ impl AutocompleteState {
                     category: "mode",
                 });
             }
-            // Show chains
             for (chain_name, chain_config) in &config.chain {
                 let desc = chain_config
                     .description
@@ -86,9 +84,7 @@ impl AutocompleteState {
         }
 
         // Check for multi-agent mode: input ends with "+"
-        // Show agents to add to the parallel execution
         if input_trimmed.ends_with('+') && !input_trimmed.contains(':') {
-            // We're adding another agent for parallel execution
             let prefix = &input_trimmed[..input_trimmed.len() - 1];
             let existing_agents: Vec<&str> = prefix.split('+').collect();
 
@@ -126,7 +122,6 @@ impl AutocompleteState {
             let agent_part = &input_trimmed[..colon_pos];
             let mode_part = &input_trimmed[colon_pos + 1..];
 
-            // After colon, show matching modes
             for (mode_name, mode_config) in &config.mode {
                 let mode_lower = mode_name.to_lowercase();
                 let matches_mode = mode_lower.starts_with(mode_part) || mode_part.is_empty();
@@ -149,7 +144,6 @@ impl AutocompleteState {
                 }
             }
 
-            // After colon, also show matching chains
             for (chain_name, chain_config) in &config.chain {
                 let chain_lower = chain_name.to_lowercase();
                 let matches_chain = chain_lower.starts_with(mode_part) || mode_part.is_empty();
@@ -168,7 +162,6 @@ impl AutocompleteState {
             }
         } else {
             // No colon yet - show matching agents and modes
-            // First show matching agents (by name or alias)
             for (agent_name, agent_config) in &config.agent {
                 let name_lower = agent_name.to_lowercase();
                 let matches_name = name_lower.starts_with(input_trimmed);
@@ -212,7 +205,6 @@ impl AutocompleteState {
                 }
             }
 
-            // Show matching chains
             for (chain_name, chain_config) in &config.chain {
                 let chain_lower = chain_name.to_lowercase();
                 if chain_lower.starts_with(input_trimmed) || chain_lower.contains(input_trimmed) {

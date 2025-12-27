@@ -77,7 +77,6 @@ pub fn render_voice_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'
     ui.add_space(16.0);
 }
 
-/// Render a section frame with secondary background
 fn render_section_frame<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::NONE
         .fill(BG_SECONDARY)
@@ -87,7 +86,6 @@ fn render_section_frame<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egu
         .inner
 }
 
-/// Render the voice mode combo box
 fn render_voice_mode_selector(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Mode:").color(TEXT_MUTED));
@@ -118,7 +116,6 @@ fn render_voice_mode_selector(ui: &mut egui::Ui, state: &mut VoiceSettingsState<
     });
 }
 
-/// Render the description for the selected mode
 fn render_mode_description(ui: &mut egui::Ui, mode: &str) {
     let mode_desc = match mode {
         "manual" => "Click the microphone button or press Shift+V to record.",
@@ -131,7 +128,6 @@ fn render_mode_description(ui: &mut egui::Ui, mode: &str) {
     ui.label(RichText::new(mode_desc).small().color(TEXT_MUTED));
 }
 
-/// Render the Whisper model combo box
 fn render_whisper_model_selector(ui: &mut egui::Ui, model: &mut String) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Whisper Model:").color(TEXT_MUTED));
@@ -147,7 +143,6 @@ fn render_whisper_model_selector(ui: &mut egui::Ui, model: &mut String) {
     });
 }
 
-/// Render the language selector combo box
 fn render_language_selector(ui: &mut egui::Ui, language: &mut String) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Language:").color(TEXT_MUTED));
@@ -169,7 +164,6 @@ fn render_language_selector(ui: &mut egui::Ui, language: &mut String) {
     });
 }
 
-/// Render the advanced settings collapsible section
 fn render_advanced_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
     ui.collapsing("Advanced Settings", |ui| {
         ui.add_space(4.0);
@@ -199,7 +193,6 @@ fn render_advanced_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_
     });
 }
 
-/// Render the voice actions configuration section
 fn render_voice_actions_section(ui: &mut egui::Ui, registry: &VoiceActionRegistry) {
     ui.label(
         RichText::new("Voice Actions (Wakewords → Modes)")
@@ -218,7 +211,6 @@ fn render_voice_actions_section(ui: &mut egui::Ui, registry: &VoiceActionRegistr
                     .color(TEXT_MUTED),
             );
 
-            // Show global prefix if set
             if let Some(ref prefix) = registry.global_prefix {
                 ui.add_space(4.0);
                 ui.label(
@@ -242,14 +234,12 @@ fn render_voice_actions_section(ui: &mut egui::Ui, registry: &VoiceActionRegistr
                     .num_columns(3)
                     .spacing([12.0, 4.0])
                     .show(ui, |ui| {
-                        // Header
                         ui.label(RichText::new("Wakeword").color(TEXT_MUTED).small());
                         ui.label(RichText::new("Mode").color(TEXT_MUTED).small());
                         ui.label(RichText::new("Aliases").color(TEXT_MUTED).small());
                         ui.end_row();
 
                         for action in &registry.actions {
-                            // Primary wakeword
                             let primary = action.wakewords.first().map(|s| s.as_str()).unwrap_or(&action.mode);
                             ui.label(RichText::new(primary).monospace().color(ACCENT_CYAN));
                             ui.label(RichText::new(format!("→ {}", action.mode)).color(TEXT_PRIMARY));
@@ -303,7 +293,6 @@ fn render_vad_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
             );
             ui.add_space(8.0);
 
-            // VAD enabled toggle
             ui.horizontal(|ui| {
                 ui.checkbox(state.vad_enabled, "");
                 ui.label(RichText::new("Enable VAD for continuous mode").color(TEXT_PRIMARY));
@@ -312,7 +301,6 @@ fn render_vad_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
             if *state.vad_enabled {
                 ui.add_space(8.0);
 
-                // Speech threshold
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Speech threshold:").color(TEXT_MUTED));
                     ui.add(
@@ -326,7 +314,6 @@ fn render_vad_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
 
                 ui.add_space(4.0);
 
-                // Silence duration
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Silence to stop:").color(TEXT_MUTED));
                     ui.add(
@@ -341,7 +328,6 @@ fn render_vad_settings(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
         });
 }
 
-/// Render the save button
 fn render_save_button(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
     ui.add_space(12.0);
     ui.horizontal(|ui| {
@@ -354,7 +340,6 @@ fn render_save_button(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
     });
 }
 
-/// Render the voice dependencies installation section
 fn render_dependencies_section(ui: &mut egui::Ui, state: &mut VoiceSettingsState<'_>) {
     ui.add_space(12.0);
     ui.label(
@@ -375,7 +360,6 @@ fn render_dependencies_section(ui: &mut egui::Ui, state: &mut VoiceSettingsState
             );
             ui.add_space(8.0);
 
-            // List required dependencies
             ui.horizontal(|ui| {
                 ui.label(RichText::new("-").color(TEXT_DIM));
                 ui.label(RichText::new("sox").monospace().color(ACCENT_CYAN));
@@ -391,7 +375,6 @@ fn render_dependencies_section(ui: &mut egui::Ui, state: &mut VoiceSettingsState
 
             ui.add_space(12.0);
 
-            // Install button
             ui.horizontal(|ui| {
                 let button_text = if *state.voice_install_in_progress {
                     "Installing..."
@@ -422,7 +405,6 @@ fn render_dependencies_section(ui: &mut egui::Ui, state: &mut VoiceSettingsState
                 );
             });
 
-            // Status message
             if let Some((msg, is_error)) = state.voice_install_status.as_ref() {
                 ui.add_space(8.0);
                 let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };
@@ -453,7 +435,6 @@ fn render_dependencies_section(ui: &mut egui::Ui, state: &mut VoiceSettingsState
         });
 }
 
-/// Render a status message (success or error)
 fn render_status_message(ui: &mut egui::Ui, status: &Option<(String, bool)>) {
     if let Some((msg, is_error)) = status {
         let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };

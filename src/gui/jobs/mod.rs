@@ -10,7 +10,6 @@ mod io;
 mod list;
 mod operations;
 
-// Re-export all public items for backwards compatibility
 pub use io::write_job_request;
 pub use list::{JobListAction, JobListFilter, render_job_list};
 pub use operations::{

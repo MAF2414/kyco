@@ -175,8 +175,6 @@ pub struct VoiceSettings {
     pub popup_hotkey: String,
 }
 
-// Default functions for VoiceSettings
-
 fn default_voice_mode() -> String {
     "disabled".to_string()
 }
@@ -244,8 +242,6 @@ impl Default for VoiceSettings {
     }
 }
 
-// Default functions for GuiSettings
-
 fn default_gui_hotkey() -> String {
     #[cfg(target_os = "macos")]
     return "cmd+option+k".to_string();
@@ -302,8 +298,6 @@ impl Default for GuiSettings {
     }
 }
 
-// Default functions for Settings
-
 fn default_max_concurrent_jobs() -> usize {
     4
 }
@@ -317,7 +311,7 @@ fn default_use_worktree() -> bool {
 }
 
 fn default_max_jobs_per_file() -> usize {
-    1 // Only one job per file to prevent agents overwriting each other's changes
+    1
 }
 
 impl Default for Settings {

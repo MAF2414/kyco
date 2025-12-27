@@ -110,7 +110,6 @@ impl WorkspaceRegistry {
         // Canonicalize path for consistent lookup
         let canonical_path = path.canonicalize().unwrap_or(path);
 
-        // Check if workspace already exists
         if let Some(&id) = self.path_index.get(&canonical_path) {
             // Touch the existing workspace to update last_accessed
             if let Some(ws) = self.workspaces.get_mut(&id) {
@@ -122,7 +121,6 @@ impl WorkspaceRegistry {
         // New workspace: ensure config exists (auto-init)
         ensure_config_exists(&canonical_path);
 
-        // Create new workspace
         let id = self.next_id;
         self.next_id += 1;
 
@@ -140,7 +138,6 @@ impl WorkspaceRegistry {
         if let Some(ws) = self.workspaces.remove(&id) {
             self.path_index.remove(&ws.path);
 
-            // Clear active if this was the active workspace
             if self.active_workspace == Some(id) {
                 self.active_workspace = None;
             }
@@ -192,14 +189,12 @@ impl WorkspaceRegistry {
     /// Set the active workspace
     pub fn set_active(&mut self, id: WorkspaceId) -> bool {
         if self.workspaces.contains_key(&id) {
-            // Deactivate previous
             if let Some(prev_id) = self.active_workspace {
                 if let Some(prev) = self.workspaces.get_mut(&prev_id) {
                     prev.is_active = false;
                 }
             }
 
-            // Activate new
             if let Some(ws) = self.workspaces.get_mut(&id) {
                 ws.is_active = true;
                 ws.touch();
@@ -232,10 +227,6 @@ impl WorkspaceRegistry {
         self.workspaces.is_empty()
     }
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // Persistence
-    // ═══════════════════════════════════════════════════════════════════════
-
     /// Get the default path for the workspace registry file
     pub fn default_path() -> PathBuf {
         dirs::home_dir()
@@ -265,7 +256,6 @@ impl WorkspaceRegistry {
 
     /// Save the workspace registry to a file
     pub fn save(&self, path: &Path) -> Result<()> {
-        // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create directory {}", parent.display()))?;

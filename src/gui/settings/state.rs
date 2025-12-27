@@ -24,7 +24,6 @@ pub enum VoiceTestStatus {
 
 /// State for settings editing UI
 pub struct SettingsState<'a> {
-    // General settings
     pub settings_max_concurrent: &'a mut String,
     pub settings_auto_run: &'a mut bool,
     pub settings_use_worktree: &'a mut bool,
@@ -32,7 +31,6 @@ pub struct SettingsState<'a> {
     pub settings_structured_output_schema: &'a mut String,
     pub settings_status: &'a mut Option<(String, bool)>,
 
-    // Voice settings
     pub voice_settings_mode: &'a mut String,
     pub voice_settings_keywords: &'a mut String,
     pub voice_settings_model: &'a mut String,
@@ -45,22 +43,17 @@ pub struct SettingsState<'a> {
     pub voice_install_status: &'a mut Option<(String, bool)>,
     pub voice_install_in_progress: &'a mut bool,
 
-    // Voice test state
     pub voice_test_status: &'a mut VoiceTestStatus,
     pub voice_test_result: &'a mut Option<String>,
 
-    // VAD settings
     pub vad_enabled: &'a mut bool,
     pub vad_speech_threshold: &'a mut String,
     pub vad_silence_duration_ms: &'a mut String,
 
-    // Voice action registry (read-only, from config)
     pub voice_action_registry: &'a VoiceActionRegistry,
 
-    // Extension status
     pub extension_status: &'a mut Option<(String, bool)>,
 
-    // Common state
     pub view_mode: &'a mut ViewMode,
     pub config: &'a mut Config,
     pub work_dir: &'a Path,

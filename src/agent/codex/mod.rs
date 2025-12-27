@@ -37,7 +37,6 @@ impl CodexAdapter {
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
 
-        // Replace template placeholders
         let ide_context = job.ide_context.as_deref().unwrap_or("");
         template
             .prompt_template
@@ -107,7 +106,6 @@ impl AgentRunner for CodexAdapter {
         let prompt = self.build_prompt(job, config);
         let args = self.build_args(job, config, &prompt);
 
-        // Send start event with full prompt
         let job_id = job.id;
         let _ = event_tx
             .send(
@@ -118,7 +116,6 @@ impl AgentRunner for CodexAdapter {
             .send(LogEvent::system(format!(">>> {}", prompt)).for_job(job_id))
             .await;
 
-        // Spawn the process
         let binary = config.get_binary();
         let mut child = Command::new(&binary)
             .args(&args)
@@ -129,13 +126,18 @@ impl AgentRunner for CodexAdapter {
             .spawn()
             .with_context(|| format!("Failed to spawn {}", binary))?;
 
-        let stdout = child.stdout.take().expect("stdout not captured");
-        let stderr = child.stderr.take().expect("stderr not captured");
+        let stdout = child
+            .stdout
+            .take()
+            .context("Failed to capture stdout pipe")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("Failed to capture stderr pipe")?;
         let mut reader = BufReader::new(stdout).lines();
 
-        // Spawn a task to read stderr
         let event_tx_clone = event_tx.clone();
-        tokio::spawn(async move {
+        let stderr_task = tokio::spawn(async move {
             let mut stderr_reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = stderr_reader.next_line().await {
                 let _ = event_tx_clone
@@ -158,11 +160,9 @@ impl AgentRunner for CodexAdapter {
         // Track if we received turn.completed (means success regardless of exit code)
         let mut turn_completed = false;
 
-        // Process output stream
         while let Ok(Some(line)) = reader.next_line().await {
             match parse_codex_event(&line) {
                 CodexEventResult::Log(event) => {
-                    // Check if this is the completion message
                     if event.summary.starts_with("Completed (tokens:") {
                         turn_completed = true;
                     }
@@ -172,8 +172,11 @@ impl AgentRunner for CodexAdapter {
             }
         }
 
-        // Wait for the process to finish
         let status = child.wait().await?;
+
+        // Wait for stderr task to complete to ensure all logs are captured
+        // before sending completion message (prevents race condition in log ordering)
+        let _ = stderr_task.await;
 
         // Success is based on turn.completed, not exit code
         // Codex may exit with code 1 even on success (e.g., if tests fail)

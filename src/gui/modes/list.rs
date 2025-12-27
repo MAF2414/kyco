@@ -22,7 +22,6 @@ pub fn render_modes_list(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>) {
     );
     ui.add_space(12.0);
 
-    // Get modes from config
     let modes: Vec<(String, String)> = state
         .config
         .mode
@@ -66,7 +65,6 @@ pub fn render_modes_list(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>) {
                 ui.add_space(4.0);
             }
 
-            // Add new mode button
             ui.add_space(12.0);
             if ui
                 .button(RichText::new("+ Add New Mode").color(ACCENT_CYAN))
@@ -86,6 +84,8 @@ pub fn render_modes_list(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>) {
                 *state.mode_edit_claude_permission = "auto".to_string();
                 *state.mode_edit_codex_sandbox = "auto".to_string();
                 *state.mode_edit_readonly = false;
+                state.mode_edit_output_states.clear();
+                state.mode_edit_state_prompt.clear();
                 *state.mode_edit_status = None;
             }
         });

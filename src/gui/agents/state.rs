@@ -1,5 +1,3 @@
-//! State management for agent editing UI
-
 use std::path::Path;
 
 use crate::config::Config;

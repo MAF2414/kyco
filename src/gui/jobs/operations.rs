@@ -74,7 +74,6 @@ pub fn create_job_from_selection(
     if let Ok(mut manager) = job_manager.lock() {
         match manager.create_job_with_range(&tag, agent, line_end) {
             Ok(job_id) => {
-                // Set IDE context if available
                 if let Some(job) = manager.get_mut(job_id) {
                     let ide_context = selection.format_ide_context();
                     if !ide_context.trim().is_empty() && ide_context.lines().count() > 1 {
@@ -139,7 +138,6 @@ pub fn mark_job_complete(
     job_id: JobId,
     logs: &mut Vec<LogEvent>,
 ) {
-    // Mark the terminal session as completed (if it exists)
     if let Some(session) = crate::agent::get_terminal_session(job_id) {
         session.mark_completed();
     }
@@ -209,14 +207,12 @@ pub fn create_jobs_from_selection_multi(
         if let Ok(mut manager) = job_manager.lock() {
             match manager.create_job_with_range(&tag, agent, line_end) {
                 Ok(job_id) => {
-                    // Set IDE context, workspace, and force_worktree if available
                     if let Some(job) = manager.get_mut(job_id) {
                         let ide_context = selection.format_ide_context();
                         if !ide_context.trim().is_empty() && ide_context.lines().count() > 1 {
                             job.ide_context = Some(ide_context);
                         }
                         job.force_worktree = force_worktree;
-                        // Set workspace association
                         job.workspace_id = selection.workspace_id;
                         job.workspace_path = selection.workspace_path.clone();
                     }
@@ -268,7 +264,6 @@ pub fn create_jobs_from_selection_multi(
         if let Ok(mut manager) = job_manager.lock() {
             match manager.create_job_with_range(&tag, agent, line_end) {
                 Ok(job_id) => {
-                    // Set the group_id, workspace, IDE context, and force_worktree on the job
                     if let Some(job) = manager.get_mut(job_id) {
                         job.group_id = Some(group_id);
                         let ide_context = selection.format_ide_context();
@@ -276,12 +271,10 @@ pub fn create_jobs_from_selection_multi(
                             job.ide_context = Some(ide_context);
                         }
                         job.force_worktree = force_worktree;
-                        // Set workspace association
                         job.workspace_id = selection.workspace_id;
                         job.workspace_path = selection.workspace_path.clone();
                     }
 
-                    // Add to group
                     if let Ok(mut gm) = group_manager.lock() {
                         gm.add_job_to_group(group_id, job_id, agent.clone());
                     }
@@ -303,7 +296,6 @@ pub fn create_jobs_from_selection_multi(
     }
 
     if job_ids.is_empty() {
-        // No jobs were created, cancel the group
         if let Ok(mut gm) = group_manager.lock() {
             gm.cancel_group(group_id);
         }

@@ -11,7 +11,6 @@ use crate::config::Config;
 ///
 /// Uses proper TOML serialization to avoid config file corruption.
 pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
-    // Parse and validate values
     let max_concurrent = match state.settings_max_concurrent.trim().parse::<usize>() {
         Ok(n) if n > 0 => n,
         _ => {
@@ -23,7 +22,6 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
         }
     };
 
-    // Parse voice settings
     let silence_threshold = match state.voice_settings_silence_threshold.trim().parse::<f32>() {
         Ok(n) if (0.0..=1.0).contains(&n) => n,
         _ => {
@@ -59,37 +57,44 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
         .filter(|s| !s.is_empty())
         .collect();
 
-    // Update the in-memory config with new values
-    state.config.settings.max_concurrent_jobs = max_concurrent;
-    state.config.settings.auto_run = *state.settings_auto_run;
-    state.config.settings.use_worktree = *state.settings_use_worktree;
-    state.config.settings.gui.output_schema = state.settings_output_schema.clone();
-    state.config.settings.gui.structured_output_schema =
+    // Clone config and apply changes to the clone first.
+    // Only update the original state after successful file save to prevent
+    // inconsistency between in-memory state and persisted config on save failure.
+    let mut new_config = state.config.clone();
+
+    new_config.settings.max_concurrent_jobs = max_concurrent;
+    new_config.settings.auto_run = *state.settings_auto_run;
+    new_config.settings.use_worktree = *state.settings_use_worktree;
+    new_config.settings.gui.output_schema = state.settings_output_schema.clone();
+    new_config.settings.gui.structured_output_schema =
         state.settings_structured_output_schema.clone();
 
-    // Update the shared atomic value so executor picks up the change immediately
-    state
-        .max_concurrent_jobs_shared
-        .store(max_concurrent, Ordering::Relaxed);
+    new_config.settings.gui.voice.mode = state.voice_settings_mode.clone();
+    new_config.settings.gui.voice.keywords = voice_keywords;
+    new_config.settings.gui.voice.whisper_model = state.voice_settings_model.clone();
+    new_config.settings.gui.voice.language = state.voice_settings_language.clone();
+    new_config.settings.gui.voice.silence_threshold = silence_threshold;
+    new_config.settings.gui.voice.silence_duration = silence_duration;
+    new_config.settings.gui.voice.max_duration = max_duration;
+    new_config.settings.gui.voice.global_hotkey = state.voice_settings_global_hotkey.clone();
+    new_config.settings.gui.voice.popup_hotkey = state.voice_settings_popup_hotkey.clone();
 
-    // Update voice settings
-    state.config.settings.gui.voice.mode = state.voice_settings_mode.clone();
-    state.config.settings.gui.voice.keywords = voice_keywords;
-    state.config.settings.gui.voice.whisper_model = state.voice_settings_model.clone();
-    state.config.settings.gui.voice.language = state.voice_settings_language.clone();
-    state.config.settings.gui.voice.silence_threshold = silence_threshold;
-    state.config.settings.gui.voice.silence_duration = silence_duration;
-    state.config.settings.gui.voice.max_duration = max_duration;
-    state.config.settings.gui.voice.global_hotkey = state.voice_settings_global_hotkey.clone();
-    state.config.settings.gui.voice.popup_hotkey = state.voice_settings_popup_hotkey.clone();
-
-    // Save config with atomic write and file locking
+    // Try to save to file FIRST - before modifying any state
     let config_path = Config::global_config_path();
-    if let Err(e) = state.config.save_to_file(&config_path) {
+    if let Err(e) = new_config.save_to_file(&config_path) {
         *state.settings_status = Some((format!("Failed to save config: {}", e), true));
         return;
     }
+
+    // File save succeeded - now safely update in-memory state
+    *state.config = new_config;
+
+    // Update the shared atomic value so executor picks up the change immediately
+    // Using SeqCst for proper visibility across threads after config file write
+    state
+        .max_concurrent_jobs_shared
+        .store(max_concurrent, Ordering::SeqCst);
+
     *state.settings_status = Some(("Settings saved!".to_string(), false));
-    // Signal that voice config needs to be applied to the VoiceManager
     *state.voice_config_changed = true;
 }

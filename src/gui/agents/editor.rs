@@ -42,7 +42,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(8.0);
 
-            // Aliases
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Aliases:").color(TEXT_MUTED));
                 ui.add(
@@ -55,7 +54,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(8.0);
 
-            // SDK Type
             ui.horizontal(|ui| {
                 ui.label(RichText::new("SDK:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("cli_type")
@@ -75,7 +73,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(8.0);
 
-            // Session mode
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Session Mode:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("agent_mode")
@@ -95,7 +92,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(8.0);
 
-            // System Prompt Mode
             ui.horizontal(|ui| {
                 ui.label(RichText::new("System Prompt Mode:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("system_prompt_mode")
@@ -129,7 +125,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             );
             ui.add_space(8.0);
 
-            // Allowed tools
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Allowed Tools:").color(TEXT_MUTED));
                 ui.add(
@@ -142,7 +137,6 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(8.0);
 
-            // Disallowed tools
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Disallowed Tools:").color(TEXT_MUTED));
                 ui.add(
@@ -155,14 +149,12 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(16.0);
 
-            // Status message
             if let Some((msg, is_error)) = &state.agent_edit_status {
                 let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };
                 ui.label(RichText::new(msg.as_str()).color(color));
                 ui.add_space(8.0);
             }
 
-            // Save button
             ui.horizontal(|ui| {
                 if animated_button(ui, "Save to Config", ACCENT_GREEN, "agent_save_btn").clicked() {
                     save_agent_to_config(state, is_new);

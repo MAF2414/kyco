@@ -27,7 +27,6 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
     let config_exists = config_path.exists();
 
     render_section_frame(ui, |ui| {
-        // Config path display
         ui.horizontal(|ui| {
             ui.label(RichText::new("Config:").color(TEXT_MUTED));
             let path_str = config_path.display().to_string();
@@ -64,7 +63,6 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
         ui.separator();
         ui.add_space(8.0);
 
-        // Settings fields
         render_text_field(
             ui,
             "Max Concurrent Jobs:",
@@ -93,7 +91,6 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
     // Action buttons
     ui.add_space(12.0);
     ui.horizontal(|ui| {
-        // Save Settings
         if ui
             .button(RichText::new("Save Settings").color(ACCENT_GREEN))
             .clicked()
@@ -103,7 +100,6 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
 
         ui.add_space(8.0);
 
-        // Reset to Defaults
         let reset_btn = ui.button(RichText::new("Reset to Defaults").color(ACCENT_CYAN));
         if reset_btn.clicked() {
             match reset_config_to_defaults(state.work_dir) {
@@ -126,7 +122,6 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
 
         ui.add_space(8.0);
 
-        // Export to Clipboard
         if ui
             .button(RichText::new("Export").color(TEXT_PRIMARY))
             .on_hover_text("Copy config to clipboard")
@@ -146,7 +141,6 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
 
         ui.add_space(8.0);
 
-        // Open in Editor
         if ui
             .button(RichText::new("Open").color(TEXT_PRIMARY))
             .on_hover_text("Open config in editor")
@@ -340,7 +334,6 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
     ui.add_space(12.0);
 
     render_section_frame(ui, |ui| {
-        // Voice mode selector
         ui.horizontal(|ui| {
             ui.label(RichText::new("Mode:").color(TEXT_MUTED));
             egui::ComboBox::from_id_salt("voice_mode")
@@ -397,7 +390,6 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         );
         ui.add_space(8.0);
 
-        // Whisper model
         ui.horizontal(|ui| {
             ui.label(RichText::new("Whisper Model:").color(TEXT_MUTED));
             egui::ComboBox::from_id_salt("whisper_model")
@@ -432,7 +424,6 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         });
         ui.add_space(8.0);
 
-        // Language
         ui.horizontal(|ui| {
             ui.label(RichText::new("Language:").color(TEXT_MUTED));
             egui::ComboBox::from_id_salt("voice_language")
@@ -519,7 +510,6 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         });
     });
 
-    // Save voice settings button
     ui.add_space(12.0);
     ui.horizontal(|ui| {
         if ui
@@ -530,7 +520,6 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         }
     });
 
-    // Status message (shared with general settings)
     render_status_message(ui, state.settings_status);
 
     // Voice dependency installation section
@@ -553,7 +542,6 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
             );
             ui.add_space(8.0);
 
-            // List required dependencies
             ui.horizontal(|ui| {
                 ui.label(RichText::new("•").color(TEXT_DIM));
                 ui.label(RichText::new("sox").monospace().color(ACCENT_CYAN));
@@ -571,7 +559,6 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
 
             ui.add_space(12.0);
 
-            // Install button
             ui.horizontal(|ui| {
                 let button_text = if *state.voice_install_in_progress {
                     "Installing..."
@@ -602,7 +589,6 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
                 );
             });
 
-            // Status message
             if let Some((msg, is_error)) = &state.voice_install_status {
                 ui.add_space(8.0);
                 let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };
@@ -631,18 +617,15 @@ pub fn render_settings_voice(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
                 }
             }
 
-            // Voice test section
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(8.0);
             render_voice_test_section(ui, state);
         });
 
-    // Voice Actions section
     ui.add_space(12.0);
     render_voice_actions(ui, state);
 
-    // VAD Settings section
     ui.add_space(12.0);
     render_vad_settings(ui, state);
 
@@ -696,7 +679,6 @@ fn render_voice_actions(ui: &mut egui::Ui, state: &SettingsState<'_>) {
                     .num_columns(3)
                     .spacing([12.0, 4.0])
                     .show(ui, |ui| {
-                        // Header
                         ui.label(RichText::new("Wakeword").color(TEXT_MUTED).small());
                         ui.label(RichText::new("Mode").color(TEXT_MUTED).small());
                         ui.label(RichText::new("Aliases").color(TEXT_MUTED).small());
@@ -862,9 +844,7 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         .join(format!("ggml-{}.bin", model_name));
     let model_available = model_path.exists();
 
-    // Status indicators
     ui.horizontal(|ui| {
-        // sox status
         let (sox_icon, sox_color) = if sox_available {
             ("✓", ACCENT_GREEN)
         } else {
@@ -874,7 +854,6 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         ui.label(RichText::new("sox").monospace().color(TEXT_MUTED));
         ui.add_space(12.0);
 
-        // whisper-cli status
         let (whisper_icon, whisper_color) = if whisper_available {
             ("✓", ACCENT_GREEN)
         } else {
@@ -884,7 +863,6 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         ui.label(RichText::new("whisper-cli").monospace().color(TEXT_MUTED));
         ui.add_space(12.0);
 
-        // model status
         let (model_icon, model_color) = if model_available {
             ("✓", ACCENT_GREEN)
         } else {
@@ -902,7 +880,6 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
 
     let all_deps_available = sox_available && whisper_available && model_available;
 
-    // Test button
     let is_testing = matches!(
         state.voice_test_status,
         VoiceTestStatus::Recording | VoiceTestStatus::Transcribing
@@ -941,7 +918,6 @@ fn render_voice_test_section(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
         }
     });
 
-    // Show test result
     match &*state.voice_test_status {
         VoiceTestStatus::Success => {
             if let Some(result) = &state.voice_test_result {
@@ -983,29 +959,8 @@ fn start_voice_test(state: &mut SettingsState<'_>) {
     };
     let language = state.voice_settings_language.clone();
 
-    // Run test in background thread
-    std::thread::spawn(move || {
-        // This will be polled by the GUI - for now we do sync
-        let result = run_voice_test(&work_dir, &model_name, &language);
-        // Note: We can't easily update state from here, so we'll handle this differently
-        // For a proper implementation, we'd use channels or Arc<Mutex>
-        eprintln!("Voice test result: {:?}", result);
-    });
-
-    // For now, show recording status - the actual async handling would need
-    // more infrastructure. Let's do a simpler sync version for immediate feedback.
-    *state.voice_test_status = VoiceTestStatus::Recording;
-
-    // Actually run the test synchronously for simplicity
-    // (In production, this should be async with proper state updates)
-    let work_dir = state.work_dir.to_path_buf();
-    let model_name = if state.voice_settings_model.is_empty() {
-        "base".to_string()
-    } else {
-        state.voice_settings_model.clone()
-    };
-    let language = state.voice_settings_language.clone();
-
+    // Run test synchronously (blocks UI briefly but avoids thread resource leak)
+    // For async version, would need channels or Arc<Mutex> for state updates
     match run_voice_test_sync(&work_dir, &model_name, &language) {
         Ok(text) => {
             *state.voice_test_status = VoiceTestStatus::Success;
@@ -1033,6 +988,14 @@ fn run_voice_test_sync(
         .join("whisper-models")
         .join(format!("ggml-{}.bin", model_name));
 
+    // Convert paths to strings, returning error if invalid UTF-8
+    let recording_path_str = recording_path
+        .to_str()
+        .ok_or_else(|| "Recording path contains invalid UTF-8 characters".to_string())?;
+    let model_path_str = model_path
+        .to_str()
+        .ok_or_else(|| "Model path contains invalid UTF-8 characters".to_string())?;
+
     // Record 3 seconds of audio
     let rec_result = Command::new("rec")
         .args([
@@ -1042,7 +1005,7 @@ fn run_voice_test_sync(
             "1", // Mono
             "-b",
             "16", // 16-bit
-            recording_path.to_str().unwrap_or("test.wav"),
+            recording_path_str,
             "trim",
             "0",
             "3", // Record exactly 3 seconds
@@ -1061,17 +1024,15 @@ fn run_voice_test_sync(
         }
     }
 
-    // Check if recording was created
     if !recording_path.exists() {
         return Err("Recording file not created".to_string());
     }
 
-    // Transcribe
     let mut whisper_args = vec![
         "-m".to_string(),
-        model_path.to_str().unwrap_or("model.bin").to_string(),
+        model_path_str.to_string(),
         "-f".to_string(),
-        recording_path.to_str().unwrap_or("test.wav").to_string(),
+        recording_path_str.to_string(),
         "--no-timestamps".to_string(),
     ];
 
@@ -1082,7 +1043,6 @@ fn run_voice_test_sync(
 
     let whisper_result = Command::new("whisper-cli").args(&whisper_args).output();
 
-    // Clean up recording file
     let _ = std::fs::remove_file(&recording_path);
 
     match whisper_result {
@@ -1102,18 +1062,6 @@ fn run_voice_test_sync(
     }
 }
 
-/// Run voice test (not used currently, placeholder for async version)
-fn run_voice_test(
-    work_dir: &std::path::Path,
-    model_name: &str,
-    language: &str,
-) -> Result<String, String> {
-    run_voice_test_sync(work_dir, model_name, language)
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Config Helper Functions
-// ═══════════════════════════════════════════════════════════════════════════
 
 /// Reset global config to defaults (uses full DEFAULT_CONFIG with all modes/chains)
 fn reset_config_to_defaults(_work_dir: &std::path::Path) -> Result<(), String> {
@@ -1136,7 +1084,6 @@ fn reset_config_to_defaults(_work_dir: &std::path::Path) -> Result<(), String> {
         None
     };
 
-    // Ensure directory exists
     std::fs::create_dir_all(&config_dir)
         .map_err(|e| format!("Failed to create ~/.kyco directory: {}", e))?;
 
@@ -1163,5 +1110,3 @@ fn export_config_to_string(_work_dir: &std::path::Path) -> Result<String, String
 
     std::fs::read_to_string(&config_path).map_err(|e| format!("Failed to read config: {}", e))
 }
-
-// Import from Workspace feature removed - config is now global at ~/.kyco/config.toml

@@ -25,7 +25,6 @@ pub fn render_modes(ctx: &egui::Context, state: &mut ModeEditorState<'_>) {
         .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(16.0))
         .show(ctx, |ui| {
             ui.vertical(|ui| {
-                // Header
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new("MODES")

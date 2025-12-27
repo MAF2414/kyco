@@ -153,7 +153,6 @@ fn install_voice_dependencies_inner(
 ) {
     let total_steps = 4;
 
-    // Step 1: Check Homebrew
     let _ = tx.send(InstallProgress::Step {
         step: 1,
         total: total_steps,
@@ -170,7 +169,6 @@ fn install_voice_dependencies_inner(
         return;
     }
 
-    // Step 2: Install sox
     let _ = tx.send(InstallProgress::Step {
         step: 2,
         total: total_steps,
@@ -185,7 +183,6 @@ fn install_voice_dependencies_inner(
         return;
     }
 
-    // Step 3: Install whisper-cpp
     let _ = tx.send(InstallProgress::Step {
         step: 3,
         total: total_steps,
@@ -200,7 +197,6 @@ fn install_voice_dependencies_inner(
         return;
     }
 
-    // Step 4: Download whisper model
     let _ = tx.send(InstallProgress::Step {
         step: 4,
         total: total_steps,
@@ -227,7 +223,6 @@ fn install_voice_dependencies_inner(
 ///
 /// For non-blocking installation, use `install_voice_dependencies_async` instead.
 pub fn install_voice_dependencies(work_dir: &Path, model_name: &str) -> VoiceInstallResult {
-    // Check if brew is available (macOS)
     if Command::new("brew").arg("--version").output().is_err() {
         return VoiceInstallResult::error(
             "Homebrew not found. Please install Homebrew first: https://brew.sh\n\n\
@@ -237,17 +232,14 @@ pub fn install_voice_dependencies(work_dir: &Path, model_name: &str) -> VoiceIns
         );
     }
 
-    // Step 1: Install sox
     if let Err(e) = install_brew_package("sox") {
         return VoiceInstallResult::error(format!("Failed to install sox: {}", e));
     }
 
-    // Step 2: Install whisper-cpp
     if let Err(e) = install_brew_package("whisper-cpp") {
         return VoiceInstallResult::error(format!("Failed to install whisper-cpp: {}", e));
     }
 
-    // Step 3: Download whisper model
     if let Err(e) = download_whisper_model(work_dir, model_name) {
         return VoiceInstallResult::error(e);
     }
@@ -285,16 +277,23 @@ fn download_whisper_model(work_dir: &Path, model_name: &str) -> Result<(), Strin
         )
     })?;
 
-    // Create models directory in .kyco
     let models_dir = work_dir.join(".kyco").join("whisper-models");
     std::fs::create_dir_all(&models_dir)
         .map_err(|e| format!("Failed to create models directory: {}", e))?;
 
     let model_filename = format!("ggml-{}.bin", model_name);
     let model_path = models_dir.join(&model_filename);
-    let temp_path = models_dir.join(format!("{}.tmp", model_filename));
+    // Use PID + timestamp for unique temp filename to avoid race conditions
+    let temp_path = models_dir.join(format!(
+        "{}.{}.{}.tmp",
+        model_filename,
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
 
-    // Check if model already exists and is valid
     if model_path.exists() {
         if validate_model_checksum(&model_path, model_info.sha256)? {
             return Ok(());
@@ -304,15 +303,12 @@ fn download_whisper_model(work_dir: &Path, model_name: &str) -> Result<(), Strin
         }
     }
 
-    // Download the model to a temp file first
+    let temp_path_str = temp_path
+        .to_str()
+        .ok_or_else(|| "Temp path contains invalid UTF-8 characters".to_string())?;
+
     let result = Command::new("curl")
-        .args([
-            "-L",
-            "--progress-bar",
-            "-o",
-            temp_path.to_str().unwrap_or("model.tmp"),
-            model_info.url,
-        ])
+        .args(["-L", "--progress-bar", "-o", temp_path_str, model_info.url])
         .output()
         .map_err(|e| format!("Failed to download model: {}", e))?;
 
@@ -322,8 +318,15 @@ fn download_whisper_model(work_dir: &Path, model_name: &str) -> Result<(), Strin
         return Err(format!("Model download failed: {}", stderr));
     }
 
-    // Validate checksum
-    if !validate_model_checksum(&temp_path, model_info.sha256)? {
+    let checksum_valid = match validate_model_checksum(&temp_path, model_info.sha256) {
+        Ok(valid) => valid,
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(e);
+        }
+    };
+
+    if !checksum_valid {
         let _ = std::fs::remove_file(&temp_path);
         return Err(format!(
             "Model checksum validation failed. The download may be corrupted.\n\
@@ -333,17 +336,24 @@ fn download_whisper_model(work_dir: &Path, model_name: &str) -> Result<(), Strin
         ));
     }
 
-    // Move temp file to final location
-    std::fs::rename(&temp_path, &model_path).map_err(|e| format!("Failed to save model: {}", e))?;
+    std::fs::rename(&temp_path, &model_path).map_err(|e| {
+        // Clean up temp file on rename failure
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to save model: {}", e)
+    })?;
 
     Ok(())
 }
 
 /// Validate a file's SHA256 checksum
 fn validate_model_checksum(path: &Path, expected_sha256: &str) -> Result<bool, String> {
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| "Path contains invalid UTF-8 characters".to_string())?;
+
     // Use shasum on macOS/Linux
     let output = Command::new("shasum")
-        .args(["-a", "256", path.to_str().unwrap_or("")])
+        .args(["-a", "256", path_str])
         .output()
         .map_err(|e| format!("Failed to calculate checksum: {}", e))?;
 

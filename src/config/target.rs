@@ -3,8 +3,6 @@
 use serde::{Deserialize, Serialize};
 
 /// Target configuration - defines what to process within scope
-///
-/// Targets define WHAT within the scope to process.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetConfig {
     /// Human-readable description

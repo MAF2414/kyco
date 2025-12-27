@@ -41,30 +41,12 @@ impl AgentRegistry {
         Self { adapters }
     }
 
-    /// Retrieves an adapter by its ID.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The adapter ID (e.g., `"claude"`, `"codex"`)
-    ///
-    /// # Returns
-    ///
-    /// * `Some(Arc<dyn AgentRunner>)` - The adapter if found
-    /// * `None` - If no adapter with that ID is registered
+    /// Retrieves an adapter by its ID (e.g., `"claude"`, `"codex"`).
     pub fn get(&self, id: &str) -> Option<Arc<dyn AgentRunner>> {
         self.adapters.get(id).cloned()
     }
 
     /// Retrieves an adapter for a given SDK type.
-    ///
-    /// # Arguments
-    ///
-    /// * `sdk_type` - The SDK type to look up
-    ///
-    /// # Returns
-    ///
-    /// * `Some(Arc<dyn AgentRunner>)` - The adapter for the SDK type
-    /// * `None` - If not registered
     pub fn get_for_sdk_type(&self, sdk_type: SdkType) -> Option<Arc<dyn AgentRunner>> {
         let id = match sdk_type {
             SdkType::Custom => "claude",
@@ -75,20 +57,11 @@ impl AgentRegistry {
 
     /// Retrieves an adapter appropriate for the given agent configuration.
     ///
-    /// # Arguments
-    ///
-    /// * `config` - The agent configuration containing ID and SDK type
-    ///
-    /// # Returns
-    ///
-    /// * `Some(Arc<dyn AgentRunner>)` - The appropriate adapter
-    /// * `None` - If no matching adapter is found
+    /// Tries by ID first, then falls back to SDK type.
     pub fn get_for_config(&self, config: &AgentConfig) -> Option<Arc<dyn AgentRunner>> {
-        // First try by ID
         if let Some(adapter) = self.get(&config.id) {
             return Some(adapter);
         }
-        // Fall back to SDK type
         self.get_for_sdk_type(config.sdk_type)
     }
 
@@ -109,15 +82,6 @@ impl AgentRegistry {
     }
 
     /// Checks if an adapter is registered.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - The adapter ID to check
-    ///
-    /// # Returns
-    ///
-    /// * `true` - If the adapter is registered
-    /// * `false` - If the adapter is not registered
     pub fn is_available(&self, id: &str) -> bool {
         self.adapters.contains_key(id)
     }

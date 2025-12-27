@@ -15,7 +15,10 @@ use crate::gui::app::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM,
     TEXT_MUTED, TEXT_PRIMARY, ViewMode,
 };
-use crate::gui::update::UpdateInfo;
+use crate::gui::update::{open_url, UpdateInfo};
+
+/// GitHub Sponsors URL
+const SPONSOR_URL: &str = "https://github.com/sponsors/MAF2414";
 use crate::workspace::{WorkspaceId, WorkspaceRegistry};
 
 /// Install status for update button
@@ -58,7 +61,6 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
         .frame(egui::Frame::NONE.fill(BG_SECONDARY).inner_margin(4.0))
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // Auto-run toggle
                 let auto_run_text = if *state.auto_run {
                     "[A]utoRun: ON"
                 } else {
@@ -88,7 +90,6 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     if let Ok(registry) = registry_arc.lock() {
                         let workspaces = registry.list();
                         if workspaces.len() > 1 {
-                            // Show workspace dropdown - borrow name directly, no allocation needed
                             let current_name: &str = state
                                 .active_workspace_id
                                 .and_then(|id| registry.get(id))
@@ -126,8 +127,17 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Show current version (compile-time constant)
                     ui.label(RichText::new(VERSION_TEXT).small().color(TEXT_MUTED));
+
+                    // Sponsor heart button
+                    ui.add_space(8.0);
+                    if ui
+                        .label(RichText::new("💜").small())
+                        .on_hover_text("Support KYCo on GitHub Sponsors")
+                        .clicked()
+                    {
+                        open_url(SPONSOR_URL);
+                    }
 
                     // Show update notification/install status
                     match state.install_status {

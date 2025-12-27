@@ -13,13 +13,9 @@ use crate::{AgentGroupId, AgentRunGroup, GroupStatus, Job, JobId, JobStatus};
 
 /// State for the comparison popup
 pub struct ComparisonState {
-    /// The group being compared
     pub group: Option<AgentRunGroup>,
-    /// Jobs in the group (for display)
     pub jobs: Vec<Job>,
-    /// Currently selected job ID
     pub selected_job_id: Option<JobId>,
-    /// Whether to show the popup
     pub show: bool,
 }
 
@@ -59,13 +55,10 @@ impl ComparisonState {
 
 /// Actions that can be returned from the comparison popup
 pub enum ComparisonAction {
-    /// User selected a job
     SelectJob(JobId),
-    /// User wants to view the diff for a job
     ViewDiff(JobId),
-    /// User wants to merge the selected job and cleanup
+    /// Merge the selected job and cleanup other worktrees
     MergeAndClose,
-    /// User cancelled/closed the popup
     Cancel,
 }
 
@@ -76,19 +69,22 @@ pub fn render_comparison_popup(
     ctx: &egui::Context,
     state: &mut ComparisonState,
 ) -> Option<ComparisonAction> {
-    if !state.show || state.group.is_none() {
+    if !state.show {
         return None;
     }
 
-    let group = state.group.as_ref().unwrap();
+    let group = match state.group.as_ref() {
+        Some(g) => g,
+        None => return None,
+    };
     let mut action = None;
 
-    // Calculate popup size based on number of agents
     let num_agents = group.job_ids.len();
     let card_width = 180.0;
     let card_spacing = 16.0;
-    let popup_width =
-        (num_agents as f32 * card_width) + ((num_agents - 1) as f32 * card_spacing) + 48.0;
+    let popup_width = (num_agents as f32 * card_width)
+        + (num_agents.saturating_sub(1) as f32 * card_spacing)
+        + 48.0;
     let popup_width = popup_width.max(400.0).min(900.0);
 
     egui::Window::new("Compare Agent Results")
@@ -104,7 +100,6 @@ pub fn render_comparison_popup(
                 .corner_radius(8.0),
         )
         .show(ctx, |ui| {
-            // Header
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(format!(
@@ -137,7 +132,6 @@ pub fn render_comparison_popup(
             ui.separator();
             ui.add_space(8.0);
 
-            // Agent cards in a horizontal scroll area
             ScrollArea::horizontal()
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
@@ -176,9 +170,7 @@ pub fn render_comparison_popup(
             ui.separator();
             ui.add_space(8.0);
 
-            // Footer with buttons
             ui.horizontal(|ui| {
-                // Status message
                 let status_msg = match group.status {
                     GroupStatus::Running => "⏳ Waiting for agents to finish...",
                     GroupStatus::Comparing => "✓ All agents finished. Select the best result.",
@@ -189,7 +181,6 @@ pub fn render_comparison_popup(
                 ui.label(RichText::new(status_msg).color(TEXT_DIM));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Merge & Close button (only enabled when a job is selected)
                     let can_merge = state.selected_job_id.is_some()
                         && matches!(group.status, GroupStatus::Comparing | GroupStatus::Selected);
 
@@ -211,7 +202,6 @@ pub fn render_comparison_popup(
 
                     ui.add_space(8.0);
 
-                    // Cancel button
                     if ui
                         .add(egui::Button::new(RichText::new("Cancel").color(TEXT_DIM)))
                         .clicked()
@@ -225,7 +215,6 @@ pub fn render_comparison_popup(
     action
 }
 
-/// Actions from an individual agent card
 enum CardAction {
     Select,
     ViewDiff,
@@ -261,7 +250,6 @@ fn render_agent_card(
             ui.set_max_width(180.0);
             ui.set_min_height(220.0);
 
-            // Agent name header
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(agent_name)
@@ -277,7 +265,6 @@ fn render_agent_card(
             ui.add_space(8.0);
 
             if let Some(job) = job {
-                // Status indicator
                 let (status_text, status_color) = match job.status {
                     JobStatus::Running => ("⟳ Running...", STATUS_RUNNING),
                     JobStatus::Done => ("✓ Done", STATUS_DONE),
@@ -292,7 +279,6 @@ fn render_agent_card(
 
                 ui.add_space(8.0);
 
-                // Stats (if available)
                 if let Some(stats) = &job.stats {
                     ui.label(
                         RichText::new(format!("{} files", stats.files_changed))
@@ -306,21 +292,18 @@ fn render_agent_card(
                     );
                 }
 
-                // Duration
                 if let Some(duration_str) = job.duration_string() {
                     ui.label(RichText::new(duration_str).color(TEXT_MUTED).small());
                 }
 
                 ui.add_space(8.0);
 
-                // Result summary (if available)
                 if let Some(result) = &job.result {
                     if let Some(title) = &result.title {
                         ui.label(RichText::new(truncate(title, 25)).color(TEXT_DIM).small());
                     }
                 }
 
-                // Error message (if failed)
                 if job.status == JobStatus::Failed {
                     if let Some(error) = &job.error_message {
                         ui.label(RichText::new(truncate(error, 30)).color(ACCENT_RED).small());
@@ -329,7 +312,6 @@ fn render_agent_card(
 
                 ui.add_space(8.0);
 
-                // Action buttons (only for completed jobs)
                 if job.status == JobStatus::Done {
                     ui.horizontal(|ui| {
                         if ui
@@ -363,7 +345,6 @@ fn render_agent_card(
                     }
                 }
             } else {
-                // No job data available
                 ui.label(RichText::new("No data").color(TEXT_MUTED));
             }
         });
@@ -371,10 +352,12 @@ fn render_agent_card(
     action
 }
 
-/// Truncate a string to a maximum length
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() > max_len {
-        format!("{}...", &s[..max_len])
+/// Truncate a string to a maximum number of characters (UTF-8 safe)
+fn truncate(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count > max_chars {
+        let truncated: String = s.chars().take(max_chars).collect();
+        format!("{}...", truncated)
     } else {
         s.to_string()
     }

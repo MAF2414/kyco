@@ -12,13 +12,11 @@ use super::output::{ContentBlock, StreamEvent};
 use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
 
-/// Claude Code agent adapter
 pub struct ClaudeAdapter {
     id: String,
 }
 
 impl ClaudeAdapter {
-    /// Create a new Claude adapter
     pub fn new() -> Self {
         Self {
             id: "claude".to_string(),
@@ -32,7 +30,6 @@ impl ClaudeAdapter {
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
 
-        // Replace template placeholders
         let ide_context = job.ide_context.as_deref().unwrap_or("");
         template
             .prompt_template
@@ -108,10 +105,7 @@ impl ClaudeAdapter {
             }
         }
 
-        // Add -- separator to indicate end of flags
         args.push("--".to_string());
-
-        // Add the prompt at the end
         args.push(prompt.to_string());
 
         args
@@ -147,7 +141,6 @@ impl AgentRunner for ClaudeAdapter {
             .send(LogEvent::system(format!(">>> {}", prompt)).for_job(job_id))
             .await;
 
-        // Spawn the process
         let binary = config.get_binary();
         let mut child = Command::new(&binary)
             .args(&args)
@@ -158,13 +151,19 @@ impl AgentRunner for ClaudeAdapter {
             .spawn()
             .with_context(|| format!("Failed to spawn {}", binary))?;
 
-        let stdout = child.stdout.take().expect("stdout not captured");
-        let stderr = child.stderr.take().expect("stderr not captured");
+        let stdout = child
+            .stdout
+            .take()
+            .context("Failed to capture stdout pipe")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("Failed to capture stderr pipe")?;
         let mut reader = BufReader::new(stdout).lines();
 
-        // Spawn a task to read stderr
+        // Spawn a task to read stderr - keep handle to await later
         let event_tx_clone = event_tx.clone();
-        tokio::spawn(async move {
+        let stderr_handle = tokio::spawn(async move {
             let mut stderr_reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = stderr_reader.next_line().await {
                 let _ = event_tx_clone
@@ -187,7 +186,6 @@ impl AgentRunner for ClaudeAdapter {
         // Collect text output for parsing
         let mut output_text = String::new();
 
-        // Process output stream
         while let Ok(Some(line)) = reader.next_line().await {
             if let Some(event) = StreamEvent::parse(&line) {
                 let log_event = match &event {
@@ -263,14 +261,16 @@ impl AgentRunner for ClaudeAdapter {
             }
         }
 
-        // Wait for the process to finish
         let status = child.wait().await?;
+
+        // Wait for stderr reader to finish processing all output
+        // Ignore errors from the task itself (e.g., if it panicked)
+        let _ = stderr_handle.await;
 
         if !status.success() && !result.success {
             result.error = Some(format!("Process exited with status: {}", status));
         }
 
-        // Set collected output text for parsing
         if !output_text.is_empty() {
             result.output_text = Some(output_text);
         }

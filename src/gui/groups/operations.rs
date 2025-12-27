@@ -45,48 +45,40 @@ pub fn merge_and_cleanup(
     job_manager: &mut JobManager,
     git_manager: &GitManager,
 ) -> GroupOperationResult {
-    // Get the group
     let group = match group_manager.get(group_id) {
         Some(g) => g.clone(),
         None => return GroupOperationResult::error("Group not found"),
     };
 
-    // Check that a job is selected
     let selected_job_id = match group.selected_job {
         Some(id) => id,
         None => return GroupOperationResult::error("No job selected for merge"),
     };
 
-    // Get the selected job
     let selected_job = match job_manager.get(selected_job_id) {
         Some(j) => j.clone(),
         None => return GroupOperationResult::error("Selected job not found"),
     };
 
-    // Check that the job has a worktree
     let worktree_path = match &selected_job.git_worktree_path {
         Some(p) => p.clone(),
         None => return GroupOperationResult::error("Selected job has no worktree"),
     };
 
-    // Check that the job has a base branch
     let base_branch = match &selected_job.base_branch {
         Some(b) => b.clone(),
         None => return GroupOperationResult::error("Selected job has no base branch recorded"),
     };
 
-    // Merge the selected job's changes into the base branch
     let commit_message = CommitMessage::from_job(&selected_job);
     if let Err(e) = git_manager.apply_changes(&worktree_path, &base_branch, Some(&commit_message)) {
         return GroupOperationResult::error(format!("Failed to merge changes: {}", e));
     }
 
-    // Mark the selected job as merged
     if let Some(job) = job_manager.get_mut(selected_job_id) {
         job.set_status(JobStatus::Merged);
     }
 
-    // Mark other jobs as rejected
     for &job_id in &group.job_ids {
         if job_id != selected_job_id {
             if let Some(job) = job_manager.get_mut(job_id) {
@@ -95,7 +87,6 @@ pub fn merge_and_cleanup(
         }
     }
 
-    // Remove all worktrees in the group
     let mut cleanup_errors = Vec::new();
     for &job_id in &group.job_ids {
         if let Some(job) = job_manager.get(job_id) {
@@ -107,7 +98,6 @@ pub fn merge_and_cleanup(
         }
     }
 
-    // Mark the group as merged
     group_manager.mark_merged(group_id);
 
     if cleanup_errors.is_empty() {
@@ -133,13 +123,11 @@ pub fn cancel_and_cleanup(
     job_manager: &mut JobManager,
     git_manager: &GitManager,
 ) -> GroupOperationResult {
-    // Get the group
     let group = match group_manager.get(group_id) {
         Some(g) => g.clone(),
         None => return GroupOperationResult::error("Group not found"),
     };
 
-    // Mark all jobs as rejected
     for &job_id in &group.job_ids {
         if let Some(job) = job_manager.get_mut(job_id) {
             if !job.is_finished() {
@@ -148,7 +136,6 @@ pub fn cancel_and_cleanup(
         }
     }
 
-    // Remove all worktrees
     let mut cleanup_errors = Vec::new();
     for &job_id in &group.job_ids {
         if let Some(job) = job_manager.get(job_id) {
@@ -160,7 +147,6 @@ pub fn cancel_and_cleanup(
         }
     }
 
-    // Cancel the group
     group_manager.cancel_group(group_id);
 
     if cleanup_errors.is_empty() {
