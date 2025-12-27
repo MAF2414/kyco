@@ -19,10 +19,12 @@
 
 pub mod actions;
 pub mod install;
+pub mod paste;
 pub mod settings;
 pub mod vad;
 
 pub use actions::{VoiceAction, VoiceActionRegistry, WakewordMatch};
+pub use paste::{copy_and_paste, paste_from_clipboard};
 pub use install::{
     InstallHandle, InstallProgress, VoiceInstallResult, WHISPER_MODELS, WhisperModel,
     get_model_info, install_voice_dependencies, install_voice_dependencies_async,

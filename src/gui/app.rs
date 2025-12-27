@@ -18,7 +18,8 @@ use super::permission::{
 use super::selection::autocomplete::parse_input_multi;
 use super::selection::{AutocompleteState, SelectionContext};
 use super::update::{UpdateChecker, UpdateStatus};
-use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager, VoiceState};
+use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager, VoiceState, copy_and_paste};
+use global_hotkey::{GlobalHotKeyManager, GlobalHotKeyEvent, hotkey::{HotKey, Modifiers, Code}};
 use crate::agent::TerminalSession;
 use crate::agent::bridge::{BridgeClient, PermissionMode, ToolApprovalResponse, ToolDecision};
 use crate::config::Config;
@@ -456,6 +457,22 @@ pub struct KycoApp {
 
     /// Last time we ran log truncation (to avoid running every frame)
     last_log_cleanup: std::time::Instant,
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // GLOBAL VOICE HOTKEY - Voice input from any app (Cmd+Shift+V)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// Global hotkey manager for voice input
+    global_hotkey_manager: Option<GlobalHotKeyManager>,
+    /// Registered voice hotkey ID (for future multi-hotkey support)
+    #[allow(dead_code)]
+    voice_hotkey: Option<HotKey>,
+    /// Whether global voice recording is active (triggered by hotkey, not popup)
+    global_voice_recording: bool,
+    /// Auto-paste after transcription (for global voice input)
+    global_voice_auto_paste: bool,
+    /// Show voice overlay window (small indicator when recording)
+    show_voice_overlay: bool,
 }
 
 impl KycoApp {
@@ -640,7 +657,194 @@ impl KycoApp {
             import_settings: false,
             orchestrator_requested: false,
             last_log_cleanup: std::time::Instant::now(),
+
+            // Initialize global voice hotkey
+            global_hotkey_manager: Self::init_global_hotkey_manager(),
+            voice_hotkey: None, // Will be set after manager is created
+            global_voice_recording: false,
+            global_voice_auto_paste: true,
+            show_voice_overlay: false,
         }
+    }
+
+    /// Initialize the global hotkey manager and register voice hotkey
+    fn init_global_hotkey_manager() -> Option<GlobalHotKeyManager> {
+        match GlobalHotKeyManager::new() {
+            Ok(manager) => {
+                // Register Cmd+Shift+V (macOS) / Ctrl+Shift+V (Linux/Windows) for voice input
+                #[cfg(target_os = "macos")]
+                let modifiers = Modifiers::SUPER | Modifiers::SHIFT;
+                #[cfg(not(target_os = "macos"))]
+                let modifiers = Modifiers::CONTROL | Modifiers::SHIFT;
+
+                let hotkey = HotKey::new(Some(modifiers), Code::KeyV);
+
+                if let Err(e) = manager.register(hotkey) {
+                    tracing::warn!("Failed to register global voice hotkey: {}", e);
+                    return Some(manager);
+                }
+
+                tracing::info!("Global voice hotkey registered: Cmd+Shift+V");
+                Some(manager)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to create global hotkey manager: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Handle global voice hotkey press (Cmd+Shift+V / Ctrl+Shift+V)
+    ///
+    /// This toggles voice recording from any application:
+    /// - First press: Start recording, show overlay
+    /// - Second press: Stop recording, transcribe, auto-paste to focused app
+    fn handle_global_voice_hotkey(&mut self) {
+        // Auto-install voice dependencies if not available
+        if !self.voice_manager.is_available() && !self.voice_install_in_progress {
+            self.voice_install_in_progress = true;
+            self.voice_install_status =
+                Some(("Installing voice dependencies...".to_string(), false));
+
+            let model_name = self.voice_manager.config.whisper_model.clone();
+            let result = super::voice::install::install_voice_dependencies(
+                &self.work_dir,
+                &model_name,
+            );
+
+            self.voice_install_status = Some((result.message.clone(), result.is_error));
+            self.voice_install_in_progress = result.in_progress;
+
+            if result.is_error {
+                self.logs.push(LogEvent::error(format!(
+                    "Voice dependencies installation failed: {}",
+                    result.message
+                )));
+                return;
+            }
+
+            // Invalidate availability cache
+            self.voice_manager.reset();
+        }
+
+        if self.voice_install_in_progress {
+            return; // Still installing
+        }
+
+        match self.voice_manager.state {
+            VoiceState::Idle | VoiceState::Error => {
+                // Start recording
+                self.voice_manager.start_recording();
+                self.global_voice_recording = true;
+                self.show_voice_overlay = true;
+                self.logs.push(LogEvent::system(
+                    "🎤 Global voice recording started (Cmd+Shift+V to stop)".to_string(),
+                ));
+            }
+            VoiceState::Recording => {
+                // Stop recording and transcribe
+                self.voice_manager.stop_recording();
+                // Note: global_voice_recording stays true until transcription completes
+                self.logs.push(LogEvent::system(
+                    "⏳ Stopping recording, transcribing...".to_string(),
+                ));
+            }
+            VoiceState::Transcribing => {
+                // Already transcribing, ignore
+                self.logs.push(LogEvent::system(
+                    "⏳ Already transcribing, please wait...".to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle completed transcription for global voice input
+    fn handle_global_voice_transcription(&mut self, text: &str) {
+        self.global_voice_recording = false;
+        self.show_voice_overlay = false;
+
+        if self.global_voice_auto_paste {
+            // Copy to clipboard and auto-paste
+            match copy_and_paste(text, true) {
+                Ok(()) => {
+                    self.logs.push(LogEvent::system(format!(
+                        "✓ Voice transcribed and pasted: \"{}\"",
+                        if text.len() > 50 {
+                            format!("{}...", &text[..50])
+                        } else {
+                            text.to_string()
+                        }
+                    )));
+                }
+                Err(e) => {
+                    // Paste failed but text is in clipboard
+                    self.logs.push(LogEvent::system(format!(
+                        "Voice transcribed (use Cmd+V to paste): {}",
+                        e
+                    )));
+                }
+            }
+        } else {
+            // Just copy to clipboard, no auto-paste
+            if let Err(e) = copy_and_paste(text, false) {
+                self.logs.push(LogEvent::error(format!(
+                    "Failed to copy to clipboard: {}",
+                    e
+                )));
+            } else {
+                self.logs.push(LogEvent::system(format!(
+                    "✓ Voice transcribed and copied: \"{}\"",
+                    if text.len() > 50 {
+                        format!("{}...", &text[..50])
+                    } else {
+                        text.to_string()
+                    }
+                )));
+            }
+        }
+    }
+
+    /// Render a small voice recording overlay in the corner of the screen
+    fn render_voice_overlay(&self, ctx: &egui::Context) {
+        let state_text = match self.voice_manager.state {
+            VoiceState::Recording => "🎤 Recording...",
+            VoiceState::Transcribing => "⏳ Transcribing...",
+            _ => "🎤 Voice Input",
+        };
+
+        egui::Window::new("voice_overlay")
+            .title_bar(false)
+            .resizable(false)
+            .collapsible(false)
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-20.0, 20.0))
+            .frame(
+                egui::Frame::window(&ctx.style())
+                    .fill(if self.voice_manager.state == VoiceState::Recording {
+                        Color32::from_rgb(200, 60, 60) // Red when recording
+                    } else {
+                        Color32::from_rgb(60, 60, 80) // Dark when transcribing
+                    })
+                    .corner_radius(12)
+                    .inner_margin(egui::Margin::symmetric(16, 10)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(state_text)
+                            .color(Color32::WHITE)
+                            .size(14.0)
+                            .strong(),
+                    );
+                });
+                if self.voice_manager.state == VoiceState::Recording {
+                    ui.label(
+                        egui::RichText::new("Press Cmd+Shift+V to stop")
+                            .color(Color32::from_gray(200))
+                            .size(11.0),
+                    );
+                }
+            });
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -2759,12 +2963,26 @@ impl eframe::App for KycoApp {
             }
         }
 
+        // Process global voice hotkey events (Cmd+Shift+V / Ctrl+Shift+V)
+        if self.global_hotkey_manager.is_some() {
+            if let Ok(event) = GlobalHotKeyEvent::receiver().try_recv() {
+                // Any hotkey event triggers voice toggle (we only have one registered)
+                if event.state == global_hotkey::HotKeyState::Pressed {
+                    self.handle_global_voice_hotkey();
+                }
+            }
+        }
+
         // Process voice events
         for event in self.voice_manager.poll_events() {
             match event {
                 super::voice::VoiceEvent::TranscriptionComplete { text, from_manual } => {
-                    if from_manual {
-                        // Manual recording (button press) - just append text, no wakeword detection
+                    // Check if this was a global voice recording (from hotkey)
+                    if self.global_voice_recording {
+                        // Global voice input - auto-paste to focused application
+                        self.handle_global_voice_transcription(&text);
+                    } else if from_manual {
+                        // Manual recording (button press in popup) - just append text, no wakeword detection
                         if self.popup_input.is_empty() {
                             self.popup_input = text;
                         } else {
@@ -2870,6 +3088,11 @@ impl eframe::App for KycoApp {
                     self.logs
                         .push(LogEvent::error(format!("Voice error: {}", message)));
                     self.voice_pending_execute = false; // Cancel pending execution on error
+                    // Reset global voice state on error
+                    if self.global_voice_recording {
+                        self.global_voice_recording = false;
+                        self.show_voice_overlay = false;
+                    }
                 }
                 super::voice::VoiceEvent::RecordingStarted => {
                     self.logs
@@ -3375,6 +3598,11 @@ impl eframe::App for KycoApp {
 
         // Render permission popup on top of everything if visible
         self.render_permission_popup_modal(ctx);
+
+        // Render global voice overlay (small indicator when recording via hotkey)
+        if self.show_voice_overlay {
+            self.render_voice_overlay(ctx);
+        }
 
         // Request continuous updates
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
