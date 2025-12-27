@@ -94,6 +94,38 @@ pub struct GuiSettings {
     /// Voice input settings
     #[serde(default)]
     pub voice: VoiceSettings,
+
+    /// Orchestrator settings for external CLI sessions
+    #[serde(default)]
+    pub orchestrator: OrchestratorSettings,
+}
+
+/// Orchestrator settings for external CLI sessions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorSettings {
+    /// The CLI command to use for the orchestrator.
+    /// Use `{prompt_file}` as placeholder for the system prompt file path.
+    /// Examples:
+    /// - "claude --append-system-prompt \"$(cat {prompt_file})\""
+    /// - "codex \"$(cat {prompt_file})\""
+    /// - "aider --model gpt-4"
+    /// If empty, uses default based on gui.default_agent
+    #[serde(default)]
+    pub cli_command: String,
+
+    /// Custom system prompt for the orchestrator.
+    /// If empty, uses the built-in default orchestrator prompt.
+    #[serde(default)]
+    pub system_prompt: String,
+}
+
+impl Default for OrchestratorSettings {
+    fn default() -> Self {
+        Self {
+            cli_command: String::new(),
+            system_prompt: String::new(),
+        }
+    }
 }
 
 /// Voice input settings for GUI
@@ -239,6 +271,7 @@ impl Default for GuiSettings {
             http_port: default_gui_http_port(),
             http_token: String::new(),
             voice: VoiceSettings::default(),
+            orchestrator: OrchestratorSettings::default(),
         }
     }
 }

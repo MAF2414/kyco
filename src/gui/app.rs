@@ -810,25 +810,48 @@ impl KycoApp {
             let kyco_dir = self.work_dir.join(".kyco");
             std::fs::create_dir_all(&kyco_dir)?;
 
-            let prompt_file = kyco_dir.join("orchestrator_system_prompt.txt");
-            std::fs::write(&prompt_file, ORCHESTRATOR_SYSTEM_PROMPT)?;
-
-            let default_agent = self
+            // Get orchestrator settings from config
+            let (custom_cli, custom_prompt, default_agent) = self
                 .config
                 .read()
-                .map(|cfg| cfg.settings.gui.default_agent.trim().to_lowercase())
+                .map(|cfg| {
+                    let gui = &cfg.settings.gui;
+                    (
+                        gui.orchestrator.cli_command.trim().to_string(),
+                        gui.orchestrator.system_prompt.trim().to_string(),
+                        gui.default_agent.trim().to_lowercase(),
+                    )
+                })
                 .unwrap_or_default();
-            let agent = if default_agent.is_empty() {
-                "claude"
+
+            // Use custom prompt or fallback to built-in default
+            let prompt = if custom_prompt.is_empty() {
+                ORCHESTRATOR_SYSTEM_PROMPT.to_string()
             } else {
-                default_agent.as_str()
+                custom_prompt
             };
 
-            let command = match agent {
-                "codex" => "codex \"$(cat .kyco/orchestrator_system_prompt.txt)\"".to_string(),
-                _ => {
-                    "claude --append-system-prompt \"$(cat .kyco/orchestrator_system_prompt.txt)\""
-                        .to_string()
+            let prompt_file = kyco_dir.join("orchestrator_system_prompt.txt");
+            std::fs::write(&prompt_file, &prompt)?;
+
+            // Use custom CLI command or generate default based on agent
+            let command = if !custom_cli.is_empty() {
+                // Replace {prompt_file} placeholder with actual path
+                custom_cli.replace("{prompt_file}", ".kyco/orchestrator_system_prompt.txt")
+            } else {
+                let agent = if default_agent.is_empty() {
+                    "claude"
+                } else {
+                    default_agent.as_str()
+                };
+                match agent {
+                    "codex" => {
+                        "codex \"$(cat .kyco/orchestrator_system_prompt.txt)\"".to_string()
+                    }
+                    _ => {
+                        "claude --append-system-prompt \"$(cat .kyco/orchestrator_system_prompt.txt)\""
+                            .to_string()
+                    }
                 }
             };
 
@@ -837,12 +860,16 @@ impl KycoApp {
                 .unwrap_or_default()
                 .as_millis() as u64;
 
-            let args = vec!["-lc".to_string(), command];
+            let args = vec!["-lc".to_string(), command.clone()];
             TerminalSession::spawn(session_id, "bash", &args, "", &self.work_dir)?;
 
             self.logs.push(LogEvent::system(format!(
                 "Orchestrator started in Terminal.app ({})",
-                agent
+                if custom_cli.is_empty() {
+                    if default_agent.is_empty() { "claude" } else { &default_agent }
+                } else {
+                    "custom"
+                }
             )));
             Ok(())
         }

@@ -304,17 +304,26 @@ pub fn render_job_list(
                                 }
                             });
 
+                            // Second row: filename + delete button
+                            // Use fixed width layout to prevent overflow
+                            let row_width = available_width - 16.0; // Account for margins
                             ui.horizontal(|ui| {
+                                ui.set_width(row_width);
+
                                 // Target - show only filename (full path available in detail panel)
                                 let target = std::path::Path::new(&job.target)
                                     .file_name()
                                     .and_then(|f| f.to_str())
                                     .unwrap_or(&job.target);
 
-                                // Truncate long filenames to prevent layout overflow
-                                const MAX_FILENAME_LEN: usize = 35;
-                                let display_target = if target.len() > MAX_FILENAME_LEN {
-                                    format!("{}…", &target[..MAX_FILENAME_LEN])
+                                // Calculate max width for filename (row minus button space)
+                                let btn_space = if job.is_finished() { 32.0 } else { 0.0 };
+                                let max_filename_width = row_width - btn_space;
+
+                                // Truncate filename to fit available space (roughly 6px per char)
+                                let max_chars = ((max_filename_width / 6.5) as usize).saturating_sub(2);
+                                let display_target = if target.len() > max_chars && max_chars > 3 {
+                                    format!("{}…", &target[..max_chars])
                                 } else {
                                     target.to_string()
                                 };
@@ -322,33 +331,25 @@ pub fn render_job_list(
                                 ui.label(RichText::new(&display_target).color(TEXT_DIM))
                                     .on_hover_text(&job.target);
 
-                                // Delete button (only for finished jobs, pushed to right with spacer)
+                                // Delete button (only for finished jobs)
                                 if job.is_finished() {
-                                    // Push delete button to the right
-                                    let remaining = ui.available_width();
-                                    let btn_width = 28.0;
-                                    if remaining > btn_width {
-                                        ui.add_space(remaining - btn_width);
-                                    }
+                                    // Use right-to-left layout for delete button
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        let delete_btn = egui::Button::new(
+                                            RichText::new("✕").color(ACCENT_RED).size(12.0),
+                                        )
+                                        .fill(Color32::TRANSPARENT)
+                                        .stroke(Stroke::NONE)
+                                        .min_size(egui::vec2(20.0, 18.0));
 
-                                    // Larger, more visible delete button
-                                    let delete_btn = egui::Button::new(
-                                        RichText::new(" ✕ ")
-                                            .color(ACCENT_RED)
-                                            .size(14.0),
-                                    )
-                                    .fill(Color32::TRANSPARENT)
-                                    .stroke(Stroke::new(1.0, ACCENT_RED.linear_multiply(0.3)))
-                                    .corner_radius(3.0)
-                                    .min_size(egui::vec2(24.0, 20.0));
-
-                                    if ui
-                                        .add(delete_btn)
-                                        .on_hover_text("Delete this job")
-                                        .clicked()
-                                    {
-                                        action = JobListAction::DeleteJob(job.id);
-                                    }
+                                        if ui
+                                            .add(delete_btn)
+                                            .on_hover_text("Delete this job")
+                                            .clicked()
+                                        {
+                                            action = JobListAction::DeleteJob(job.id);
+                                        }
+                                    });
                                 }
                             });
                         });
