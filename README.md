@@ -12,7 +12,7 @@ Coding agents can spiral into hour-long sessions that touch half your codebase. 
 
 - **Focused Changes**: Select specific code lines, run a mode, get targeted changes
 - **Multi-Agent Power**: Run Claude or Codex in parallel with concurrent jobs
-- **Voice-First Workflow**: Define tasks via Whisper speech-to-text
+- **Voice-First Workflow**: Dictate tasks via Whisper speech-to-text - even into other apps
 - **You Stay in Control**: Review every diff, accept or reject changes
 
 ## Installation
@@ -97,6 +97,8 @@ Requires Rust 1.75+
 | `implement` | `i`, `impl` | Implement new functionality |
 | `review` | `r`, `rev` | Analyze code for issues (read-only) |
 | `fix` | `f` | Fix specific bugs with minimal changes |
+| `refactor` | `ref` | Improve code structure without changing behavior |
+| `test` | `t` | Generate unit tests |
 | `plan` | `p` | Create implementation plans (read-only) |
 
 ## Chains
@@ -112,9 +114,14 @@ steps = [
 ]
 ```
 
+Built-in chains include:
+- `refactor-safe` - Review → Refactor → Test
+- `implement-and-test` - Implement → Test
+- `quality-gate` - Review → Security → Types → Coverage
+
 ## Configuration
 
-Edit `.kyco/config.toml` to customize behavior:
+KYCo stores configuration in `~/.kyco/config.toml` (global) or `.kyco/config.toml` (per-project):
 
 ```toml
 [settings]
@@ -129,6 +136,10 @@ sdk = "claude"
 [agent.codex]
 aliases = ["x", "cx"]
 sdk = "codex"
+
+[mode.custom]
+aliases = ["cu"]
+prompt = "Your custom prompt here"
 ```
 
 ## Keyboard Shortcuts
@@ -146,10 +157,18 @@ sdk = "codex"
 |--------|-----|
 | Execute job | `Enter` |
 | Execute in worktree | `Shift+Enter` |
-| Voice input | `Cmd+D` / `Ctrl+D` |
+| Voice input (popup) | `Cmd+D` / `Ctrl+D` |
 | Close popup | `Esc` |
 | Navigate jobs | `j` / `k` or `↑` / `↓` |
 | Toggle auto-run | `Shift+A` |
+
+### Global Voice Hotkey
+
+| Action | macOS | Windows/Linux |
+|--------|-------|---------------|
+| Voice dictation | `Cmd+Shift+V` | `Ctrl+Shift+V` |
+
+Press once to start recording, press again to stop. The transcribed text is automatically pasted into the focused application - works with any app, including terminal-based tools like Claude Code.
 
 ## CLI Commands
 
@@ -157,51 +176,68 @@ sdk = "codex"
 kyco                    # Launch GUI (default)
 kyco init               # Create config file
 kyco status             # Show job status
-kyco job --help         # Start/inspect jobs via the running GUI (/ctl API)
+kyco job --help         # Start/inspect jobs via the running GUI
 kyco agent --help       # List/show configured agents
 kyco chain --help       # List/show configured chains
-kyco mode --help        # CRUD modes in .kyco/config.toml
+kyco mode --help        # CRUD modes in config.toml
 kyco --help             # Show all options
 ```
 
 ## Orchestrator (External Agent)
 
-KYCo can be used with an external orchestrator agent (Claude Code or Codex) that controls jobs via CLI commands.
+KYCo can be controlled by an external orchestrator agent (Claude Code or Codex) via CLI commands.
 
 1. Start KYCo GUI (so the user sees all jobs/results):
    ```bash
    kyco
    ```
 
-   You can also use the **Orchestrator** button in the KYCo status bar to launch an external Claude/Codex session in Terminal.app (uses `settings.gui.default_agent`).
+   Use the **Orchestrator** button in the status bar to launch an external agent session in Terminal.app.
 
-2. In a second terminal (same workspace), start your agent and let it call `kyco job ...`:
-   - Create and queue a job:
-     ```bash
-     kyco job start --file src/foo.rs --mode refactor --prompt "Clean this up"
-     ```
-   - Wait for completion (event-like):
-     ```bash
-     kyco job wait 1
-     ```
-   - Abort a running job:
-     ```bash
-     kyco job abort 1
-     ```
-   - Continue a session job with a follow-up prompt (creates a new job in the same session/worktree):
-     ```bash
-     kyco job continue 1 --prompt "Please also update the tests"
-     ```
-   - Get the last response/output and pass it into a follow-up job:
-     ```bash
-     out="$(kyco job output 1)"
-     kyco job start --file src/foo.rs --mode fix --prompt "$out"
-     ```
-   - Delete a job from the GUI list (optional worktree cleanup):
-     ```bash
-     kyco job delete 1 --cleanup-worktree
-     ```
+2. In a second terminal (same workspace), the agent can control jobs:
+   ```bash
+   # Create and queue a job
+   kyco job start --file src/foo.rs --mode refactor --prompt "Clean this up"
+
+   # Wait for completion
+   kyco job wait 1
+
+   # Get output for follow-up
+   out="$(kyco job output 1)"
+   kyco job start --file src/foo.rs --mode fix --prompt "$out"
+
+   # Continue a session with follow-up prompt
+   kyco job continue 1 --prompt "Please also update the tests"
+
+   # Abort or delete jobs
+   kyco job abort 1
+   kyco job delete 1 --cleanup-worktree
+   ```
+
+## Voice Input
+
+KYCo uses Whisper for speech-to-text transcription. Voice dependencies are auto-installed on first use.
+
+**In the selection popup:**
+- Click the microphone button or press `Cmd+D` / `Ctrl+D`
+- Speak your mode and prompt (e.g., "refactor this function")
+- Press Enter to execute
+
+**Global dictation (any app):**
+- Press `Cmd+Shift+V` / `Ctrl+Shift+V` from any application
+- Speak your text
+- Press the hotkey again to stop - text is auto-pasted
+
+## Support
+
+If you find KYCo useful, consider [sponsoring the project](https://github.com/sponsors/MAF2414).
 
 ## License
 
-[CC BY-NC-ND 4.0](LICENSE) - You may use and share this software, but commercial use and modifications require permission from the author.
+[Business Source License 1.1](LICENSE)
+
+You may use the Licensed Work for any purpose, including production use, as long as you do not offer it as a hosted service or sell it as a competing product.
+
+On 2029-01-01, the license converts to Apache License 2.0.
+
+For commercial licensing inquiries, contact via [GitHub](https://github.com/MAF2414/kyco).
