@@ -409,6 +409,8 @@ pub struct KycoApp {
     voice_install_status: Option<(String, bool)>,
     /// Voice installation in progress
     voice_install_in_progress: bool,
+    /// Async voice installation handle (for non-blocking installation)
+    voice_install_handle: Option<super::voice::install::InstallHandle>,
     /// Voice test status
     voice_test_status: super::settings::VoiceTestStatus,
     /// Voice test result (transcribed text)
@@ -835,6 +837,7 @@ impl KycoApp {
             vad_silence_duration_ms: "1000".to_string(),
             voice_install_status: None,
             voice_install_in_progress: false,
+            voice_install_handle: None,
             voice_test_status: super::settings::VoiceTestStatus::Idle,
             voice_test_result: None,
             selected_chain: None,
@@ -914,31 +917,24 @@ impl KycoApp {
     /// - First press: Start recording, show overlay
     /// - Second press: Stop recording, transcribe, auto-paste to focused app
     fn handle_global_voice_hotkey(&mut self) {
-        // Auto-install voice dependencies if not available
+        // Auto-install voice dependencies if not available (async, non-blocking)
         if !self.voice_manager.is_available() && !self.voice_install_in_progress {
             self.voice_install_in_progress = true;
             self.voice_install_status =
                 Some(("Installing voice dependencies...".to_string(), false));
 
             let model_name = self.voice_manager.config.whisper_model.clone();
-            let result = super::voice::install::install_voice_dependencies(
+            // Use async installation to avoid blocking the UI thread
+            let handle = super::voice::install::install_voice_dependencies_async(
                 &self.work_dir,
                 &model_name,
             );
+            self.voice_install_handle = Some(handle);
 
-            self.voice_install_status = Some((result.message.clone(), result.is_error));
-            self.voice_install_in_progress = result.in_progress;
-
-            if result.is_error {
-                self.logs.push(LogEvent::error(format!(
-                    "Voice dependencies installation failed: {}",
-                    result.message
-                )));
-                return;
-            }
-
-            // Invalidate availability cache
-            self.voice_manager.reset();
+            self.logs.push(LogEvent::system(
+                "Installing voice dependencies in background...".to_string(),
+            ));
+            return; // Installation started, will be polled in update loop
         }
 
         if self.voice_install_in_progress {
@@ -1113,6 +1109,7 @@ impl KycoApp {
                 voice_settings_popup_hotkey: &mut self.voice_settings_popup_hotkey,
                 voice_install_status: &mut self.voice_install_status,
                 voice_install_in_progress: &mut self.voice_install_in_progress,
+                voice_install_handle: &mut self.voice_install_handle,
                 // Voice test state
                 voice_test_status: &mut self.voice_test_status,
                 voice_test_result: &mut self.voice_test_result,
@@ -2515,25 +2512,23 @@ impl KycoApp {
                     self.update_suggestions();
                 }
                 SelectionPopupAction::ToggleRecording => {
-                    // Auto-install voice dependencies if not available
+                    // Auto-install voice dependencies if not available (async, non-blocking)
                     if !self.voice_manager.is_available() && !self.voice_install_in_progress {
                         self.voice_install_in_progress = true;
                         self.voice_install_status =
                             Some(("Installing voice dependencies...".to_string(), false));
 
-                        let model_name = &self.voice_manager.config.whisper_model;
-                        let result = crate::gui::voice::install::install_voice_dependencies(
+                        let model_name = self.voice_manager.config.whisper_model.clone();
+                        // Use async installation to avoid blocking the UI thread
+                        let handle = crate::gui::voice::install::install_voice_dependencies_async(
                             &self.work_dir,
-                            model_name,
+                            &model_name,
                         );
+                        self.voice_install_handle = Some(handle);
 
-                        self.voice_install_status = Some((result.message.clone(), result.is_error));
-                        self.voice_install_in_progress = result.in_progress;
-
-                        // Invalidate availability cache so next check sees the new installation
-                        if !result.is_error {
-                            self.voice_manager.reset();
-                        }
+                        self.logs.push(LogEvent::system(
+                            "Installing voice dependencies in background...".to_string(),
+                        ));
                     } else if !self.voice_install_in_progress {
                         self.voice_manager.toggle_recording();
                     }
@@ -3076,6 +3071,47 @@ impl eframe::App for KycoApp {
             self.last_log_cleanup = std::time::Instant::now();
         }
 
+        // Poll async voice installation progress (non-blocking)
+        if let Some(handle) = &self.voice_install_handle {
+            while let Ok(progress) = handle.progress_rx.try_recv() {
+                use super::voice::install::InstallProgress;
+                match progress {
+                    InstallProgress::Step { step, total, message } => {
+                        self.voice_install_status = Some((
+                            format!("Installing voice dependencies ({}/{})...\n{}", step, total, message),
+                            false,
+                        ));
+                        self.logs.push(LogEvent::system(format!(
+                            "Voice install step {}/{}: {}",
+                            step, total, message
+                        )));
+                    }
+                    InstallProgress::Complete(result) => {
+                        self.voice_install_status = Some((result.message.clone(), result.is_error));
+                        self.voice_install_in_progress = false;
+                        self.voice_install_handle = None;
+                        self.logs.push(LogEvent::system(format!(
+                            "Voice installation complete: {}",
+                            result.message
+                        )));
+                        // Invalidate availability cache so next check sees the new installation
+                        self.voice_manager.reset();
+                        break; // Handle is now None, exit loop
+                    }
+                    InstallProgress::Failed(result) => {
+                        self.voice_install_status = Some((result.message.clone(), true));
+                        self.voice_install_in_progress = false;
+                        self.voice_install_handle = None;
+                        self.logs.push(LogEvent::error(format!(
+                            "Voice installation failed: {}",
+                            result.message
+                        )));
+                        break; // Handle is now None, exit loop
+                    }
+                }
+            }
+        }
+
         // Load inline diff when job selection changes
         if self.selected_job_id != self.prev_selected_job_id {
             self.prev_selected_job_id = self.selected_job_id;
@@ -3536,25 +3572,23 @@ impl eframe::App for KycoApp {
                 let voice_hotkey_pressed = check_egui_hotkey(i, &self.voice_settings_popup_hotkey);
 
                 if voice_hotkey_pressed {
-                    // Auto-install voice dependencies if not available
+                    // Auto-install voice dependencies if not available (async, non-blocking)
                     if !self.voice_manager.is_available() && !self.voice_install_in_progress {
                         self.voice_install_in_progress = true;
                         self.voice_install_status =
                             Some(("Installing voice dependencies...".to_string(), false));
 
                         let model_name = self.voice_manager.config.whisper_model.clone();
-                        let result = crate::gui::voice::install::install_voice_dependencies(
+                        // Use async installation to avoid blocking the UI thread
+                        let handle = crate::gui::voice::install::install_voice_dependencies_async(
                             &self.work_dir,
                             &model_name,
                         );
+                        self.voice_install_handle = Some(handle);
 
-                        self.voice_install_status = Some((result.message.clone(), result.is_error));
-                        self.voice_install_in_progress = result.in_progress;
-
-                        // Invalidate availability cache so next check sees the new installation
-                        if !result.is_error {
-                            self.voice_manager.reset();
-                        }
+                        self.logs.push(LogEvent::system(
+                            "Installing voice dependencies in background...".to_string(),
+                        ));
                     } else if !self.voice_install_in_progress {
                         if self.voice_manager.state == VoiceState::Idle
                             || self.voice_manager.state == VoiceState::Error

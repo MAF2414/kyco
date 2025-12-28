@@ -42,6 +42,8 @@ pub struct SettingsState<'a> {
     pub voice_settings_popup_hotkey: &'a mut String,
     pub voice_install_status: &'a mut Option<(String, bool)>,
     pub voice_install_in_progress: &'a mut bool,
+    /// Handle for async voice installation (set when installation starts)
+    pub voice_install_handle: &'a mut Option<crate::gui::voice::install::InstallHandle>,
 
     pub voice_test_status: &'a mut VoiceTestStatus,
     pub voice_test_result: &'a mut Option<String>,

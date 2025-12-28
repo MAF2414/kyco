@@ -866,7 +866,7 @@ fn install_jetbrains_plugin(state: &mut SettingsState<'_>) {
     *state.extension_status = Some((result.message, result.is_error));
 }
 
-/// Install voice dependencies (sox, whisper-cpp)
+/// Install voice dependencies (sox, whisper-cpp) - async, non-blocking
 fn install_voice_dependencies(state: &mut SettingsState<'_>) {
     *state.voice_install_in_progress = true;
     *state.voice_install_status = Some(("Installing voice dependencies...".to_string(), false));
@@ -878,10 +878,9 @@ fn install_voice_dependencies(state: &mut SettingsState<'_>) {
         state.voice_settings_model.as_str()
     };
 
-    let result = crate::gui::voice::install::install_voice_dependencies(state.work_dir, model_name);
-
-    *state.voice_install_status = Some((result.message, result.is_error));
-    *state.voice_install_in_progress = result.in_progress;
+    // Use async installation to avoid blocking the UI thread
+    let handle = crate::gui::voice::install::install_voice_dependencies_async(state.work_dir, model_name);
+    *state.voice_install_handle = Some(handle);
 }
 
 /// Render voice test section with microphone test button and status
