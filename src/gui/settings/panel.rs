@@ -9,7 +9,7 @@ use crate::gui::app::{BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY, ViewMode};
 
 use super::sections::{
     render_settings_general, render_settings_http_server, render_settings_ide_extensions,
-    render_settings_output_schema, render_settings_voice,
+    render_settings_orchestrator, render_settings_output_schema, render_settings_voice,
 };
 use super::state::SettingsState;
 
@@ -41,6 +41,7 @@ pub fn render_settings(ctx: &egui::Context, state: &mut SettingsState<'_>) {
                         render_settings_output_schema(ui, state);
                         render_settings_ide_extensions(ui, state);
                         render_settings_voice(ui, state);
+                        render_settings_orchestrator(ui, state);
                         render_settings_http_server(ui);
                     });
             });

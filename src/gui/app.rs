@@ -452,6 +452,11 @@ pub struct KycoApp {
     /// Config import: import settings
     import_settings: bool,
 
+    /// Orchestrator settings: CLI command
+    orchestrator_cli_command: String,
+    /// Orchestrator settings: system prompt
+    orchestrator_system_prompt: String,
+
     /// UI action: launch an external orchestrator session (Terminal)
     orchestrator_requested: bool,
 
@@ -726,6 +731,10 @@ impl KycoApp {
             .structured_output_schema
             .clone();
 
+        // Extract orchestrator settings
+        let orchestrator_cli_command = config_snapshot.settings.gui.orchestrator.cli_command.clone();
+        let orchestrator_system_prompt = config_snapshot.settings.gui.orchestrator.system_prompt.clone();
+
         // Load or create workspace registry and register the initial workspace
         let mut workspace_registry = WorkspaceRegistry::load_or_create();
         let initial_workspace_id = workspace_registry.get_or_create(work_dir.clone());
@@ -847,6 +856,8 @@ impl KycoApp {
             import_agents: true,
             import_chains: false,
             import_settings: false,
+            orchestrator_cli_command,
+            orchestrator_system_prompt,
             orchestrator_requested: false,
             last_log_cleanup: std::time::Instant::now(),
 
@@ -1128,6 +1139,8 @@ impl KycoApp {
                 import_agents: &mut self.import_agents,
                 import_chains: &mut self.import_chains,
                 import_settings: &mut self.import_settings,
+                orchestrator_cli_command: &mut self.orchestrator_cli_command,
+                orchestrator_system_prompt: &mut self.orchestrator_system_prompt,
             },
         );
     }

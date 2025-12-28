@@ -754,6 +754,82 @@ fn render_vad_settings(ui: &mut egui::Ui, _state: &mut SettingsState<'_>) {
         });
 }
 
+/// Render Orchestrator Settings section
+pub fn render_settings_orchestrator(ui: &mut egui::Ui, state: &mut SettingsState<'_>) {
+    ui.label(
+        RichText::new("Orchestrator")
+            .monospace()
+            .color(TEXT_PRIMARY),
+    );
+    ui.add_space(8.0);
+    ui.label(
+        RichText::new("Configure the external CLI session launched via the orchestrator button.")
+            .color(TEXT_DIM),
+    );
+    ui.add_space(12.0);
+
+    render_section_frame(ui, |ui| {
+        ui.label(RichText::new("CLI Command").color(TEXT_MUTED));
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("Use {prompt_file} as placeholder for the system prompt file path.")
+                .small()
+                .color(TEXT_MUTED),
+        );
+        ui.add_space(4.0);
+        ui.add(
+            egui::TextEdit::singleline(state.orchestrator_cli_command)
+                .font(egui::TextStyle::Monospace)
+                .text_color(TEXT_PRIMARY)
+                .hint_text("claude --append-system-prompt \"$(cat {prompt_file})\"")
+                .desired_width(f32::INFINITY),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("Leave empty to use default based on gui.default_agent")
+                .small()
+                .color(TEXT_MUTED),
+        );
+
+        ui.add_space(16.0);
+        ui.separator();
+        ui.add_space(12.0);
+
+        ui.label(RichText::new("System Prompt").color(TEXT_MUTED));
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("Custom system prompt for the orchestrator. Leave empty to use the built-in default.")
+                .small()
+                .color(TEXT_MUTED),
+        );
+        ui.add_space(8.0);
+        ui.add(
+            egui::TextEdit::multiline(state.orchestrator_system_prompt)
+                .font(egui::TextStyle::Monospace)
+                .text_color(TEXT_PRIMARY)
+                .hint_text("Custom orchestrator instructions...")
+                .desired_width(f32::INFINITY)
+                .desired_rows(8),
+        );
+    });
+
+    ui.add_space(12.0);
+    ui.horizontal(|ui| {
+        if ui
+            .button(RichText::new("Save Orchestrator Settings").color(ACCENT_GREEN))
+            .clicked()
+        {
+            save_settings_to_config(state);
+        }
+    });
+
+    render_status_message(ui, state.settings_status);
+
+    ui.add_space(24.0);
+    ui.separator();
+    ui.add_space(16.0);
+}
+
 /// Render HTTP Server info section
 pub fn render_settings_http_server(ui: &mut egui::Ui) {
     ui.label(RichText::new("HTTP Server").monospace().color(TEXT_PRIMARY));
