@@ -6,8 +6,9 @@
  */
 
 import Database from 'better-sqlite3';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
+import { parseSession, prepareLegacyMigration, readLegacyJsonSessions } from './store-helpers.js';
 import type { StoredSession } from './types.js';
 
 type SessionType = StoredSession['type'];
@@ -29,7 +30,7 @@ export class SessionStore {
     const requestedPath = (dbPath ?? ':memory:').trim();
     const initialPath = requestedPath.length === 0 ? ':memory:' : requestedPath;
 
-    const { effectiveDbPath, legacySessions, legacyBackupPath } = this.prepareLegacyMigration(initialPath);
+    const { effectiveDbPath, legacySessions, legacyBackupPath } = prepareLegacyMigration(initialPath);
     this.dbPath = effectiveDbPath;
     this.inMemory = effectiveDbPath === ':memory:';
 
@@ -104,40 +105,6 @@ export class SessionStore {
     this.hasAnyStmt = this.db.prepare(`SELECT 1 FROM sessions LIMIT 1`);
   }
 
-  private parseSession(json: unknown): StoredSession | null {
-    if (typeof json !== 'string') return null;
-    try {
-      const parsed = JSON.parse(json) as Partial<StoredSession> | null;
-      if (!parsed || typeof parsed !== 'object') return null;
-      if (
-        typeof parsed.id !== 'string' ||
-        (parsed.type !== 'claude' && parsed.type !== 'codex') ||
-        typeof parsed.createdAt !== 'number' ||
-        typeof parsed.lastActiveAt !== 'number' ||
-        typeof parsed.cwd !== 'string' ||
-        typeof parsed.turnCount !== 'number' ||
-        typeof parsed.totalTokens !== 'number' ||
-        typeof parsed.totalCostUsd !== 'number'
-      ) {
-        return null;
-      }
-      return parsed as StoredSession;
-    } catch {
-      return null;
-    }
-  }
-
-  private readLegacyJsonSessions(filePath: string): StoredSession[] | null {
-    try {
-      const raw = readFileSync(filePath, 'utf-8');
-      const parsed = JSON.parse(raw) as unknown;
-      if (!Array.isArray(parsed)) return null;
-      return parsed as StoredSession[];
-    } catch {
-      return null;
-    }
-  }
-
   private importSessions(sessions: StoredSession[]): number {
     const txn = this.db.transaction((sessionsToImport: StoredSession[]) => {
       for (const session of sessionsToImport) {
@@ -174,68 +141,12 @@ export class SessionStore {
     if (!existsSync(legacyJsonPath)) return;
     if (path.resolve(legacyJsonPath) === path.resolve(this.dbPath)) return;
 
-    const sessions = this.readLegacyJsonSessions(legacyJsonPath);
+    const sessions = readLegacyJsonSessions(legacyJsonPath);
     if (!sessions || sessions.length === 0) return;
 
     const imported = this.importSessions(sessions);
     if (imported > 0) {
       console.log(`Migrated ${imported} sessions from ${legacyJsonPath} into SQLite (${this.dbPath})`);
-    }
-  }
-
-  private prepareLegacyMigration(requestedPath: string): {
-    effectiveDbPath: string;
-    legacySessions: StoredSession[] | null;
-    legacyBackupPath: string | null;
-  } {
-    if (requestedPath === ':memory:') {
-      return { effectiveDbPath: ':memory:', legacySessions: null, legacyBackupPath: null };
-    }
-
-    if (!existsSync(requestedPath)) {
-      return { effectiveDbPath: requestedPath, legacySessions: null, legacyBackupPath: null };
-    }
-
-    if (this.isSqliteFile(requestedPath)) {
-      return { effectiveDbPath: requestedPath, legacySessions: null, legacyBackupPath: null };
-    }
-
-    const legacySessions = this.readLegacyJsonSessions(requestedPath);
-    if (!legacySessions) {
-      return { effectiveDbPath: requestedPath, legacySessions: null, legacyBackupPath: null };
-    }
-
-    const legacyBackupPath = this.getAvailableBackupPath(requestedPath);
-    try {
-      renameSync(requestedPath, legacyBackupPath);
-    } catch (error) {
-      console.warn(`Failed to back up legacy JSON at "${requestedPath}", using in-memory DB: ${String(error)}`);
-      return { effectiveDbPath: ':memory:', legacySessions: null, legacyBackupPath: null };
-    }
-
-    return { effectiveDbPath: requestedPath, legacySessions, legacyBackupPath };
-  }
-
-  private getAvailableBackupPath(originalPath: string): string {
-    const base = `${originalPath}.bak`;
-    if (!existsSync(base)) return base;
-    return `${base}-${Date.now()}`;
-  }
-
-  private isSqliteFile(filePath: string): boolean {
-    try {
-      const fd = openSync(filePath, 'r');
-      try {
-        const buffer = Buffer.alloc(16);
-        const bytesRead = readSync(fd, buffer, 0, 16, 0);
-        if (bytesRead === 0) return true;
-        if (bytesRead < 16) return false;
-        return buffer.toString('utf8') === 'SQLite format 3\u0000';
-      } finally {
-        closeSync(fd);
-      }
-    } catch {
-      return false;
     }
   }
 
@@ -259,7 +170,7 @@ export class SessionStore {
     try {
       const row = this.getStmt.get(id) as { data?: unknown } | undefined;
       if (!row) return null;
-      return this.parseSession(row.data);
+      return parseSession(row.data);
     } catch (error) {
       console.warn(`Failed to get session "${id}": ${String(error)}`);
       return null;
@@ -275,7 +186,7 @@ export class SessionStore {
 
       const sessions: StoredSession[] = [];
       for (const row of rows) {
-        const session = this.parseSession(row.data);
+        const session = parseSession(row.data);
         if (session) sessions.push(session);
       }
       return sessions;
