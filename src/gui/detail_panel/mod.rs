@@ -5,9 +5,16 @@
 //! - Activity log display
 //! - Status and log color utilities
 
+mod actions;
+mod activity_log;
+mod chain;
 mod colors;
+mod markdown;
 mod panel;
 mod prompt;
+mod result;
+mod types;
 
 pub use colors::status_color;
-pub use panel::{ActivityLogFilters, DetailPanelAction, DetailPanelState, render_detail_panel};
+pub use panel::render_detail_panel;
+pub use types::{ActivityLogFilters, DetailPanelAction, DetailPanelState};
