@@ -1,12 +1,13 @@
 //! Job manager implementation
 
+mod workspace;
+
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::git::find_git_root;
-use crate::workspace::WorkspaceId;
 use crate::{CommentTag, Job, JobId, JobStatus, ScopeDefinition};
 
 /// Manages job lifecycle (in-memory only, no persistence)
@@ -15,7 +16,7 @@ pub struct JobManager {
     #[allow(dead_code)]
     root: PathBuf,
 
-    jobs: HashMap<JobId, Job>,
+    pub(super) jobs: HashMap<JobId, Job>,
     next_id: AtomicU64,
 
     /// File locks for concurrent job isolation
@@ -23,7 +24,7 @@ pub struct JobManager {
 
     /// Generation counter - incremented on any mutation.
     /// Used by GUI to know when to refresh cached jobs.
-    generation: u64,
+    pub(super) generation: u64,
 }
 
 impl JobManager {
@@ -50,6 +51,17 @@ impl JobManager {
         Ok(Self::new(root))
     }
 
+    /// Allocate the next job ID (used by workspace module)
+    pub(super) fn allocate_id(&self) -> JobId {
+        self.next_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Insert a job and increment generation (used by workspace module)
+    pub(super) fn insert_job(&mut self, id: JobId, job: Job) {
+        self.jobs.insert(id, job);
+        self.generation += 1;
+    }
+
     /// Create a new job from a comment tag
     pub fn create_job(&mut self, tag: &CommentTag, agent_id: &str) -> Result<JobId> {
         self.create_job_with_range(tag, agent_id, None)
@@ -62,7 +74,7 @@ impl JobManager {
         agent_id: &str,
         line_end: Option<usize>,
     ) -> Result<JobId> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let id = self.allocate_id();
 
         // Always use file scope - the agent will determine the actual scope from context
         let scope_def = ScopeDefinition::file(tag.file_path.clone());
@@ -98,9 +110,7 @@ impl JobManager {
         );
 
         job.workspace_path = workspace_path;
-
-        self.jobs.insert(id, job);
-        self.generation += 1;
+        self.insert_job(id, job);
 
         Ok(id)
     }
@@ -198,113 +208,5 @@ impl JobManager {
             self.generation += 1;
         }
         removed
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // Workspace-aware methods (Phase 2: Multi-Workspace Support)
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /// Create a new job with workspace association
-    pub fn create_job_for_workspace(
-        &mut self,
-        tag: &CommentTag,
-        agent_id: &str,
-        workspace_id: WorkspaceId,
-        workspace_path: PathBuf,
-    ) -> Result<JobId> {
-        self.create_job_for_workspace_with_range(tag, agent_id, workspace_id, workspace_path, None)
-    }
-
-    /// Create a new job with workspace association and optional line range
-    pub fn create_job_for_workspace_with_range(
-        &mut self,
-        tag: &CommentTag,
-        agent_id: &str,
-        workspace_id: WorkspaceId,
-        workspace_path: PathBuf,
-        line_end: Option<usize>,
-    ) -> Result<JobId> {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-
-        // Always use file scope - the agent will determine the actual scope from context
-        let scope_def = ScopeDefinition::file(tag.file_path.clone());
-
-        let target = if let Some(end) = line_end {
-            if end != tag.line_number {
-                format!("{}:{}-{}", tag.file_path.display(), tag.line_number, end)
-            } else {
-                format!("{}:{}", tag.file_path.display(), tag.line_number)
-            }
-        } else {
-            format!("{}:{}", tag.file_path.display(), tag.line_number)
-        };
-
-        let job = Job::new_with_workspace(
-            id,
-            workspace_id,
-            workspace_path,
-            tag.mode.clone(),
-            scope_def,
-            target,
-            tag.description.clone(),
-            agent_id.to_string(),
-            tag.file_path.clone(),
-            tag.line_number,
-            if tag.raw_line.trim().is_empty() {
-                None
-            } else {
-                Some(tag.raw_line.clone())
-            },
-        );
-
-        self.jobs.insert(id, job);
-        self.generation += 1;
-
-        Ok(id)
-    }
-
-    pub fn jobs_for_workspace(&self, workspace_id: WorkspaceId) -> Vec<&Job> {
-        self.jobs
-            .values()
-            .filter(|j| j.workspace_id == Some(workspace_id))
-            .collect()
-    }
-
-    pub fn pending_jobs_for_workspace(&self, workspace_id: WorkspaceId) -> Vec<&Job> {
-        self.jobs
-            .values()
-            .filter(|j| j.workspace_id == Some(workspace_id) && j.status == JobStatus::Pending)
-            .collect()
-    }
-
-    pub fn running_jobs_for_workspace(&self, workspace_id: WorkspaceId) -> Vec<&Job> {
-        self.jobs
-            .values()
-            .filter(|j| j.workspace_id == Some(workspace_id) && j.status == JobStatus::Running)
-            .collect()
-    }
-
-    /// Returns legacy jobs (those without workspace association)
-    pub fn jobs_without_workspace(&self) -> Vec<&Job> {
-        self.jobs
-            .values()
-            .filter(|j| j.workspace_id.is_none())
-            .collect()
-    }
-
-    pub fn set_job_workspace(
-        &mut self,
-        job_id: JobId,
-        workspace_id: WorkspaceId,
-        workspace_path: PathBuf,
-    ) -> bool {
-        if let Some(job) = self.jobs.get_mut(&job_id) {
-            job.workspace_id = Some(workspace_id);
-            job.workspace_path = Some(workspace_path);
-            self.generation += 1;
-            true
-        } else {
-            false
-        }
     }
 }
