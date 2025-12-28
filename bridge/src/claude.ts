@@ -278,8 +278,20 @@ export async function* executeClaudeQuery(
     // Add canUseTool callback for permission requests
     // This is only called when permissionMode is 'default' or 'acceptEdits'
     // and a tool needs explicit approval
-    options.canUseTool = async (toolName: string, toolInput: Record<string, unknown>) => {
+    options.canUseTool = async (
+      toolName: string,
+      toolInput: Record<string, unknown>,
+      callbackOptions?: { signal?: AbortSignal; suggestions?: unknown[] },
+    ) => {
       const requestId = uuidv4();
+
+      // Check if already aborted before starting
+      if (callbackOptions?.signal?.aborted) {
+        return {
+          behavior: 'deny' as const,
+          message: 'Session aborted',
+        };
+      }
 
       // Emit permission request event
       const approvalEvent: ToolApprovalNeededEvent = {
@@ -304,7 +316,15 @@ export async function* executeClaudeQuery(
       };
 
       // Wait for KYCO to respond (with heartbeat to keep connection alive)
-      const response = await waitForApproval(requestId, toolName, toolInput, sessionId, emitHeartbeat);
+      // Also respect abort signal from the SDK
+      const response = await waitForApproval(
+        requestId,
+        toolName,
+        toolInput,
+        sessionId,
+        emitHeartbeat,
+        callbackOptions?.signal,
+      );
 
       if (response.decision === 'allow') {
         return {
@@ -576,6 +596,7 @@ export async function* executeClaudeQuery(
  * operations. The user MUST make the decision.
  *
  * We send periodic heartbeat events to keep the HTTP connection alive while waiting.
+ * If an AbortSignal is provided and fires, we auto-deny to prevent hanging.
  */
 function waitForApproval(
   requestId: string,
@@ -583,6 +604,7 @@ function waitForApproval(
   toolInput: Record<string, unknown>,
   sessionId: string,
   emitHeartbeat?: () => void,
+  signal?: AbortSignal,
 ): Promise<ToolApprovalResponse> {
   return new Promise((resolve) => {
     // Start heartbeat interval to keep HTTP connection alive
@@ -592,14 +614,28 @@ function waitForApproval(
         }, 15000) // Send heartbeat every 15 seconds
       : undefined;
 
+    // Helper to cleanup and resolve
+    const cleanup = (response: ToolApprovalResponse) => {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+      pendingApprovals.delete(requestId);
+      resolve(response);
+    };
+
+    // Listen for abort signal from SDK
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        cleanup({
+          requestId,
+          decision: 'deny',
+          reason: 'Session aborted by SDK',
+        });
+      }, { once: true });
+    }
+
     pendingApprovals.set(requestId, {
-      resolve: (response: ToolApprovalResponse) => {
-        // Clear heartbeat when resolved
-        if (heartbeatInterval) {
-          clearInterval(heartbeatInterval);
-        }
-        resolve(response);
-      },
+      resolve: cleanup,
       toolName,
       toolInput,
       sessionId,

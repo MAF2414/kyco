@@ -427,6 +427,7 @@ impl BridgeProcess {
         let mut child = Command::new("node")
             .arg("dist/server.js")
             .current_dir(&bridge_dir)
+            .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
