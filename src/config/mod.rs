@@ -15,7 +15,10 @@ pub use chain::{ChainStep, ModeChain, ModeOrChain, StateDefinition};
 pub use internal::{InternalDefaults, INTERNAL_DEFAULTS_TOML};
 pub use mode::{ClaudeModeOptions, CodexModeOptions, ModeConfig, ModeSessionType};
 pub use scope::ScopeConfig;
-pub use settings::{GuiSettings, RegistrySettings, Settings, VoiceSettings};
+pub use settings::{
+    default_orchestrator_system_prompt, GuiSettings, OrchestratorSettings, RegistrySettings,
+    Settings, VoiceSettings,
+};
 pub use target::TargetConfig;
 
 use std::collections::HashMap;

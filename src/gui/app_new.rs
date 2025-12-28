@@ -91,6 +91,12 @@ impl KycoApp {
             .clone();
 
         // Extract orchestrator settings
+        let orchestrator_cli_agent = config_snapshot
+            .settings
+            .gui
+            .orchestrator
+            .cli_agent
+            .clone();
         let orchestrator_cli_command = config_snapshot
             .settings
             .gui
@@ -226,6 +232,7 @@ impl KycoApp {
             import_agents: true,
             import_chains: false,
             import_settings: false,
+            orchestrator_cli_agent,
             orchestrator_cli_command,
             orchestrator_system_prompt,
             orchestrator_requested: false,

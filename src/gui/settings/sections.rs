@@ -771,7 +771,34 @@ pub fn render_settings_orchestrator(ui: &mut egui::Ui, state: &mut SettingsState
     ui.add_space(12.0);
 
     render_section_frame(ui, |ui| {
-        ui.label(RichText::new("CLI Command").color(TEXT_MUTED));
+        // CLI Agent dropdown
+        ui.label(RichText::new("CLI Agent").color(TEXT_MUTED));
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_salt("orchestrator_cli_agent")
+                .selected_text(if state.orchestrator_cli_agent.is_empty() {
+                    "claude"
+                } else {
+                    state.orchestrator_cli_agent.as_str()
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(state.orchestrator_cli_agent, "claude".to_string(), "claude");
+                    ui.selectable_value(state.orchestrator_cli_agent, "codex".to_string(), "codex");
+                });
+        });
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("The CLI agent to launch (claude or codex)")
+                .small()
+                .color(TEXT_MUTED),
+        );
+
+        ui.add_space(16.0);
+        ui.separator();
+        ui.add_space(12.0);
+
+        // CLI Command
+        ui.label(RichText::new("CLI Command (optional)").color(TEXT_MUTED));
         ui.add_space(4.0);
         ui.label(
             RichText::new("Use {prompt_file} as placeholder for the system prompt file path.")
@@ -783,12 +810,12 @@ pub fn render_settings_orchestrator(ui: &mut egui::Ui, state: &mut SettingsState
             egui::TextEdit::singleline(state.orchestrator_cli_command)
                 .font(egui::TextStyle::Monospace)
                 .text_color(TEXT_PRIMARY)
-                .hint_text("claude --append-system-prompt \"$(cat {prompt_file})\"")
+                .hint_text("Leave empty to auto-generate based on CLI Agent")
                 .desired_width(f32::INFINITY),
         );
         ui.add_space(4.0);
         ui.label(
-            RichText::new("Leave empty to use default based on gui.default_agent")
+            RichText::new("Leave empty to use default based on CLI Agent above")
                 .small()
                 .color(TEXT_MUTED),
         );

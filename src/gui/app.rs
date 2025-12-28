@@ -262,6 +262,8 @@ pub struct KycoApp {
     /// Config import: import settings
     pub(crate) import_settings: bool,
 
+    /// Orchestrator settings: CLI agent (claude/codex)
+    pub(crate) orchestrator_cli_agent: String,
     /// Orchestrator settings: CLI command
     pub(crate) orchestrator_cli_command: String,
     /// Orchestrator settings: system prompt

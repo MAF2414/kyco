@@ -80,6 +80,7 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
     new_config.settings.gui.voice.popup_hotkey = state.voice_settings_popup_hotkey.clone();
 
     // Orchestrator settings
+    new_config.settings.gui.orchestrator.cli_agent = state.orchestrator_cli_agent.clone();
     new_config.settings.gui.orchestrator.cli_command = state.orchestrator_cli_command.clone();
     new_config.settings.gui.orchestrator.system_prompt = state.orchestrator_system_prompt.clone();
 

@@ -79,6 +79,7 @@ pub struct SettingsState<'a> {
     pub import_settings: &'a mut bool,
 
     /// Orchestrator settings
+    pub orchestrator_cli_agent: &'a mut String,
     pub orchestrator_cli_command: &'a mut String,
     pub orchestrator_system_prompt: &'a mut String,
 }
