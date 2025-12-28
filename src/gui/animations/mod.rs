@@ -6,116 +6,20 @@
 //! - Status pulse animations
 //! - Fade in/out effects
 
-use eframe::egui::{self, Color32, Id, Pos2, Rect, Response, RichText, Sense, Ui, Vec2};
+mod buttons;
+mod indicators;
+
+pub use buttons::{animated_button, animated_icon_button};
+pub use indicators::{
+    blocked_indicator, colored_spinner, pending_indicator, pulse_indicator, queued_indicator,
+};
+
+use eframe::egui::{self, Color32, Id, Pos2, Rect, Response, Sense, Ui, Vec2};
 
 pub const HOVER_ANIM_SPEED: f64 = 8.0;
 pub const FADE_ANIM_SPEED: f64 = 6.0;
 pub const PULSE_SPEED: f64 = 3.0;
 pub const SLIDE_ANIM_SPEED: f64 = 10.0;
-
-/// Animated button with hover glow effect
-pub fn animated_button(
-    ui: &mut Ui,
-    text: impl Into<RichText>,
-    base_color: Color32,
-    id_salt: impl std::hash::Hash,
-) -> Response {
-    let text = text.into();
-    let id = Id::new(id_salt);
-
-    let was_hovered = ui
-        .ctx()
-        .memory(|mem| mem.data.get_temp::<bool>(id).unwrap_or(false));
-
-    let hover_anim = ui
-        .ctx()
-        .animate_bool_with_time(id.with("anim"), was_hovered, 0.15);
-
-    let glow_alpha = (hover_anim * 40.0) as u8;
-    let fill_color =
-        Color32::from_rgba_unmultiplied(base_color.r(), base_color.g(), base_color.b(), glow_alpha);
-    let stroke_alpha = (hover_anim * 0.6 * 255.0) as u8;
-    let stroke_color = Color32::from_rgba_unmultiplied(
-        base_color.r(),
-        base_color.g(),
-        base_color.b(),
-        stroke_alpha,
-    );
-
-    let button = egui::Button::new(text.color(base_color))
-        .fill(fill_color)
-        .stroke(egui::Stroke::new(1.0, stroke_color));
-
-    let response = ui.add(button);
-
-    let is_hovered = response.hovered();
-    ui.ctx().memory_mut(|mem| {
-        mem.data.insert_temp(id, is_hovered);
-    });
-
-    if is_hovered != was_hovered || hover_anim > 0.01 && hover_anim < 0.99 {
-        ui.ctx().request_repaint();
-    }
-
-    response
-}
-
-/// Animated icon button (smaller, icon-only)
-pub fn animated_icon_button(
-    ui: &mut Ui,
-    icon: &str,
-    base_color: Color32,
-    hover_color: Color32,
-    id_salt: impl std::hash::Hash,
-) -> Response {
-    let id = Id::new(id_salt);
-
-    let was_hovered = ui
-        .ctx()
-        .memory(|mem| mem.data.get_temp::<bool>(id).unwrap_or(false));
-
-    let hover_progress = ui
-        .ctx()
-        .animate_bool_with_time(id.with("anim"), was_hovered, 0.12);
-    let current_color = lerp_color(base_color, hover_color, hover_progress);
-
-    let response = ui.add(
-        egui::Button::new(RichText::new(icon).color(current_color))
-            .fill(Color32::TRANSPARENT)
-            .frame(false),
-    );
-
-    let is_hovered = response.hovered();
-    ui.ctx().memory_mut(|mem| {
-        mem.data.insert_temp(id, is_hovered);
-    });
-
-    if is_hovered != was_hovered || hover_progress > 0.01 && hover_progress < 0.99 {
-        ui.ctx().request_repaint();
-    }
-
-    response
-}
-
-/// Pulsing indicator for running/active states
-pub fn pulse_indicator(ui: &mut Ui, color: Color32, size: f32) {
-    let time = ui.ctx().input(|i| i.time);
-    let pulse = ((time * PULSE_SPEED).sin() * 0.5 + 0.5) as f32;
-
-    let (rect, _response) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-
-    let glow_color =
-        Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), (pulse * 80.0) as u8);
-    ui.painter()
-        .circle_filled(rect.center(), size * 0.8, glow_color);
-
-    let inner_alpha = 150 + (pulse * 105.0) as u8;
-    let inner_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), inner_alpha);
-    ui.painter()
-        .circle_filled(rect.center(), size * 0.4, inner_color);
-
-    ui.ctx().request_repaint();
-}
 
 /// Animated progress bar with smooth transitions
 pub fn animated_progress_bar(
@@ -206,34 +110,6 @@ pub fn list_item_background(
     if bg_color.a() > 0 {
         ui.painter().rect_filled(rect, 4.0, bg_color);
     }
-}
-
-/// Spinner with custom color (animated)
-pub fn colored_spinner(ui: &mut Ui, color: Color32, size: f32) {
-    let time = ui.ctx().input(|i| i.time);
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
-
-    let center = rect.center();
-    let radius = size * 0.4;
-
-    let start_angle = (time * 4.0) as f32;
-    let n_points = 20;
-
-    for i in 0..n_points {
-        let t = i as f32 / n_points as f32;
-        let angle = start_angle + t * std::f32::consts::PI * 1.5;
-        let alpha = (t * 255.0) as u8;
-        let point_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
-
-        let point = Pos2::new(
-            center.x + radius * angle.cos(),
-            center.y + radius * angle.sin(),
-        );
-
-        ui.painter().circle_filled(point, 2.0, point_color);
-    }
-
-    ui.ctx().request_repaint();
 }
 
 /// Animated clickable list item with hover effect
@@ -337,53 +213,4 @@ impl Default for TypewriterState {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Animated lock icon for blocked status (pulsing lock brackets)
-pub fn blocked_indicator(ui: &mut Ui, color: Color32, size: f32) {
-    let time = ui.ctx().input(|i| i.time);
-    let pulse = ((time * 1.5).sin() * 0.5 + 0.5) as f32;
-    let alpha = 140 + (pulse * 115.0) as u8;
-    let animated_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
-
-    let text = RichText::new("[L]")
-        .monospace()
-        .color(animated_color)
-        .size(size);
-    ui.label(text);
-
-    ui.ctx().request_repaint();
-}
-
-/// Animated dots for queued status (cycling through . .. ...)
-pub fn queued_indicator(ui: &mut Ui, color: Color32, size: f32) {
-    let time = ui.ctx().input(|i| i.time);
-    let state = ((time * 2.5) as usize) % 4;
-    let dots = match state {
-        0 => "[   ]",
-        1 => "[.  ]",
-        2 => "[.. ]",
-        _ => "[...]",
-    };
-
-    let text = RichText::new(dots).monospace().color(color).size(size);
-    ui.label(text);
-
-    ui.ctx().request_repaint();
-}
-
-/// Animated dot for pending status (gentle breathing pulse)
-pub fn pending_indicator(ui: &mut Ui, color: Color32, size: f32) {
-    let time = ui.ctx().input(|i| i.time);
-    let pulse = ((time * 2.0).sin() * 0.5 + 0.5) as f32;
-    let alpha = 100 + (pulse * 155.0) as u8;
-    let animated_color = Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), alpha);
-
-    let text = RichText::new("[.]")
-        .monospace()
-        .color(animated_color)
-        .size(size);
-    ui.label(text);
-
-    ui.ctx().request_repaint();
 }
