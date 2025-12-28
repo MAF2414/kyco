@@ -19,6 +19,7 @@ pub mod animations;
 pub mod app;
 mod app_diff;
 mod app_eframe;
+mod app_helpers;
 mod app_input;
 mod app_jobs;
 mod app_new;
