@@ -103,6 +103,97 @@ fn sanitize_commit_subject(raw: &str) -> String {
     out
 }
 
+/// Status of a file in a diff
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed { from: String },
+    Copied { from: String },
+    Untracked,
+}
+
+/// Diff information for a single file
+#[derive(Debug, Clone)]
+pub struct FileDiff {
+    pub path: String,
+    pub status: FileStatus,
+    pub lines_added: usize,
+    pub lines_removed: usize,
+    pub is_binary: bool,
+    pub patch: Option<String>,
+}
+
+/// Aggregated diff report
+#[derive(Debug, Clone)]
+pub struct DiffReport {
+    pub files: Vec<FileDiff>,
+    pub total_added: usize,
+    pub total_removed: usize,
+    pub files_changed: usize,
+}
+
+/// Options for diff generation
+#[derive(Debug, Clone, Default)]
+pub struct DiffSettings {
+    pub ignore_whitespace: bool,
+    pub context_lines: u32,
+    pub include_untracked: bool,
+}
+
+/// Parse NUL-delimited output from git commands
+fn parse_null_delimited(output: &[u8]) -> Vec<String> {
+    output
+        .split(|&b| b == 0)
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| std::str::from_utf8(s).ok())
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Parse git diff --numstat -z output
+/// Returns tuples of (path, lines_added, lines_removed, is_binary)
+fn parse_numstat_output(output: &[u8]) -> Vec<(String, usize, usize, bool)> {
+    let text = String::from_utf8_lossy(output);
+    let mut results = Vec::new();
+
+    for line in text.lines() {
+        if line.is_empty() {
+            continue;
+        }
+
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+
+        let (added, removed, is_binary) = if parts[0] == "-" && parts[1] == "-" {
+            // Binary file
+            (0, 0, true)
+        } else {
+            let added = parts[0].parse().unwrap_or(0);
+            let removed = parts[1].parse().unwrap_or(0);
+            (added, removed, false)
+        };
+
+        // Handle renames: "old_path\tnew_path" or just "path"
+        let path = if parts.len() > 3 {
+            // Rename format with NUL: the path after rename info
+            parts[2].to_string()
+        } else {
+            parts[2].to_string()
+        };
+
+        // Skip empty paths
+        if !path.is_empty() {
+            results.push((path, added, removed, is_binary));
+        }
+    }
+
+    results
+}
+
 /// Find the git repository root for a given path.
 /// Returns None if the path is not inside a git repository.
 pub fn find_git_root(path: &Path) -> Option<PathBuf> {
@@ -793,6 +884,212 @@ impl GitManager {
     pub fn root(&self) -> &Path {
         &self.root
     }
+
+    /// Generate a diff report for a worktree compared to a base branch
+    ///
+    /// Returns structured information about all changed files including
+    /// line counts, file status, and binary detection.
+    pub fn diff_report(
+        &self,
+        worktree: &Path,
+        base_branch: Option<&str>,
+        settings: &DiffSettings,
+    ) -> Result<DiffReport> {
+        // Determine the base commit
+        let base_commit = if let Some(base) = base_branch.map(str::trim).filter(|s| !s.is_empty()) {
+            let output = Command::new("git")
+                .args(["merge-base", base, "HEAD"])
+                .current_dir(worktree)
+                .output()
+                .context("Failed to run git merge-base")?;
+
+            if output.status.success() {
+                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut files = Vec::new();
+        let mut tracked_paths = std::collections::HashSet::new();
+
+        // Get diff stats for tracked files
+        let mut diff_args = vec!["diff", "--numstat"];
+        if settings.ignore_whitespace {
+            diff_args.push("-w");
+        }
+
+        let range = if let Some(ref base) = base_commit {
+            format!("{}..HEAD", base)
+        } else {
+            "HEAD".to_string()
+        };
+        diff_args.push(&range);
+
+        let output = Command::new("git")
+            .args(&diff_args)
+            .current_dir(worktree)
+            .output()
+            .context("Failed to run git diff --numstat")?;
+
+        if output.status.success() {
+            for (path, added, removed, is_binary) in parse_numstat_output(&output.stdout) {
+                tracked_paths.insert(path.clone());
+                files.push(FileDiff {
+                    path,
+                    status: FileStatus::Modified,
+                    lines_added: added,
+                    lines_removed: removed,
+                    is_binary,
+                    patch: None,
+                });
+            }
+        }
+
+        // Also check for uncommitted changes vs HEAD
+        let uncommitted_output = Command::new("git")
+            .args(["diff", "--numstat", "HEAD"])
+            .current_dir(worktree)
+            .output()
+            .context("Failed to run git diff --numstat HEAD")?;
+
+        if uncommitted_output.status.success() {
+            for (path, added, removed, is_binary) in parse_numstat_output(&uncommitted_output.stdout)
+            {
+                if !tracked_paths.contains(&path) {
+                    tracked_paths.insert(path.clone());
+                    files.push(FileDiff {
+                        path,
+                        status: FileStatus::Modified,
+                        lines_added: added,
+                        lines_removed: removed,
+                        is_binary,
+                        patch: None,
+                    });
+                }
+            }
+        }
+
+        // Get untracked files if requested
+        if settings.include_untracked {
+            let untracked_output = Command::new("git")
+                .args(["ls-files", "--others", "--exclude-standard", "-z"])
+                .current_dir(worktree)
+                .output()
+                .context("Failed to run git ls-files")?;
+
+            if untracked_output.status.success() {
+                for path in parse_null_delimited(&untracked_output.stdout) {
+                    if !tracked_paths.contains(&path) {
+                        // Count lines in untracked file
+                        let file_path = worktree.join(&path);
+                        let lines_added = if file_path.exists() {
+                            std::fs::read_to_string(&file_path)
+                                .map(|content| content.lines().count())
+                                .unwrap_or(0)
+                        } else {
+                            0
+                        };
+
+                        files.push(FileDiff {
+                            path,
+                            status: FileStatus::Untracked,
+                            lines_added,
+                            lines_removed: 0,
+                            is_binary: false,
+                            patch: None,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Calculate totals
+        let total_added: usize = files.iter().map(|f| f.lines_added).sum();
+        let total_removed: usize = files.iter().map(|f| f.lines_removed).sum();
+        let files_changed = files.len();
+
+        Ok(DiffReport {
+            files,
+            total_added,
+            total_removed,
+            files_changed,
+        })
+    }
+
+    /// Get the patch for a specific file (lazy loading)
+    ///
+    /// This generates the full patch content for a single file.
+    pub fn diff_file_patch(
+        &self,
+        worktree: &Path,
+        file_path: &str,
+        base_commit: Option<&str>,
+        settings: &DiffSettings,
+    ) -> Result<String> {
+        let mut args = vec!["diff", "--no-color"];
+
+        if settings.ignore_whitespace {
+            args.push("-w");
+        }
+
+        if settings.context_lines > 0 {
+            // We need to format this as a string that lives long enough
+            let context_arg = format!("-U{}", settings.context_lines);
+            let mut args_with_context = args.clone();
+            args_with_context.push(&context_arg);
+
+            if let Some(base) = base_commit {
+                args_with_context.push(base);
+            } else {
+                args_with_context.push("HEAD");
+            }
+
+            args_with_context.push("--");
+            args_with_context.push(file_path);
+
+            let output = Command::new("git")
+                .args(&args_with_context)
+                .current_dir(worktree)
+                .output()
+                .context("Failed to run git diff for file")?;
+
+            if !output.status.success() {
+                bail!(
+                    "git diff failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+
+        if let Some(base) = base_commit {
+            args.push(base);
+        } else {
+            args.push("HEAD");
+        }
+
+        args.push("--");
+        args.push(file_path);
+
+        let output = Command::new("git")
+            .args(&args)
+            .current_dir(worktree)
+            .output()
+            .context("Failed to run git diff for file")?;
+
+        if !output.status.success() {
+            bail!(
+                "git diff failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
 }
 
 #[cfg(test)]
@@ -843,6 +1140,90 @@ mod tests {
             diff.contains("hello world"),
             "expected diff to include changed content, got:\n{}",
             diff
+        );
+    }
+
+    #[test]
+    fn parse_numstat_output_basic() {
+        use super::parse_numstat_output;
+
+        let output = b"10\t5\tfile.rs\n3\t0\tnew_file.txt\n";
+        let results = parse_numstat_output(output);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0], ("file.rs".to_string(), 10, 5, false));
+        assert_eq!(results[1], ("new_file.txt".to_string(), 3, 0, false));
+    }
+
+    #[test]
+    fn parse_numstat_output_binary() {
+        use super::parse_numstat_output;
+
+        let output = b"-\t-\timage.png\n";
+        let results = parse_numstat_output(output);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0], ("image.png".to_string(), 0, 0, true));
+    }
+
+    #[test]
+    fn diff_report_basic() {
+        use super::{DiffSettings, FileStatus};
+
+        let tmp = TempDir::new().expect("tempdir");
+        let repo = tmp.path();
+
+        git(repo, &["init"]);
+        git(repo, &["config", "user.email", "test@example.com"]);
+        git(repo, &["config", "user.name", "Test User"]);
+
+        fs::write(repo.join("README.md"), "hello\n").expect("write README");
+        git(repo, &["add", "README.md"]);
+        git(repo, &["commit", "-m", "init"]);
+        git(repo, &["branch", "-m", "main"]);
+
+        git(repo, &["checkout", "-b", "kyco/job-1"]);
+        fs::write(repo.join("README.md"), "hello world\nline 2\n").expect("write README");
+        git(repo, &["add", "README.md"]);
+        git(repo, &["commit", "-m", "change"]);
+
+        let gm = GitManager::new(repo).expect("git manager");
+        let settings = DiffSettings::default();
+        let report = gm.diff_report(repo, Some("main"), &settings).expect("diff_report");
+
+        assert_eq!(report.files_changed, 1);
+        assert_eq!(report.files[0].path, "README.md");
+        assert_eq!(report.files[0].status, FileStatus::Modified);
+        assert!(report.total_added > 0 || report.total_removed > 0);
+    }
+
+    #[test]
+    fn diff_file_patch_basic() {
+        use super::DiffSettings;
+
+        let tmp = TempDir::new().expect("tempdir");
+        let repo = tmp.path();
+
+        git(repo, &["init"]);
+        git(repo, &["config", "user.email", "test@example.com"]);
+        git(repo, &["config", "user.name", "Test User"]);
+
+        fs::write(repo.join("test.txt"), "original\n").expect("write test.txt");
+        git(repo, &["add", "test.txt"]);
+        git(repo, &["commit", "-m", "init"]);
+
+        fs::write(repo.join("test.txt"), "modified content\n").expect("write test.txt");
+
+        let gm = GitManager::new(repo).expect("git manager");
+        let settings = DiffSettings::default();
+        let patch = gm
+            .diff_file_patch(repo, "test.txt", None, &settings)
+            .expect("diff_file_patch");
+
+        assert!(
+            patch.contains("modified content"),
+            "expected patch to contain modified content, got:\n{}",
+            patch
         );
     }
 }
