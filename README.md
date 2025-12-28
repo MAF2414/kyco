@@ -119,6 +119,7 @@ In your IDE: select code → `Cmd+Alt+Y` (Mac) or `Ctrl+Alt+Y` (Win/Linux) → p
 | `pythonloc300` | `py300` | Reduce a Python file to ≤300 LOC without behavior changes |
 | `csharploc300` | `cs300` | Reduce a C# file to ≤300 LOC without behavior changes |
 | `typescriptloc300` | `ts300` | Reduce a TypeScript file to ≤300 LOC without behavior changes |
+| `kotlinloc300` | `kt300` | Reduce a Kotlin file to ≤300 LOC without behavior changes |
 | `test` | `t` | Generate tests |
 | `plan` | `p` | Create implementation plan (read-only) |
 

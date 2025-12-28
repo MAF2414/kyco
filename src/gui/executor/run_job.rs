@@ -229,11 +229,15 @@ fn setup_worktree(
                 ))));
                 job.git_worktree_path = Some(worktree_info.path.clone());
                 job.base_branch = Some(worktree_info.base_branch.clone());
+                job.branch_name = Some(worktree_info.branch_name.clone());
                 if let Ok(mut manager) = job_manager.lock() {
                     if let Some(j) = manager.get_mut(job_id) {
                         j.git_worktree_path = Some(worktree_info.path.clone());
                         j.base_branch = Some(worktree_info.base_branch);
+                        j.branch_name = Some(worktree_info.branch_name);
                     }
+                    // Notify GUI that job data changed (worktree path is now set)
+                    manager.touch();
                 }
                 Some((worktree_info.path, true))
             }

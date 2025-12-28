@@ -8,30 +8,26 @@ use crate::{JobId, LogEvent, SdkType};
 impl KycoApp {
     /// Kill/stop a running job
     pub(crate) fn kill_job(&mut self, job_id: JobId) {
-        let (agent_id, job_mode, session_id) = {
-            let manager = match self.job_manager.lock() {
-                Ok(m) => m,
-                Err(_) => {
-                    self.logs
-                        .push(LogEvent::error("Failed to lock job manager"));
-                    return;
-                }
-            };
+        // First, mark the job as failed in the manager (even before interrupting)
+        // This ensures the job state is updated even if interrupt fails
+        jobs::kill_job(&self.job_manager, job_id, &mut self.logs);
 
-            match manager.get(job_id) {
-                Some(job) => (
+        let session_info = self.job_manager.lock().ok().and_then(|manager| {
+            manager.get(job_id).map(|job| {
+                (
                     job.agent_id.clone(),
                     job.mode.clone(),
                     job.bridge_session_id.clone(),
-                ),
-                None => {
-                    self.logs
-                        .push(LogEvent::error(format!("Job #{} not found", job_id)));
-                    return;
-                }
-            }
+                )
+            })
+        });
+
+        let Some((agent_id, job_mode, session_id)) = session_info else {
+            self.refresh_jobs();
+            return;
         };
 
+        // Try to interrupt the bridge session (best effort, non-critical)
         if let Some(session_id) = session_id.as_deref() {
             let sdk_type = self
                 .config
@@ -47,11 +43,15 @@ impl KycoApp {
                     }
                 });
 
-            let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // Clone what we need to avoid capturing self in catch_unwind
+            let client = self.bridge_client.clone();
+            let session_id_owned = session_id.to_string();
+
+            let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
                 if sdk_type == SdkType::Codex {
-                    self.bridge_client.interrupt_codex(session_id)
+                    client.interrupt_codex(&session_id_owned)
                 } else {
-                    self.bridge_client.interrupt_claude(session_id)
+                    client.interrupt_claude(&session_id_owned)
                 }
             }));
 
@@ -75,7 +75,6 @@ impl KycoApp {
             };
         }
 
-        jobs::kill_job(&self.job_manager, job_id, &mut self.logs);
         self.refresh_jobs();
     }
 

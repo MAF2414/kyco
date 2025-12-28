@@ -133,8 +133,12 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     // Sponsor heart button
                     ui.add_space(8.0);
                     if ui
-                        .label(RichText::new("♥").small().color(ACCENT_RED))
+                        .add(
+                            egui::Label::new(RichText::new("♥").small().color(ACCENT_RED))
+                                .sense(egui::Sense::click()),
+                        )
                         .on_hover_text("Support KYCo on GitHub Sponsors")
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
                         .clicked()
                     {
                         open_url(SPONSOR_URL);

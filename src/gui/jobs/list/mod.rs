@@ -175,7 +175,11 @@ fn render_job_scroll_area(
                 let is_selected = *selected_job_id == Some(job.id);
                 let response = render_job_row(ui, job, is_selected, available_width, action);
 
-                if response.interact(egui::Sense::click()).clicked() {
+                // Only handle row click if no button action was triggered
+                // (delete button sets action, which takes priority)
+                if !matches!(action, JobListAction::DeleteJob(_))
+                    && response.interact(egui::Sense::click()).clicked()
+                {
                     *selected_job_id = Some(job.id);
                 }
             }

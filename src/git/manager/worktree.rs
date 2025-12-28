@@ -148,6 +148,7 @@ impl GitManager {
                 return Ok(WorktreeInfo {
                     path: worktree_path,
                     base_branch: base_branch.clone(),
+                    branch_name,
                 });
             }
 

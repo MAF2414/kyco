@@ -96,6 +96,7 @@ impl KycoApp {
                     tool_name,
                     tool_input,
                 } => {
+                    tracing::info!("⚠️ GUI received PermissionNeeded: tool={}, job_id={}, request_id={}", tool_name, job_id, request_id);
                     // Convert to PermissionRequest and add to popup queue
                     let request = super::permission::PermissionRequest {
                         request_id,

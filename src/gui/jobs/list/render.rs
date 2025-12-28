@@ -3,7 +3,7 @@
 use super::types::JobListAction;
 use crate::gui::animations::{blocked_indicator, pending_indicator, queued_indicator};
 use crate::gui::detail_panel::status_color;
-use crate::gui::theme::{ACCENT_PURPLE, ACCENT_RED, BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::theme::{ACCENT_CYAN, ACCENT_PURPLE, ACCENT_RED, BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 use crate::{Job, JobStatus};
 use eframe::egui::{self, Color32, RichText, Stroke};
 
@@ -98,6 +98,15 @@ pub fn render_job_row(
                         .on_hover_text("Part of multi-agent group");
                 }
 
+                if let Some(wt_path) = &job.git_worktree_path {
+                    let wt_name = wt_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("worktree");
+                    ui.label(RichText::new("⎇").color(ACCENT_CYAN).small())
+                        .on_hover_text(format!("Worktree: {}", wt_name));
+                }
+
                 render_blocked_info(ui, job);
             });
 
@@ -146,11 +155,12 @@ fn render_target_row(
                     egui::Button::new(RichText::new("✕").color(ACCENT_RED).size(12.0))
                         .fill(Color32::TRANSPARENT)
                         .stroke(Stroke::NONE)
-                        .min_size(egui::vec2(20.0, 18.0));
+                        .small();
 
                 if ui
                     .add(delete_btn)
                     .on_hover_text("Delete this job")
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
                 {
                     *action = JobListAction::DeleteJob(job.id);

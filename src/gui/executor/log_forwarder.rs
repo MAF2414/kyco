@@ -30,9 +30,13 @@ pub fn spawn_log_forwarder(
             }
 
             if log.kind == LogEventKind::Permission {
+                tracing::info!("⚠️ Log forwarder received Permission event for job {}", job_id);
                 let args = match log.tool_args {
                     Some(a) => a,
-                    None => continue,
+                    None => {
+                        tracing::warn!("⚠️ Permission event has no tool_args, skipping!");
+                        continue;
+                    }
                 };
 
                 let Some(request_id) = args
@@ -40,8 +44,10 @@ pub fn spawn_log_forwarder(
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
                 else {
+                    tracing::warn!("⚠️ Permission event missing request_id, skipping! args={:?}", args);
                     continue;
                 };
+                tracing::info!("⚠️ Forwarding PermissionNeeded event: request_id={}", request_id);
 
                 let session_id = args
                     .get("session_id")

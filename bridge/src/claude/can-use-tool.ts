@@ -7,11 +7,16 @@ import type { ToolApprovalNeededEvent, HeartbeatEvent } from '../types.js';
 import { waitForApproval } from './approvals.js';
 import type { EventEmitter } from './types.js';
 
+// SDK-compatible PermissionResult type (discriminated union)
+export type PermissionResult =
+  | { behavior: 'allow'; updatedInput: Record<string, unknown>; toolUseID?: string }
+  | { behavior: 'deny'; message: string; interrupt?: boolean; toolUseID?: string };
+
 export type CanUseToolCallback = (
   toolName: string,
   toolInput: Record<string, unknown>,
-  callbackOptions?: { signal?: AbortSignal; suggestions?: unknown[] },
-) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Record<string, unknown>; message?: string }>;
+  callbackOptions?: { signal?: AbortSignal; suggestions?: unknown[]; toolUseID?: string },
+) => Promise<PermissionResult>;
 
 export function createCanUseToolCallback(
   sessionId: string,
@@ -55,13 +60,13 @@ export function createCanUseToolCallback(
 
     if (response.decision === 'allow') {
       return {
-        behavior: 'allow' as const,
+        behavior: 'allow',
         updatedInput: response.modifiedInput || toolInput,
-      };
+      } as const;
     }
     return {
-      behavior: 'deny' as const,
+      behavior: 'deny',
       message: response.reason || 'User denied permission',
-    };
+    } as const;
   };
 }

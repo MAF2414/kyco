@@ -45,7 +45,12 @@ impl<R: std::io::Read> Iterator for EventStream<R> {
                         ))),
                     };
                 }
-                Err(e) => return Some(Err(anyhow::anyhow!("Failed to read from stream: {}", e))),
+                Err(e) => {
+                    // Stream read errors (connection closed, timeout, etc.) terminate iteration.
+                    // Returning None stops the loop cleanly instead of retrying forever.
+                    tracing::debug!("Stream read ended: {}", e);
+                    return None;
+                }
             }
         }
     }

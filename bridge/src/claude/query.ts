@@ -48,7 +48,7 @@ export async function* executeClaudeQuery(
 
   try {
     const options = buildQueryOptions(request, sessionId, emitEvent);
-    options.canUseTool = createCanUseToolCallback(sessionId, emitEvent);
+    options!.canUseTool = createCanUseToolCallback(sessionId, emitEvent);
 
     q = query({ prompt: buildClaudePrompt(request), options });
 

@@ -8,6 +8,8 @@ pub struct WorktreeInfo {
     pub path: std::path::PathBuf,
     /// The base branch from which the worktree was created
     pub base_branch: String,
+    /// The branch name created for this worktree (e.g. "kyco/job-123")
+    pub branch_name: String,
 }
 
 /// Suggested git commit message (subject + optional body).

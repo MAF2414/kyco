@@ -184,6 +184,7 @@ impl AgentRunner for ClaudeBridgeAdapter {
                     let _ = event_tx.send(LogEvent::system(format!("Completed: {} (cost: ${:.4}, duration: {}ms{})", if success { "success" } else { "failed" }, cost_usd.unwrap_or(0.0), duration_ms, usage_info)).for_job(job_id)).await;
                 }
                 BridgeEvent::ToolApprovalNeeded { request_id, session_id, tool_name, tool_input, .. } => {
+                    tracing::info!("⚠️ Received ToolApprovalNeeded from Bridge: tool={}, request_id={}, job_id={}", tool_name, request_id, job_id);
                     let _ = event_tx.send(LogEvent::permission(format!("Tool approval needed: {}", tool_name))
                         .with_tool_args(serde_json::json!({ "request_id": request_id, "session_id": session_id, "tool_name": tool_name, "tool_input": tool_input })).for_job(job_id)).await;
                 }

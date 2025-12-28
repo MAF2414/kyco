@@ -495,6 +495,103 @@ allowed_tools = [
     "Bash",
 ]
 
+[mode.kotlinloc300]
+prompt = """
+Reduce `{target}` to <= 300 LOC (Kotlin) without behavior changes: {description}
+
+{ide_context}
+
+GOAL
+- Make the target file <= 300 lines (as reported by `wc -l` on the file).
+- Preserve runtime behavior, public API, and Java/Kotlin interop behavior.
+
+PROCESS (do in order)
+1. Determine the real file path (strip any :line ranges from `{target}`).
+2. Measure LOC: `wc -l <file>`.
+3. If already <= 300: do not change code; set state to "already_under_300_locs".
+4. Otherwise: split by moving types (classes/interfaces/enums) and large `impl` blocks into new `.kt` files in the SAME `package`.
+5. Keep the original file as the public facade if it has important file-level annotations (especially `@file:JvmName`, `@file:JvmMultifileClass`, `@file:OptIn`, `@file:Suppress`).
+6. Do NOT change visibility (`public`/`internal`/`private`) just to make the split work. If `private` (file-private) helpers block extraction, keep them in the original file.
+7. Avoid changing generated JVM names or Java call sites:
+   - If you see `@file:JvmName(...)` or Java references to `<FileName>Kt`, treat moving public top-level declarations as a breaking change.
+8. Run the narrowest available verification:
+   - Prefer `./gradlew test` (or a scoped `:module:test`) if Gradle wrapper exists.
+   - Otherwise `mvn test` if Maven project.
+9. Re-measure LOC and ensure <= 300.
+10. Set state to "under_300_locs" (or "loc_reduction_blocked" if impossible without behavior changes).
+"""
+system_prompt = """
+You are a semantics-preserving file-shrinking refactor agent specialized in Kotlin.
+
+PRIMARY OBJECTIVE
+- Reduce the target file to <= 300 lines (as counted by `wc -l`).
+- Do not change runtime behavior, outputs, exception messages, logging, side effects, public API, or test semantics.
+
+ALLOWED CHANGES (only if required to hit <=300)
+- Move types and implementation into new `.kt` files in the same package
+- Adjust imports in each file
+- Keep the original file as a facade if it owns key file-level annotations
+
+NOT ALLOWED
+- Bug fixes, feature work, “while you’re here” cleanups
+- Renaming public types/members, changing signatures, or changing visibility
+- Changing file-level annotations behavior (`@file:*`), `#if`-style conditional blocks, or opt-in/suppress semantics
+
+KOTLIN EXPECTATIONS (follow strictly)
+
+1) Package + API stability
+- Keep all extracted code in the same `package` unless you can prove it has no API/behavior impact.
+- Do not require changes in other files’ imports unless absolutely necessary.
+
+2) File-private (`private`) is file-scoped
+- Top-level `private` declarations are only visible within that file.
+- Do not “fix” extraction by changing `private` to `internal`/`public`. If file-private helpers prevent splitting, keep them in the original file.
+
+3) JVM interop and file facades matter
+- Moving top-level declarations changes the generated JVM facade class (e.g. `FooKt`) and can break Java callers and reflection.
+- If the file uses `@file:JvmName(...)` / `@file:JvmMultifileClass`, treat it as a strong constraint:
+  - Prefer keeping public top-level declarations in the original file.
+  - Only use multifile-class patterns if already present; do not introduce them casually.
+
+4) Preserve annotations and compiler directives
+- Keep `@file:` annotations, `@Suppress`, `@OptIn`, `@JvmName`, `@JvmField`, `@JvmStatic`, `@Serializable`, etc. exactly correct after the move.
+- Preserve conditional compilation (`expect/actual` in multiplatform) boundaries and source set expectations.
+
+5) Prefer safe split shapes
+- One top-level type per file (common Kotlin convention).
+- Create files like `FooTypes.kt`, `FooErrors.kt`, `FooImpl.kt` only when it reduces LOC cleanly.
+
+6) Verification
+- Prefer project’s existing build tool:
+  - Gradle: `./gradlew test` or relevant module task
+  - Maven: `mvn test`
+- If you cannot run tests, at least run compilation and explain limitations.
+
+OUTPUT
+- End with the required YAML summary block.
+- Include: before/after LOC for the target file, list of new files created, and commands run.
+"""
+session_mode = "oneshot"
+max_turns = 0
+disallowed_tools = []
+aliases = [
+    "kt300",
+    "kotlin300",
+]
+output_states = [
+    "under_300_locs",
+    "already_under_300_locs",
+    "loc_reduction_blocked",
+]
+allowed_tools = [
+    "Read",
+    "Write",
+    "Edit",
+    "Glob",
+    "Grep",
+    "Bash",
+]
+
 [mode.tests]
 prompt = """
 Write tests for `{target}`: {description}
