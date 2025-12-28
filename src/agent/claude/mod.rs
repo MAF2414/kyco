@@ -4,6 +4,7 @@
 
 mod adapter;
 mod output;
+mod tool_format;
 
 pub use adapter::ClaudeAdapter;
 pub use output::StreamEvent;
