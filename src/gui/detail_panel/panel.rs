@@ -7,7 +7,7 @@ use crate::agent::bridge::PermissionMode;
 use crate::config::Config;
 use crate::{AgentGroupId, ChainStepSummary, Job, JobId, JobStatus, LogEvent, SdkType};
 
-use crate::gui::app::{
+use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_HIGHLIGHT, BG_SECONDARY, STATUS_QUEUED,
     STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };

@@ -35,9 +35,7 @@ fn download_file(url: &str, dest: &Path) -> Result<(), String> {
             "-L", // Follow redirects
             "-f", // Fail on HTTP errors
             "-s", // Silent
-            "-o",
-            dest_str,
-            url,
+            "-o", dest_str, url,
         ])
         .output()
         .map_err(|e| format!("curl failed: {}", e))?;

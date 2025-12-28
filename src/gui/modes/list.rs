@@ -4,7 +4,7 @@ use eframe::egui::{self, RichText, ScrollArea};
 
 use super::persistence::load_mode_for_editing;
 use super::state::ModeEditorState;
-use crate::gui::app::{
+use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
 

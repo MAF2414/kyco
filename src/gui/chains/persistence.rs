@@ -180,6 +180,7 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
     }
 
     let chain = ModeChain {
+        version: 0, // User-created chains start at version 0
         description: if state.chain_edit_description.trim().is_empty() {
             None
         } else {

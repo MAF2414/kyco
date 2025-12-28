@@ -1,11 +1,11 @@
 //! Job list UI rendering
 
 use super::super::animations::{blocked_indicator, pending_indicator, queued_indicator};
-use super::super::app::{
+use super::super::detail_panel::status_color;
+use super::super::theme::{
     ACCENT_CYAN, ACCENT_PURPLE, ACCENT_RED, BG_HIGHLIGHT, BG_SECONDARY, BG_SELECTED, TEXT_DIM,
     TEXT_MUTED, TEXT_PRIMARY,
 };
-use super::super::detail_panel::status_color;
 use crate::{Job, JobId, JobStatus};
 use eframe::egui::{self, Color32, RichText, ScrollArea, Stroke};
 
@@ -98,11 +98,10 @@ pub fn render_job_list(
                     ui.add_space(remaining - btn_width);
                 }
 
-                let clear_btn = egui::Button::new(
-                    RichText::new("Clear All").small().color(TEXT_DIM),
-                )
-                .fill(BG_SECONDARY)
-                .stroke(Stroke::new(1.0, TEXT_MUTED));
+                let clear_btn =
+                    egui::Button::new(RichText::new("Clear All").small().color(TEXT_DIM))
+                        .fill(BG_SECONDARY)
+                        .stroke(Stroke::new(1.0, TEXT_MUTED));
 
                 if ui
                     .add(clear_btn)
@@ -141,15 +140,17 @@ pub fn render_job_list(
                 };
 
                 // Special highlight for failed jobs with count > 0 (but not when selected)
-                let text_color = if filter_option == JobListFilter::Failed && count > 0 && !is_selected {
-                    ACCENT_RED
-                } else {
-                    text_color
-                };
+                let text_color =
+                    if filter_option == JobListFilter::Failed && count > 0 && !is_selected {
+                        ACCENT_RED
+                    } else {
+                        text_color
+                    };
 
-                let btn = egui::Button::new(RichText::new(&label_with_count).small().color(text_color))
-                    .fill(bg_color)
-                    .corner_radius(4.0);
+                let btn =
+                    egui::Button::new(RichText::new(&label_with_count).small().color(text_color))
+                        .fill(bg_color)
+                        .corner_radius(4.0);
 
                 if ui.add(btn).clicked() {
                     *filter = filter_option;
@@ -170,10 +171,8 @@ pub fn render_job_list(
             .show(ui, |ui| {
                 ui.set_min_width(available_width);
 
-                let mut filtered_jobs: Vec<&Job> = cached_jobs
-                    .iter()
-                    .filter(|j| filter.matches(j))
-                    .collect();
+                let mut filtered_jobs: Vec<&Job> =
+                    cached_jobs.iter().filter(|j| filter.matches(j)).collect();
 
                 // Sort by status priority, then by date
                 filtered_jobs.sort_by(|a, b| {
@@ -301,38 +300,43 @@ pub fn render_job_list(
 
                                 // Truncate to fit (~6.5px per char)
                                 // Use char_indices to safely truncate UTF-8 strings without panicking
-                                let max_chars = ((max_filename_width / 6.5) as usize).saturating_sub(2);
-                                let display_target = if target.chars().count() > max_chars && max_chars > 3 {
-                                    let truncate_byte_idx = target
-                                        .char_indices()
-                                        .nth(max_chars)
-                                        .map(|(idx, _)| idx)
-                                        .unwrap_or(target.len());
-                                    format!("{}…", &target[..truncate_byte_idx])
-                                } else {
-                                    target.to_string()
-                                };
+                                let max_chars =
+                                    ((max_filename_width / 6.5) as usize).saturating_sub(2);
+                                let display_target =
+                                    if target.chars().count() > max_chars && max_chars > 3 {
+                                        let truncate_byte_idx = target
+                                            .char_indices()
+                                            .nth(max_chars)
+                                            .map(|(idx, _)| idx)
+                                            .unwrap_or(target.len());
+                                        format!("{}…", &target[..truncate_byte_idx])
+                                    } else {
+                                        target.to_string()
+                                    };
 
                                 ui.label(RichText::new(&display_target).color(TEXT_DIM))
                                     .on_hover_text(&job.target);
 
                                 if job.is_finished() {
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        let delete_btn = egui::Button::new(
-                                            RichText::new("✕").color(ACCENT_RED).size(12.0),
-                                        )
-                                        .fill(Color32::TRANSPARENT)
-                                        .stroke(Stroke::NONE)
-                                        .min_size(egui::vec2(20.0, 18.0));
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            let delete_btn = egui::Button::new(
+                                                RichText::new("✕").color(ACCENT_RED).size(12.0),
+                                            )
+                                            .fill(Color32::TRANSPARENT)
+                                            .stroke(Stroke::NONE)
+                                            .min_size(egui::vec2(20.0, 18.0));
 
-                                        if ui
-                                            .add(delete_btn)
-                                            .on_hover_text("Delete this job")
-                                            .clicked()
-                                        {
-                                            action = JobListAction::DeleteJob(job.id);
-                                        }
-                                    });
+                                            if ui
+                                                .add(delete_btn)
+                                                .on_hover_text("Delete this job")
+                                                .clicked()
+                                            {
+                                                action = JobListAction::DeleteJob(job.id);
+                                            }
+                                        },
+                                    );
                                 }
                             });
                         });

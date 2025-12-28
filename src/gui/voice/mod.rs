@@ -24,12 +24,12 @@ pub mod settings;
 pub mod vad;
 
 pub use actions::{VoiceAction, VoiceActionRegistry, WakewordMatch};
-pub use paste::{copy_and_paste, paste_from_clipboard};
 pub use install::{
     InstallHandle, InstallProgress, VoiceInstallResult, WHISPER_MODELS, WhisperModel,
     get_model_info, install_voice_dependencies, install_voice_dependencies_async,
     is_model_installed,
 };
+pub use paste::{copy_and_paste, paste_from_clipboard};
 pub use settings::{VoiceSettingsState, render_voice_settings};
 pub use vad::{VadConfig, VadEvent, VadHandle, is_vad_available, start_vad_listener};
 

@@ -4,7 +4,7 @@ use eframe::egui::{self, RichText, ScrollArea};
 
 use super::persistence::load_chain_for_editing;
 use super::state::{ChainEditorState, StateDefinitionEdit};
-use crate::gui::app::{
+use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
 

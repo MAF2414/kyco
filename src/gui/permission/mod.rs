@@ -7,7 +7,7 @@ use eframe::egui::{self, Color32, Id, RichText, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::gui::app::{
+use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MUTED,
     TEXT_PRIMARY,
 };

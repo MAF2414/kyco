@@ -26,7 +26,10 @@ pub fn refresh_jobs(job_manager: &Arc<Mutex<JobManager>>) -> (Vec<Job>, u64) {
 
 /// Check if jobs have changed since last refresh.
 /// Returns Some(generation) if changed, None if same.
-pub fn check_jobs_changed(job_manager: &Arc<Mutex<JobManager>>, last_generation: u64) -> Option<u64> {
+pub fn check_jobs_changed(
+    job_manager: &Arc<Mutex<JobManager>>,
+    last_generation: u64,
+) -> Option<u64> {
     if let Ok(manager) = job_manager.lock() {
         let current = manager.generation();
         if current != last_generation {

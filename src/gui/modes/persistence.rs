@@ -122,6 +122,7 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
     let system_prompt = state.mode_edit_system_prompt.trim();
 
     let mode_config = ModeConfig {
+        version: 0, // User-created modes start at version 0
         agent: if agent.is_empty() {
             None
         } else {

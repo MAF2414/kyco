@@ -240,9 +240,7 @@ fn vad_listener_thread(
 
         if state == VadState::Recording {
             // Check process status, then handle cleanup outside the borrow
-            let process_result = recording_process
-                .as_mut()
-                .map(|proc| proc.try_wait());
+            let process_result = recording_process.as_mut().map(|proc| proc.try_wait());
 
             match process_result {
                 Some(Ok(Some(_))) => {

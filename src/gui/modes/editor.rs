@@ -5,7 +5,7 @@ use eframe::egui::{self, RichText, ScrollArea};
 use super::persistence::{delete_mode_from_config, save_mode_to_config};
 use super::state::ModeEditorState;
 use crate::gui::animations::animated_button;
-use crate::gui::app::{ACCENT_GREEN, ACCENT_RED, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::theme::{ACCENT_GREEN, ACCENT_RED, TEXT_MUTED, TEXT_PRIMARY};
 
 /// Render the mode editor form
 pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mode_name: &str) {

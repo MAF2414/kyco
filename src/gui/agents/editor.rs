@@ -5,7 +5,7 @@ use eframe::egui::{self, RichText, ScrollArea};
 use super::persistence::{delete_agent_from_config, save_agent_to_config};
 use super::state::AgentEditorState;
 use crate::gui::animations::animated_button;
-use crate::gui::app::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::theme::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, TEXT_MUTED, TEXT_PRIMARY};
 
 /// Render the agent editor form
 pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, agent_name: &str) {

@@ -5,7 +5,7 @@
 
 use eframe::egui::{self, RichText, ScrollArea, Vec2};
 
-use crate::gui::app::{
+use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_HIGHLIGHT, BG_PRIMARY, BG_SECONDARY, BG_SELECTED,
     STATUS_DONE, STATUS_FAILED, STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };

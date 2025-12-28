@@ -11,11 +11,12 @@ use crate::gui::animations::animated_button;
 /// Compile-time version string to avoid runtime allocation
 const VERSION_TEXT: &str = concat!("kyco v", env!("CARGO_PKG_VERSION"));
 
-use crate::gui::app::{
+use crate::gui::app::ViewMode;
+use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM,
-    TEXT_MUTED, TEXT_PRIMARY, ViewMode,
+    TEXT_MUTED, TEXT_PRIMARY,
 };
-use crate::gui::update::{open_url, UpdateInfo};
+use crate::gui::update::{UpdateInfo, open_url};
 
 /// GitHub Sponsors URL
 const SPONSOR_URL: &str = "https://github.com/sponsors/MAF2414";

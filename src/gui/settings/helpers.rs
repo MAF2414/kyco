@@ -4,7 +4,9 @@
 
 use eframe::egui::{self, RichText};
 
-use crate::gui::app::{ACCENT_GREEN, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::theme::{
+    ACCENT_GREEN, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 /// Render a labeled text input field
 pub fn render_text_field(

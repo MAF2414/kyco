@@ -5,7 +5,7 @@ use eframe::egui::{self, RichText, ScrollArea};
 use super::persistence::save_chain_to_config;
 use super::state::{ChainEditorState, ChainStepEdit, PendingConfirmation, StateDefinitionEdit};
 use crate::gui::animations::animated_button;
-use crate::gui::app::{
+use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED,
     TEXT_PRIMARY,
 };

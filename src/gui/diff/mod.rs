@@ -5,7 +5,7 @@
 
 use eframe::egui::{self, Color32, Frame, RichText, ScrollArea, Stroke, Vec2};
 
-use super::app::{
+use super::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, BG_HIGHLIGHT, BG_PRIMARY, BG_SECONDARY, TEXT_DIM,
     TEXT_MUTED, TEXT_PRIMARY,
 };

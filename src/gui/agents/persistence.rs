@@ -89,6 +89,7 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         .unwrap_or_else(|| (HashMap::new(), HashMap::new(), HashMap::new()));
 
     let agent_config = AgentConfigToml {
+        version: 0, // User-created agents start at version 0
         aliases,
         sdk,
         session_mode,

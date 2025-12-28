@@ -4,7 +4,9 @@
 
 use eframe::egui::{self, Color32, RichText};
 
-use crate::gui::app::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::theme::{
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+};
 
 use super::helpers::{
     render_checkbox_field, render_section_frame, render_status_message, render_text_field,
@@ -879,7 +881,8 @@ fn install_voice_dependencies(state: &mut SettingsState<'_>) {
     };
 
     // Use async installation to avoid blocking the UI thread
-    let handle = crate::gui::voice::install::install_voice_dependencies_async(state.work_dir, model_name);
+    let handle =
+        crate::gui::voice::install::install_voice_dependencies_async(state.work_dir, model_name);
     *state.voice_install_handle = Some(handle);
 }
 
@@ -1137,10 +1140,9 @@ fn run_voice_test_sync(
     }
 }
 
-
-/// Reset global config to defaults (uses full DEFAULT_CONFIG with all modes/chains)
+/// Reset global config to defaults (uses internal defaults with all modes/chains)
 fn reset_config_to_defaults(_work_dir: &std::path::Path) -> Result<(), String> {
-    use crate::cli::init::DEFAULT_CONFIG;
+    use crate::cli::init::build_default_config;
     use crate::config::Config;
 
     let config_path = Config::global_config_path();
@@ -1162,8 +1164,8 @@ fn reset_config_to_defaults(_work_dir: &std::path::Path) -> Result<(), String> {
     std::fs::create_dir_all(&config_dir)
         .map_err(|e| format!("Failed to create ~/.kyco directory: {}", e))?;
 
-    // Write full default config (18 modes, 15 chains)
-    let mut content = DEFAULT_CONFIG.to_string();
+    // Write full default config from embedded internal defaults
+    let mut content = build_default_config();
 
     // Restore HTTP token if we had one
     if let Some(token) = http_token {

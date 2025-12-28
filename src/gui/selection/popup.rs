@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use super::autocomplete::Suggestion;
 use super::context::SelectionContext;
-use crate::gui::app::{
+use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_HIGHLIGHT,
     BG_SECONDARY, STATUS_RUNNING, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };

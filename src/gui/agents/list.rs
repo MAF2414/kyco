@@ -4,7 +4,7 @@ use eframe::egui::{self, RichText, ScrollArea};
 
 use super::persistence::load_agent_for_editing;
 use super::state::AgentEditorState;
-use crate::gui::app::{ACCENT_CYAN, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::theme::{ACCENT_CYAN, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 
 /// Render the list of available agents
 pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {

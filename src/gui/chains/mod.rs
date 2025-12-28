@@ -16,9 +16,9 @@ pub use state::{ChainEditorState, ChainStepEdit, PendingConfirmation, StateDefin
 use eframe::egui::{self, RichText, Vec2};
 
 use super::animations::animated_button;
-use super::app::{
+use super::app::ViewMode;
+use super::theme::{
     ACCENT_RED, ACCENT_YELLOW, BG_PRIMARY, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
-    ViewMode,
 };
 
 /// Render the chains configuration view

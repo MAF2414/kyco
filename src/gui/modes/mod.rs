@@ -17,7 +17,8 @@ pub use state::ModeEditorState;
 use eframe::egui::{self, RichText};
 
 use super::animations::animated_button;
-use super::app::{BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY, ViewMode};
+use super::app::ViewMode;
+use super::theme::{BG_PRIMARY, TEXT_DIM, TEXT_PRIMARY};
 
 /// Render the modes configuration view
 pub fn render_modes(ctx: &egui::Context, state: &mut ModeEditorState<'_>) {

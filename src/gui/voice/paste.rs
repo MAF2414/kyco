@@ -10,7 +10,8 @@ use std::process::Command;
 
 /// Copy text to clipboard and optionally auto-paste into the focused application
 pub fn copy_and_paste(text: &str, auto_paste: bool) -> Result<(), String> {
-    let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
+    let mut clipboard =
+        Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
     clipboard
         .set_text(text)
         .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
@@ -48,9 +49,7 @@ pub fn paste_from_clipboard() -> Result<(), String> {
 #[cfg(target_os = "linux")]
 pub fn paste_from_clipboard() -> Result<(), String> {
     // Try xdotool first (most common)
-    let xdotool_result = Command::new("xdotool")
-        .args(["key", "ctrl+v"])
-        .output();
+    let xdotool_result = Command::new("xdotool").args(["key", "ctrl+v"]).output();
 
     match xdotool_result {
         Ok(output) if output.status.success() => Ok(()),
@@ -71,7 +70,10 @@ pub fn paste_from_clipboard() -> Result<(), String> {
 /// Windows is not supported for auto-paste yet
 #[cfg(target_os = "windows")]
 pub fn paste_from_clipboard() -> Result<(), String> {
-    Err("Auto-paste not supported on Windows yet. Text copied to clipboard - use Ctrl+V to paste.".to_string())
+    Err(
+        "Auto-paste not supported on Windows yet. Text copied to clipboard - use Ctrl+V to paste."
+            .to_string(),
+    )
 }
 
 /// Fallback for other platforms
