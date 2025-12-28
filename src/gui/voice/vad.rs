@@ -161,7 +161,14 @@ fn vad_listener_thread(
                 config = new_config;
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                // Clean up any running recording process before exiting
+                if let Some(mut proc) = recording_process.take() {
+                    let _ = proc.kill();
+                    let _ = proc.wait();
+                }
+                break;
+            }
         }
 
         if state == VadState::Idle {
