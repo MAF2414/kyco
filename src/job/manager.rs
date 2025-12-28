@@ -78,8 +78,8 @@ impl JobManager {
         };
 
         // Determine workspace_path: git root > file's parent directory
-        let workspace_path = find_git_root(&tag.file_path)
-            .or_else(|| tag.file_path.parent().map(PathBuf::from));
+        let workspace_path =
+            find_git_root(&tag.file_path).or_else(|| tag.file_path.parent().map(PathBuf::from));
 
         let mut job = Job::new(
             id,

@@ -245,7 +245,10 @@ impl TerminalSession {
             .context("Failed to focus terminal")?;
 
         if !status.success() {
-            anyhow::bail!("Failed to focus terminal: open command exited with {}", status);
+            anyhow::bail!(
+                "Failed to focus terminal: open command exited with {}",
+                status
+            );
         }
 
         Ok(())

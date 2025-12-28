@@ -264,7 +264,6 @@ pub struct AgentConfig {
     /// When set, the bridge will request JSON output that conforms to this schema.
     #[serde(default)]
     pub structured_output_schema: Option<String>,
-
 }
 
 impl Default for AgentConfig {

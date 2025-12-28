@@ -122,6 +122,7 @@ fn test_chain_step_deserialization_with_defaults() {
 #[test]
 fn test_mode_chain_creation() {
     let chain = ModeChain {
+        version: 0,
         description: Some("Test chain".to_string()),
         steps: vec![ChainStep {
             mode: "review".to_string(),
@@ -155,6 +156,7 @@ fn test_mode_chain_default_stop_on_failure() {
 #[test]
 fn test_mode_chain_stop_on_failure_false() {
     let chain = ModeChain {
+        version: 0,
         description: None,
         steps: vec![],
         stop_on_failure: false,
@@ -168,6 +170,7 @@ fn test_mode_chain_stop_on_failure_false() {
 #[test]
 fn test_mode_chain_with_empty_steps() {
     let chain = ModeChain {
+        version: 0,
         description: Some("Empty chain".to_string()),
         steps: vec![],
         stop_on_failure: true,
@@ -181,6 +184,7 @@ fn test_mode_chain_with_empty_steps() {
 #[test]
 fn test_mode_chain_with_multiple_steps() {
     let chain = ModeChain {
+        version: 0,
         description: Some("Review and fix chain".to_string()),
         steps: vec![
             ChainStep {
@@ -212,6 +216,7 @@ fn test_mode_chain_with_multiple_steps() {
 #[test]
 fn test_mode_chain_serialization_roundtrip() {
     let chain = ModeChain {
+        version: 0,
         description: Some("Test chain".to_string()),
         steps: vec![
             ChainStep {
@@ -389,6 +394,7 @@ fn test_chain_step_with_empty_string_in_triggers() {
 #[test]
 fn test_mode_chain_toml_serialization() {
     let chain = ModeChain {
+        version: 0,
         description: Some("TOML test chain".to_string()),
         steps: vec![ChainStep {
             mode: "review".to_string(),
@@ -418,6 +424,7 @@ fn test_chain_with_nonexistent_mode_reference() {
     config.chain.insert(
         "bad_chain".to_string(),
         ModeChain {
+            version: 0,
             description: Some("Chain with nonexistent mode".to_string()),
             steps: vec![ChainStep {
                 mode: "nonexistent_mode".to_string(),
@@ -444,6 +451,7 @@ fn test_config_chain_insertion_and_retrieval() {
     let mut config = Config::default();
 
     let chain = ModeChain {
+        version: 0,
         description: Some("Custom chain".to_string()),
         steps: vec![ChainStep {
             mode: "review".to_string(),
@@ -496,6 +504,7 @@ fn test_chain_step_clone() {
 #[test]
 fn test_mode_chain_clone() {
     let original = ModeChain {
+        version: 0,
         description: Some("Test".to_string()),
         steps: vec![ChainStep {
             mode: "review".to_string(),
@@ -682,6 +691,7 @@ fn test_chain_step_no_trigger_no_skip_always_runs() {
 #[test]
 fn test_chain_yaml_serialization() {
     let chain = ModeChain {
+        version: 0,
         description: Some("YAML test".to_string()),
         steps: vec![ChainStep {
             mode: "review".to_string(),
@@ -710,6 +720,7 @@ fn test_full_config_with_chain_toml_roundtrip() {
     config.chain.insert(
         "test_chain".to_string(),
         ModeChain {
+            version: 0,
             description: Some("Test".to_string()),
             steps: vec![ChainStep {
                 mode: "review".to_string(),
@@ -1098,6 +1109,7 @@ fn test_chain_validation_whitespace_name() {
 #[test]
 fn test_chain_validation_empty_steps() {
     let chain = ModeChain {
+        version: 0,
         description: Some("Empty chain".to_string()),
         steps: vec![],
         stop_on_failure: true,

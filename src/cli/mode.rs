@@ -128,6 +128,7 @@ pub fn mode_set_command(
     let (mut cfg, config_path) = load_or_init_config(work_dir, config_override)?;
 
     let mut mode = cfg.mode.remove(&args.name).unwrap_or_else(|| ModeConfig {
+        version: 0, // User-created modes start at version 0
         agent: None,
         target_default: None,
         scope_default: None,

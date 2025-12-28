@@ -197,11 +197,7 @@ fn parse_numstat_output(output: &[u8]) -> Vec<(String, usize, usize, bool)> {
 /// Find the git repository root for a given path.
 /// Returns None if the path is not inside a git repository.
 pub fn find_git_root(path: &Path) -> Option<PathBuf> {
-    let start_dir = if path.is_file() {
-        path.parent()?
-    } else {
-        path
-    };
+    let start_dir = if path.is_file() { path.parent()? } else { path };
 
     let output = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
@@ -956,7 +952,8 @@ impl GitManager {
             .context("Failed to run git diff --numstat HEAD")?;
 
         if uncommitted_output.status.success() {
-            for (path, added, removed, is_binary) in parse_numstat_output(&uncommitted_output.stdout)
+            for (path, added, removed, is_binary) in
+                parse_numstat_output(&uncommitted_output.stdout)
             {
                 if !tracked_paths.contains(&path) {
                     tracked_paths.insert(path.clone());
@@ -1189,7 +1186,9 @@ mod tests {
 
         let gm = GitManager::new(repo).expect("git manager");
         let settings = DiffSettings::default();
-        let report = gm.diff_report(repo, Some("main"), &settings).expect("diff_report");
+        let report = gm
+            .diff_report(repo, Some("main"), &settings)
+            .expect("diff_report");
 
         assert_eq!(report.files_changed, 1);
         assert_eq!(report.files[0].path, "README.md");
