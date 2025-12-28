@@ -52,6 +52,10 @@ pub struct ChainStep {
 /// A chain of modes to execute sequentially
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModeChain {
+    /// Version number for versioned merging (internal configs only)
+    /// Higher versions will override user customizations
+    #[serde(default)]
+    pub version: u32,
     /// Human-readable description of what this chain does
     pub description: Option<String>,
     /// State definitions for this chain - detected via pattern matching in output

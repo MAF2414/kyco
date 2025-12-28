@@ -76,6 +76,10 @@ pub enum ModeSessionType {
 /// - {mode} - the mode name
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModeConfig {
+    /// Version number for versioned merging (internal configs only)
+    /// Higher versions will override user customizations
+    #[serde(default)]
+    pub version: u32,
     /// Default agent for this mode (can be overridden in marker)
     #[serde(default)]
     pub agent: Option<String>,

@@ -9,6 +9,10 @@ use crate::{ClaudeAgentDefinition, McpServerConfig, SdkType, SessionMode, System
 /// Agent configuration in TOML format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfigToml {
+    /// Version number for versioned merging (internal configs only)
+    /// Higher versions will override user customizations
+    #[serde(default)]
+    pub version: u32,
     /// Short aliases for this agent (e.g., ["c", "cl"] for claude)
     #[serde(default)]
     pub aliases: Vec<String>,

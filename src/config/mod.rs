@@ -3,6 +3,7 @@
 mod agent;
 mod alias;
 mod chain;
+mod internal;
 mod mode;
 mod scope;
 mod settings;
@@ -11,6 +12,7 @@ mod target;
 pub use agent::AgentConfigToml;
 pub use alias::AliasConfig;
 pub use chain::{ChainStep, ModeChain, ModeOrChain, StateDefinition};
+pub use internal::{InternalDefaults, INTERNAL_DEFAULTS_TOML};
 pub use mode::{ClaudeModeOptions, CodexModeOptions, ModeConfig, ModeSessionType};
 pub use scope::ScopeConfig;
 pub use settings::{GuiSettings, RegistrySettings, Settings, VoiceSettings};
@@ -25,7 +27,7 @@ use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
-use crate::{AgentConfig, SdkType, SessionMode, SystemPromptMode};
+use crate::{AgentConfig, SdkType, SessionMode};
 
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,13 +88,33 @@ impl Config {
         Self::global_config_dir().join("config.toml")
     }
 
-    /// Load configuration from a file
-    pub fn from_file(path: &Path) -> Result<Self> {
+    /// Load configuration from a file without merging internal defaults.
+    ///
+    /// Use this when you need the raw config as stored in the file.
+    /// For most use cases, prefer `from_file()` which merges internal defaults.
+    fn from_file_raw(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
         let config: Config = toml::from_str(&content)
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
+
+        Ok(config)
+    }
+
+    /// Load configuration from a file.
+    ///
+    /// This automatically merges internal defaults (modes, chains, agents)
+    /// into the loaded config. New internal items are added, and items with
+    /// higher versions replace existing ones.
+    ///
+    /// Note: This does NOT save the merged config. Use `Config::load()` if
+    /// you want automatic saving after merge.
+    pub fn from_file(path: &Path) -> Result<Self> {
+        let mut config = Self::from_file_raw(path)?;
+
+        // Always merge internal defaults so user gets new modes/chains/agents
+        config.merge_internal_defaults();
 
         Ok(config)
     }
@@ -105,12 +127,12 @@ impl Config {
     /// 3. Parent directory is created if needed
     pub fn save_to_file(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create config directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create config directory: {}", parent.display())
+            })?;
         }
 
-        let content = toml::to_string_pretty(self)
-            .with_context(|| "Failed to serialize config")?;
+        let content = toml::to_string_pretty(self).with_context(|| "Failed to serialize config")?;
 
         // Create lock file (separate from config to avoid issues with rename)
         let lock_path = path.with_extension("toml.lock");
@@ -152,16 +174,27 @@ impl Config {
     }
 
     /// Load global configuration from ~/.kyco/config.toml
-    /// If no config exists, auto-creates one with defaults
+    /// If no config exists, auto-creates one with defaults.
+    /// Also merges internal defaults (versioned) and saves if changes were made.
     pub fn load() -> Result<Self> {
         let global_path = Self::global_config_path();
 
-        if global_path.exists() {
-            return Self::from_file(&global_path);
+        if !global_path.exists() {
+            Self::auto_init()?;
         }
 
-        Self::auto_init()?;
-        Self::from_file(&global_path)
+        // Use from_file_raw() to get the config without merging first
+        let mut config = Self::from_file_raw(&global_path)?;
+
+        // Merge internal defaults and save if changes were made
+        if config.merge_internal_defaults() {
+            // Save the updated config with new internal modes/chains/agents
+            if let Err(e) = config.save_to_file(&global_path) {
+                tracing::warn!("Failed to save config after merging internal defaults: {}", e);
+            }
+        }
+
+        Ok(config)
     }
 
     /// Load configuration from a directory (legacy compatibility)
@@ -238,222 +271,13 @@ impl Config {
         Ok(())
     }
 
-    /// Create a config with sensible defaults
+    /// Create a config with sensible defaults from embedded internal defaults.
+    ///
+    /// This loads all built-in agents, modes, and chains from the embedded
+    /// `assets/internal/defaults.toml` file.
     pub fn with_defaults() -> Self {
         let mut config = Self::default();
-
-        config.agent.insert(
-            "claude".to_string(),
-            AgentConfigToml {
-                aliases: vec!["c".to_string(), "cl".to_string()],
-                sdk: SdkType::Claude,
-                session_mode: SessionMode::Oneshot,
-                system_prompt_mode: SystemPromptMode::Append,
-                disallowed_tools: vec![],
-                allowed_tools: vec![],
-                env: HashMap::new(),
-                mcp_servers: HashMap::new(),
-                agents: HashMap::new(),
-            },
-        );
-
-        config.agent.insert(
-            "codex".to_string(),
-            AgentConfigToml {
-                aliases: vec!["x".to_string(), "cx".to_string()],
-                sdk: SdkType::Codex,
-                session_mode: SessionMode::Oneshot,
-                system_prompt_mode: SystemPromptMode::Append,
-                disallowed_tools: vec![],
-                allowed_tools: vec![],
-                env: HashMap::new(),
-                mcp_servers: HashMap::new(),
-                agents: HashMap::new(),
-            },
-        );
-
-        config.mode.insert(
-            "review".to_string(),
-            ModeConfig {
-                agent: None,
-                target_default: Some("code".to_string()),
-                scope_default: Some("file".to_string()),
-                prompt: Some("Review the code in `{file}` for issues, bugs, and improvements. {description}".to_string()),
-                system_prompt: Some("You are a code reviewer. Focus on bugs, security issues, performance problems, and code quality. Be thorough but constructive. Do NOT modify any files.".to_string()),
-                session_mode: ModeSessionType::Oneshot,
-                max_turns: 10,
-                model: None,
-                disallowed_tools: vec!["Write".to_string(), "Edit".to_string(), "Bash".to_string()],
-                claude: Some(ClaudeModeOptions {
-                    permission_mode: "default".to_string(),
-                }),
-                codex: Some(CodexModeOptions {
-                    sandbox: "read-only".to_string(),
-                }),
-                aliases: vec!["r".to_string(), "rev".to_string()],
-                output_states: vec!["issues_found".to_string(), "no_issues".to_string()],
-                state_prompt: None,
-                allowed_tools: vec![],
-            },
-        );
-
-        config.mode.insert(
-            "fix".to_string(),
-            ModeConfig {
-                agent: None,
-                target_default: Some("code".to_string()),
-                scope_default: Some("file".to_string()),
-                prompt: Some("Fix the issues in `{file}`. {description}".to_string()),
-                system_prompt: Some("You are a code fixer. Apply the necessary fixes based on the issues identified. Make minimal changes to fix the problems.".to_string()),
-                session_mode: ModeSessionType::Oneshot,
-                max_turns: 30,
-                model: None,
-                disallowed_tools: vec!["Bash(git push)".to_string(), "Bash(git push --force)".to_string()],
-                claude: Some(ClaudeModeOptions {
-                    permission_mode: "acceptEdits".to_string(),
-                }),
-                codex: Some(CodexModeOptions {
-                    sandbox: "workspace-write".to_string(),
-                }),
-                aliases: vec!["f".to_string()],
-                output_states: vec!["fixed".to_string(), "unfixable".to_string()],
-                state_prompt: None,
-                allowed_tools: vec![],
-            },
-        );
-
-        config.mode.insert(
-            "implement".to_string(),
-            ModeConfig {
-                agent: None,
-                target_default: Some("code".to_string()),
-                scope_default: Some("file".to_string()),
-                prompt: Some("Implement the following in `{file}`: {description}".to_string()),
-                system_prompt: Some("You are a software engineer. Implement the requested feature or functionality.".to_string()),
-                session_mode: ModeSessionType::Oneshot,
-                max_turns: 50,
-                model: None,
-                disallowed_tools: vec!["Bash(git push)".to_string(), "Bash(git push --force)".to_string()],
-                claude: Some(ClaudeModeOptions {
-                    permission_mode: "acceptEdits".to_string(),
-                }),
-                codex: Some(CodexModeOptions {
-                    sandbox: "workspace-write".to_string(),
-                }),
-                aliases: vec!["i".to_string(), "impl".to_string()],
-                output_states: vec!["implemented".to_string(), "blocked".to_string()],
-                state_prompt: None,
-                allowed_tools: vec![],
-            },
-        );
-
-        config.mode.insert(
-            "plan".to_string(),
-            ModeConfig {
-                agent: None,
-                target_default: Some("code".to_string()),
-                scope_default: Some("file".to_string()),
-                prompt: Some(
-                    "Create a detailed implementation plan for `{file}`. {description}".to_string(),
-                ),
-                system_prompt: Some(
-                    "You are in planning mode. Propose a concrete, step-by-step plan with relevant files/functions, risks, and how you would validate the change. Do NOT modify any files or run commands."
-                        .to_string(),
-                ),
-                session_mode: ModeSessionType::Oneshot,
-                max_turns: 15,
-                model: None,
-                disallowed_tools: vec!["Write".to_string(), "Edit".to_string(), "Bash".to_string()],
-                claude: Some(ClaudeModeOptions {
-                    permission_mode: "plan".to_string(),
-                }),
-                codex: Some(CodexModeOptions {
-                    sandbox: "read-only".to_string(),
-                }),
-                aliases: vec!["p".to_string()],
-                output_states: vec!["plan_ready".to_string(), "needs_clarification".to_string()],
-                state_prompt: None,
-                allowed_tools: vec![],
-            },
-        );
-
-        config.mode.insert(
-            "chat".to_string(),
-            ModeConfig {
-                agent: None,
-                target_default: None,
-                scope_default: None,
-                prompt: Some("{description}".to_string()),
-                system_prompt: Some("You are a helpful assistant for this codebase. You can read and explore the code to answer questions.".to_string()),
-                session_mode: ModeSessionType::Session,
-                max_turns: 0,
-                model: None,
-                disallowed_tools: vec!["Bash(git push)".to_string()],
-                claude: Some(ClaudeModeOptions {
-                    permission_mode: "default".to_string(),
-                }),
-                codex: Some(CodexModeOptions {
-                    sandbox: "workspace-write".to_string(),
-                }),
-                aliases: vec!["c".to_string()],
-                output_states: vec![],
-                state_prompt: None,
-                allowed_tools: vec![],
-            },
-        );
-
-        config.chain.insert(
-            "review+fix".to_string(),
-            ModeChain {
-                description: Some("Review code and fix any issues found".to_string()),
-                states: vec![
-                    StateDefinition {
-                        id: "issues_found".to_string(),
-                        description: Some("Issues were found in the code review".to_string()),
-                        patterns: vec![
-                            "issues found".to_string(),
-                            "problems found".to_string(),
-                            "bugs found".to_string(),
-                            "needs fixing".to_string(),
-                            "should be fixed".to_string(),
-                        ],
-                        is_regex: false,
-                        case_insensitive: true,
-                    },
-                    StateDefinition {
-                        id: "no_issues".to_string(),
-                        description: Some("No issues were found".to_string()),
-                        patterns: vec![
-                            "no issues".to_string(),
-                            "looks good".to_string(),
-                            "code is clean".to_string(),
-                            "no problems".to_string(),
-                        ],
-                        is_regex: false,
-                        case_insensitive: true,
-                    },
-                ],
-                steps: vec![
-                    ChainStep {
-                        mode: "review".to_string(),
-                        trigger_on: None,
-                        skip_on: None,
-                        agent: None,
-                        inject_context: None,
-                    },
-                    ChainStep {
-                        mode: "fix".to_string(),
-                        trigger_on: Some(vec!["issues_found".to_string()]),
-                        skip_on: Some(vec!["no_issues".to_string()]),
-                        agent: None,
-                        inject_context: None,
-                    },
-                ],
-                stop_on_failure: true,
-                pass_full_response: true,
-            },
-        );
-
+        config.merge_internal_defaults();
         config
     }
 
@@ -688,6 +512,67 @@ impl Config {
             .replace("{scope}", scope_text)
             .replace("{file}", file)
             .replace("{description}", description)
+    }
+
+    /// Merge internal defaults into this config using versioned merging.
+    ///
+    /// Returns true if any changes were made (new items added or upgraded).
+    pub fn merge_internal_defaults(&mut self) -> bool {
+        let internal = match InternalDefaults::load() {
+            Ok(defaults) => defaults,
+            Err(e) => {
+                tracing::error!("Failed to parse internal defaults: {}", e);
+                return false;
+            }
+        };
+
+        // Track sizes before merge to detect changes
+        let agents_before = self.agent.len();
+        let modes_before = self.mode.len();
+        let chains_before = self.chain.len();
+
+        // Also need to check if any versions were upgraded
+        let mut version_changes = false;
+
+        // Check for version upgrades before merge
+        for (name, internal_agent) in &internal.agent {
+            if let Some(existing) = self.agent.get(name) {
+                if internal_agent.version > existing.version {
+                    version_changes = true;
+                    break;
+                }
+            }
+        }
+        if !version_changes {
+            for (name, internal_mode) in &internal.mode {
+                if let Some(existing) = self.mode.get(name) {
+                    if internal_mode.version > existing.version {
+                        version_changes = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if !version_changes {
+            for (name, internal_chain) in &internal.chain {
+                if let Some(existing) = self.chain.get(name) {
+                    if internal_chain.version > existing.version {
+                        version_changes = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Perform the merge
+        internal.merge_into(&mut self.agent, &mut self.mode, &mut self.chain);
+
+        // Check if anything changed
+        let size_changes = self.agent.len() != agents_before
+            || self.mode.len() != modes_before
+            || self.chain.len() != chains_before;
+
+        size_changes || version_changes
     }
 }
 
