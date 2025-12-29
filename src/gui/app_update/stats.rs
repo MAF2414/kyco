@@ -165,6 +165,20 @@ fn looks_like_file_path(s: &str) -> bool {
         return false;
     }
 
+    // Skip system binary paths
+    if s.starts_with("/bin/") || s.starts_with("/usr/bin/") || s.starts_with("/usr/local/bin/")
+        || s.starts_with("/sbin/") || s.starts_with("/opt/")
+    {
+        return false;
+    }
+
+    // Skip shell executables by name
+    let filename = s.rsplit('/').next().unwrap_or(s);
+    const SHELL_BINARIES: &[&str] = &["zsh", "bash", "sh", "fish", "csh", "tcsh", "ksh", "dash"];
+    if SHELL_BINARIES.contains(&filename) {
+        return false;
+    }
+
     // Common file extensions
     const EXTENSIONS: &[&str] = &[
         ".rs", ".ts", ".js", ".tsx", ".jsx", ".py", ".go", ".java", ".c", ".cpp", ".h",
@@ -461,11 +475,19 @@ mod tests {
         assert!(looks_like_file_path("Cargo.toml"));
         assert!(looks_like_file_path("./foo/bar.ts"));
         assert!(looks_like_file_path("/abs/path/file.py"));
+        assert!(looks_like_file_path("AGENTS.md"));
 
         // Not file paths
         assert!(!looks_like_file_path("git"));
         assert!(!looks_like_file_path("-l"));
         assert!(!looks_like_file_path("https://example.com/foo"));
         assert!(!looks_like_file_path("some random text"));
+
+        // System binaries should be excluded
+        assert!(!looks_like_file_path("/bin/zsh"));
+        assert!(!looks_like_file_path("/usr/bin/bash"));
+        assert!(!looks_like_file_path("/usr/local/bin/node"));
+        assert!(!looks_like_file_path("zsh"));
+        assert!(!looks_like_file_path("bash"));
     }
 }
