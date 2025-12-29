@@ -73,46 +73,47 @@ mod tests {
     fn test_interval_bucket_alignment() {
         // Test minute alignment to 15-minute intervals
         // 12:00 -> 12:00
+        // Infallible: hardcoded valid date/time literals
         let ts_00 = chrono::NaiveDate::from_ymd_opt(2023, 12, 28)
-            .unwrap()
+            .expect("valid date")
             .and_hms_opt(12, 0, 0)
-            .unwrap()
+            .expect("valid time")
             .and_utc()
             .timestamp_millis();
         assert_eq!(interval_bucket(ts_00), "2023-12-28-12-00");
 
         // 12:07 -> 12:00
         let ts_07 = chrono::NaiveDate::from_ymd_opt(2023, 12, 28)
-            .unwrap()
+            .expect("valid date")
             .and_hms_opt(12, 7, 0)
-            .unwrap()
+            .expect("valid time")
             .and_utc()
             .timestamp_millis();
         assert_eq!(interval_bucket(ts_07), "2023-12-28-12-00");
 
         // 12:15 -> 12:15
         let ts_15 = chrono::NaiveDate::from_ymd_opt(2023, 12, 28)
-            .unwrap()
+            .expect("valid date")
             .and_hms_opt(12, 15, 0)
-            .unwrap()
+            .expect("valid time")
             .and_utc()
             .timestamp_millis();
         assert_eq!(interval_bucket(ts_15), "2023-12-28-12-15");
 
         // 12:29 -> 12:15
         let ts_29 = chrono::NaiveDate::from_ymd_opt(2023, 12, 28)
-            .unwrap()
+            .expect("valid date")
             .and_hms_opt(12, 29, 0)
-            .unwrap()
+            .expect("valid time")
             .and_utc()
             .timestamp_millis();
         assert_eq!(interval_bucket(ts_29), "2023-12-28-12-15");
 
         // 12:45 -> 12:45
         let ts_45 = chrono::NaiveDate::from_ymd_opt(2023, 12, 28)
-            .unwrap()
+            .expect("valid date")
             .and_hms_opt(12, 45, 0)
-            .unwrap()
+            .expect("valid time")
             .and_utc()
             .timestamp_millis();
         assert_eq!(interval_bucket(ts_45), "2023-12-28-12-45");
