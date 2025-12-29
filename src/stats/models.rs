@@ -147,6 +147,12 @@ impl StatsSummary {
 /// Time range for filtering stats
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TimeRange {
+    Last15Minutes,
+    Last30Minutes,
+    Last1Hour,
+    Last8Hours,
+    Last1Day,
+    Last3Days,
     Last7Days,
     #[default]
     Last30Days,
@@ -155,9 +161,17 @@ pub enum TimeRange {
 }
 
 impl TimeRange {
-    /// Get the number of days to look back (None for all time)
+    /// Get the number of days to look back (None for all time).
+    ///
+    /// For sub-day ranges, this returns 1 to include the current day bucket.
     pub fn days(&self) -> Option<u32> {
         match self {
+            Self::Last15Minutes => Some(1),
+            Self::Last30Minutes => Some(1),
+            Self::Last1Hour => Some(1),
+            Self::Last8Hours => Some(1),
+            Self::Last1Day => Some(1),
+            Self::Last3Days => Some(3),
             Self::Last7Days => Some(7),
             Self::Last30Days => Some(30),
             Self::Last90Days => Some(90),
@@ -165,8 +179,34 @@ impl TimeRange {
         }
     }
 
+    /// Get the lookback window in milliseconds (None for all time).
+    pub fn window_ms(&self) -> Option<i64> {
+        const MINUTE_MS: i64 = 60 * 1000;
+        const HOUR_MS: i64 = 60 * MINUTE_MS;
+        const DAY_MS: i64 = 24 * HOUR_MS;
+
+        match self {
+            Self::Last15Minutes => Some(15 * MINUTE_MS),
+            Self::Last30Minutes => Some(30 * MINUTE_MS),
+            Self::Last1Hour => Some(1 * HOUR_MS),
+            Self::Last8Hours => Some(8 * HOUR_MS),
+            Self::Last1Day => Some(1 * DAY_MS),
+            Self::Last3Days => Some(3 * DAY_MS),
+            Self::Last7Days => Some(7 * DAY_MS),
+            Self::Last30Days => Some(30 * DAY_MS),
+            Self::Last90Days => Some(90 * DAY_MS),
+            Self::AllTime => None,
+        }
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
+            Self::Last15Minutes => "Last 15 min",
+            Self::Last30Minutes => "Last 30 min",
+            Self::Last1Hour => "Last 1 hour",
+            Self::Last8Hours => "Last 8 hours",
+            Self::Last1Day => "Last 1 day",
+            Self::Last3Days => "Last 3 days",
             Self::Last7Days => "Last 7 days",
             Self::Last30Days => "Last 30 days",
             Self::Last90Days => "Last 90 days",

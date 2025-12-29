@@ -4,16 +4,16 @@
 
 use eframe::egui::{self, RichText, ScrollArea};
 
+use super::animations::animated_button;
 use super::app::KycoApp;
+use super::app_types::ViewMode;
 use super::theme::{
-    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_HIGHLIGHT, BG_SECONDARY,
-    TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_HIGHLIGHT, BG_PRIMARY,
+    BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
-use crate::stats::DashboardFilter;
+use crate::stats::{DashboardFilter, TimeRange};
 
-mod cards;
 mod charts;
-mod header;
 
 impl KycoApp {
     pub(crate) fn render_stats(&mut self, ctx: &egui::Context) {
@@ -28,7 +28,7 @@ impl KycoApp {
         }
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(super::theme::BG_PRIMARY).inner_margin(16.0))
+            .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(16.0))
             .show(ctx, |ui| {
                 ScrollArea::vertical()
                     .auto_shrink([false, false])
@@ -76,7 +76,149 @@ impl KycoApp {
             });
     }
 
-    pub(super) fn refresh_dashboard(&mut self) {
+    fn render_dashboard_header(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("DASHBOARD").monospace().size(18.0).color(TEXT_PRIMARY));
+            ui.add_space(16.0);
+
+            // Time range selector
+            ui.label(RichText::new("Range:").small().color(TEXT_DIM));
+            egui::ComboBox::from_id_salt("stats_time_range")
+                .selected_text(self.stats_time_range.label())
+                .show_ui(ui, |ui| {
+                    for range in [
+                        TimeRange::Last15Minutes,
+                        TimeRange::Last30Minutes,
+                        TimeRange::Last1Hour,
+                        TimeRange::Last8Hours,
+                        TimeRange::Last1Day,
+                        TimeRange::Last3Days,
+                        TimeRange::Last7Days,
+                        TimeRange::Last30Days,
+                        TimeRange::Last90Days,
+                        TimeRange::AllTime,
+                    ] {
+                        if ui.selectable_label(self.stats_time_range == range, range.label()).clicked() {
+                            self.stats_time_range = range;
+                            self.refresh_dashboard();
+                        }
+                    }
+                });
+
+            ui.add_space(12.0);
+
+            // Agent filter
+            ui.label(RichText::new("Agent:").small().color(TEXT_DIM));
+            let agent_label = self.stats_filter_agent.as_deref().unwrap_or("All");
+            let available_agents = self.dashboard_summary.available_agents.clone();
+            let mut agent_changed = false;
+            let mut new_agent: Option<String> = self.stats_filter_agent.clone();
+            egui::ComboBox::from_id_salt("stats_filter_agent")
+                .selected_text(agent_label)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(new_agent.is_none(), "All").clicked() {
+                        new_agent = None;
+                        agent_changed = true;
+                    }
+                    for agent in &available_agents {
+                        let selected = new_agent.as_ref() == Some(agent);
+                        if ui.selectable_label(selected, agent).clicked() {
+                            new_agent = Some(agent.clone());
+                            agent_changed = true;
+                        }
+                    }
+                });
+            if agent_changed {
+                self.stats_filter_agent = new_agent;
+            }
+
+            ui.add_space(12.0);
+
+            // Mode filter
+            ui.label(RichText::new("Mode:").small().color(TEXT_DIM));
+            let mode_label = self.stats_filter_mode.as_deref().unwrap_or("All");
+            let available_modes = self.dashboard_summary.available_modes.clone();
+            let mut mode_changed = false;
+            let mut new_mode: Option<String> = self.stats_filter_mode.clone();
+            egui::ComboBox::from_id_salt("stats_filter_mode")
+                .selected_text(mode_label)
+                .width(100.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(new_mode.is_none(), "All").clicked() {
+                        new_mode = None;
+                        mode_changed = true;
+                    }
+                    for mode in &available_modes {
+                        let selected = new_mode.as_ref() == Some(mode);
+                        if ui.selectable_label(selected, mode).clicked() {
+                            new_mode = Some(mode.clone());
+                            mode_changed = true;
+                        }
+                    }
+                });
+            if mode_changed {
+                self.stats_filter_mode = new_mode;
+            }
+
+            ui.add_space(12.0);
+
+            // Workspace filter
+            ui.label(RichText::new("Workspace:").small().color(TEXT_DIM));
+            let workspace_label = self.stats_filter_workspace
+                .as_ref()
+                .map(|w| {
+                    // Show just the last path component
+                    w.rsplit('/').next().unwrap_or(w)
+                })
+                .unwrap_or("All");
+            let available_workspaces = self.dashboard_summary.available_workspaces.clone();
+            let mut workspace_changed = false;
+            let mut new_workspace: Option<String> = self.stats_filter_workspace.clone();
+            egui::ComboBox::from_id_salt("stats_filter_workspace")
+                .selected_text(workspace_label)
+                .width(100.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(new_workspace.is_none(), "All").clicked() {
+                        new_workspace = None;
+                        workspace_changed = true;
+                    }
+                    for ws in &available_workspaces {
+                        let selected = new_workspace.as_ref() == Some(ws);
+                        // Show short name in dropdown
+                        let display = ws.rsplit('/').next().unwrap_or(ws);
+                        if ui.selectable_label(selected, display).clicked() {
+                            new_workspace = Some(ws.clone());
+                            workspace_changed = true;
+                        }
+                    }
+                });
+            if workspace_changed {
+                self.stats_filter_workspace = new_workspace;
+            }
+
+            // Trigger refresh if filters changed
+            if agent_changed || mode_changed || workspace_changed {
+                self.refresh_dashboard();
+            }
+
+            // Right side: Reset + Refresh + Close
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if animated_button(ui, "Close", TEXT_DIM, "stats_close").clicked() {
+                    self.view_mode = ViewMode::JobList;
+                }
+                ui.add_space(8.0);
+                if animated_button(ui, "Refresh", ACCENT_CYAN, "stats_refresh").clicked() {
+                    self.refresh_dashboard();
+                }
+                ui.add_space(8.0);
+                if animated_button(ui, "Reset", ACCENT_RED, "stats_reset").clicked() {
+                    self.stats_reset_confirm = true;
+                }
+            });
+        });
+    }
+
+    fn refresh_dashboard(&mut self) {
         if let Some(manager) = &self.stats_manager {
             let filter = DashboardFilter {
                 agent: self.stats_filter_agent.clone(),
@@ -101,13 +243,13 @@ impl KycoApp {
         // Row 1: Jobs, Tokens, Cost, Bytes, Avg Time, Total Time, Wall Clock
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = spacing;
-            cards::summary_card_full(ui, "Jobs ✓", s.succeeded_jobs.current as u64, &s.succeeded_jobs, |v| v.to_string(), ACCENT_CYAN, row1_card_width, false);
-            cards::summary_card_full(ui, "Tokens", s.total_tokens.current as u64, &s.total_tokens, charts::format_tokens, ACCENT_CYAN, row1_card_width, false);
-            cards::summary_card_full_f64(ui, "Cost", s.total_cost.current, &s.total_cost, |v| format!("${:.2}", v), ACCENT_CYAN, row1_card_width, false);
-            cards::summary_card_full_f64(ui, "Bytes", s.total_bytes.current, &s.total_bytes, charts::format_bytes, ACCENT_CYAN, row1_card_width, false);
-            cards::summary_card_full_f64(ui, "Avg Time", s.avg_duration_ms.current, &s.avg_duration_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
-            cards::summary_card_full_f64(ui, "Total Time", s.total_duration_ms.current, &s.total_duration_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
-            cards::summary_card_full_f64(ui, "Wall Clock", s.wall_clock_ms.current, &s.wall_clock_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full(ui, "Jobs ✓", s.succeeded_jobs.current as u64, &s.succeeded_jobs, |v| v.to_string(), ACCENT_CYAN, row1_card_width, false);
+            summary_card_full(ui, "Tokens", s.total_tokens.current as u64, &s.total_tokens, charts::format_tokens, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Cost", s.total_cost.current, &s.total_cost, |v| format!("${:.2}", v), ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Bytes", s.total_bytes.current, &s.total_bytes, charts::format_bytes, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Avg Time", s.avg_duration_ms.current, &s.avg_duration_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Total Time", s.total_duration_ms.current, &s.total_duration_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Wall Clock", s.wall_clock_ms.current, &s.wall_clock_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
         });
 
         ui.add_space(spacing);
@@ -115,12 +257,12 @@ impl KycoApp {
         // Row 2: Input Tokens, Output Tokens, Cached, Tools, Files, Failed
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = spacing;
-            cards::summary_card_full(ui, "Input", s.input_tokens.current as u64, &s.input_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
-            cards::summary_card_full(ui, "Output", s.output_tokens.current as u64, &s.output_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
-            cards::summary_card_full(ui, "Cached", s.cached_tokens.current as u64, &s.cached_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
-            cards::summary_card_full(ui, "Tools", s.total_tool_calls.current as u64, &s.total_tool_calls, |v| v.to_string(), ACCENT_CYAN, row2_card_width, false);
-            cards::summary_card_full(ui, "Files", s.total_file_accesses.current as u64, &s.total_file_accesses, |v| v.to_string(), ACCENT_CYAN, row2_card_width, false);
-            cards::summary_card_full(ui, "Failed", s.failed_jobs.current as u64, &s.failed_jobs, |v| v.to_string(), ACCENT_RED, row2_card_width, true);
+            summary_card_full(ui, "Input", s.input_tokens.current as u64, &s.input_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Output", s.output_tokens.current as u64, &s.output_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Cached", s.cached_tokens.current as u64, &s.cached_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Tools", s.total_tool_calls.current as u64, &s.total_tool_calls, |v| v.to_string(), ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Files", s.total_file_accesses.current as u64, &s.total_file_accesses, |v| v.to_string(), ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Failed", s.failed_jobs.current as u64, &s.failed_jobs, |v| v.to_string(), ACCENT_RED, row2_card_width, true);
         });
     }
 
@@ -259,5 +401,96 @@ impl KycoApp {
                 }
             });
         });
+    }
+}
+
+// Helper functions for summary cards
+
+fn summary_card_full<F>(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: u64,
+    trend: &crate::stats::TrendValue,
+    format: F,
+    value_color: egui::Color32,
+    width: f32,
+    invert_trend: bool,
+) where
+    F: Fn(u64) -> String,
+{
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .corner_radius(4.0)
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(width - 24.0); // Account for inner margin
+            ui.vertical(|ui| {
+                ui.label(RichText::new(label).small().color(TEXT_DIM));
+                ui.label(RichText::new(format(value)).size(18.0).color(value_color));
+                if invert_trend {
+                    render_trend_inverted(ui, trend);
+                } else {
+                    render_trend(ui, trend);
+                }
+            });
+        });
+}
+
+fn summary_card_full_f64<F>(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: f64,
+    trend: &crate::stats::TrendValue,
+    format: F,
+    value_color: egui::Color32,
+    width: f32,
+    invert_trend: bool,
+) where
+    F: Fn(f64) -> String,
+{
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .corner_radius(4.0)
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(width - 24.0);
+            ui.vertical(|ui| {
+                ui.label(RichText::new(label).small().color(TEXT_DIM));
+                ui.label(RichText::new(format(value)).size(18.0).color(value_color));
+                if invert_trend {
+                    render_trend_inverted(ui, trend);
+                } else {
+                    render_trend(ui, trend);
+                }
+            });
+        });
+}
+
+fn render_trend(ui: &mut egui::Ui, trend: &crate::stats::TrendValue) {
+    let pct = trend.percent_change();
+    if pct.abs() < 0.1 {
+        ui.label(RichText::new("—").small().color(TEXT_DIM));
+    } else {
+        let (prefix, color) = if pct > 0.0 {
+            ("▲", ACCENT_GREEN)
+        } else {
+            ("▼", ACCENT_RED)
+        };
+        ui.label(RichText::new(format!("{}{:.0}%", prefix, pct.abs())).small().color(color));
+    }
+}
+
+fn render_trend_inverted(ui: &mut egui::Ui, trend: &crate::stats::TrendValue) {
+    let pct = trend.percent_change();
+    if pct.abs() < 0.1 {
+        ui.label(RichText::new("—").small().color(TEXT_DIM));
+    } else {
+        // Inverted: up is bad (red), down is good (green)
+        let (prefix, color) = if pct > 0.0 {
+            ("▲", ACCENT_RED)
+        } else {
+            ("▼", ACCENT_GREEN)
+        };
+        ui.label(RichText::new(format!("{}{:.0}%", prefix, pct.abs())).small().color(color));
     }
 }

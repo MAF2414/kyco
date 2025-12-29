@@ -150,6 +150,7 @@ CREATE TABLE IF NOT EXISTS job_stats (
     workspace_path TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_job_day ON job_stats(day_bucket);
+CREATE INDEX IF NOT EXISTS idx_job_created_at ON job_stats(created_at);
 CREATE INDEX IF NOT EXISTS idx_job_mode ON job_stats(mode);
 CREATE INDEX IF NOT EXISTS idx_job_agent ON job_stats(agent_type);
 CREATE INDEX IF NOT EXISTS idx_job_workspace ON job_stats(workspace_path);
