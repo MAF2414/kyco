@@ -253,9 +253,7 @@ impl KycoApp {
 
             // Statistics tracking
             stats_manager: crate::stats::StatsManager::new().ok(),
-            stats_summary: crate::stats::StatsSummary::default(),
             stats_time_range: crate::stats::TimeRange::default(),
-            stats_graph: crate::stats::StatsGraph::default(),
             stats_last_refresh: std::time::Instant::now(),
 
             // Dashboard V2

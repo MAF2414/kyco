@@ -294,12 +294,8 @@ pub struct KycoApp {
 
     /// Statistics manager (None if initialization failed)
     pub(crate) stats_manager: Option<crate::stats::StatsManager>,
-    /// Cached stats summary for GUI display (legacy)
-    pub(crate) stats_summary: crate::stats::StatsSummary,
     /// Selected time range for stats view
     pub(crate) stats_time_range: crate::stats::TimeRange,
-    /// Selected graph type (legacy)
-    pub(crate) stats_graph: crate::stats::StatsGraph,
     /// Last time stats were refreshed
     pub(crate) stats_last_refresh: std::time::Instant,
 
