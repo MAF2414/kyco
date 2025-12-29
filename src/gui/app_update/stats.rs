@@ -34,6 +34,25 @@ impl KycoApp {
         if let Err(e) = stats_manager.recorder().record_job(&record) {
             tracing::warn!("Failed to record job stats: {}", e);
         }
+
+        // Check for achievements and gamification events
+        match stats_manager.achievements().check_after_job(&record) {
+            Ok(events) => {
+                for event in events {
+                    self.gamification_events.push_back(event);
+                }
+                // Refresh cached player stats
+                if let Ok(stats) = stats_manager.achievements().get_player_stats() {
+                    self.player_stats = Some(stats);
+                }
+                if let Ok(streaks) = stats_manager.achievements().get_streaks() {
+                    self.streaks = Some(streaks);
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to check achievements: {}", e);
+            }
+        }
     }
 
     /// Record a tool call from a LogEvent

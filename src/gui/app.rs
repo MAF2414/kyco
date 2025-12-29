@@ -298,4 +298,14 @@ pub struct KycoApp {
     pub(crate) dashboard_summary: crate::stats::DashboardSummary,
     /// Show stats reset confirmation dialog
     pub(crate) stats_reset_confirm: bool,
+
+    // Gamification state
+    /// Queue of gamification events to display (achievements, level-ups, etc.)
+    pub(crate) gamification_events: std::collections::VecDeque<crate::stats::GamificationEvent>,
+    /// Current toast being displayed (event, start time)
+    pub(crate) current_toast: Option<(crate::stats::GamificationEvent, std::time::Instant)>,
+    /// Cached player stats for display
+    pub(crate) player_stats: Option<crate::stats::PlayerStats>,
+    /// Cached streaks for display
+    pub(crate) streaks: Option<crate::stats::Streaks>,
 }

@@ -28,12 +28,17 @@
 //! let summary = stats.query().get_summary(TimeRange::Last30Days)?;
 //! ```
 
+pub mod achievements;
 mod db;
 mod models;
 mod queries;
 mod recorder;
 mod time_bucket;
 
+pub use achievements::{
+    Achievement, AchievementCategory, AchievementId, AchievementManager, GamificationEvent, Level,
+    LevelUp, PlayerStats, StreakType, Streaks, UnlockedAchievement, ACHIEVEMENTS, LEVELS,
+};
 pub use db::StatsDb;
 pub use models::{
     // Legacy exports (kept for compatibility)
@@ -81,8 +86,19 @@ impl StatsManager {
     }
 
     /// Reset all statistics (delete all data)
+    /// Note: This does NOT reset achievements - use reset_achievements() for that
     pub fn reset_all(&self) -> anyhow::Result<()> {
         self.db.reset_all()
+    }
+
+    /// Reset all gamification data (achievements, XP, streaks, challenges)
+    pub fn reset_achievements(&self) -> anyhow::Result<()> {
+        self.db.reset_achievements()
+    }
+
+    /// Get the achievement manager for gamification features
+    pub fn achievements(&self) -> AchievementManager {
+        AchievementManager::new(self.db.conn.clone())
     }
 }
 

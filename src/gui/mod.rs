@@ -49,6 +49,7 @@ pub mod selection;
 pub mod settings;
 pub mod status_bar;
 pub mod theme;
+mod toast;
 pub mod update;
 pub mod voice;
 

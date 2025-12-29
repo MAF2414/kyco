@@ -118,6 +118,9 @@ impl eframe::App for KycoApp {
         // Render permission popup on top of everything if visible
         self.render_permission_popup_modal(ctx);
 
+        // Render gamification toast notifications (achievements, level-ups, etc.)
+        self.render_toast(ctx);
+
         // Render global voice overlay (small indicator when recording via hotkey)
         if self.show_voice_overlay {
             self.render_voice_overlay(ctx);

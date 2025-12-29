@@ -13,7 +13,8 @@ use crate::config::Config;
 /// Database wrapper with connection pooling
 #[derive(Clone)]
 pub struct StatsDb {
-    conn: Arc<Mutex<Connection>>,
+    /// Database connection - pub(crate) for AchievementManager access
+    pub(crate) conn: Arc<Mutex<Connection>>,
 }
 
 impl StatsDb {
@@ -101,10 +102,62 @@ impl StatsDb {
             conn.execute("INSERT OR REPLACE INTO schema_version VALUES (2)", [])?;
         }
 
+        // Migration 3: Add gamification tables
+        if version < 3 {
+            conn.execute_batch(
+                r#"
+                -- Unlocked achievements
+                CREATE TABLE IF NOT EXISTS achievements (
+                    id TEXT PRIMARY KEY,
+                    unlocked_at INTEGER NOT NULL,
+                    progress INTEGER DEFAULT 0
+                );
+
+                -- Streak tracking
+                CREATE TABLE IF NOT EXISTS streaks (
+                    streak_type TEXT PRIMARY KEY,
+                    current_count INTEGER DEFAULT 0,
+                    best_count INTEGER DEFAULT 0,
+                    last_activity_day TEXT,
+                    updated_at INTEGER
+                );
+
+                -- Player stats (singleton)
+                CREATE TABLE IF NOT EXISTS player_stats (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    total_xp INTEGER DEFAULT 0,
+                    level INTEGER DEFAULT 1,
+                    title TEXT DEFAULT 'Apprentice'
+                );
+                INSERT OR IGNORE INTO player_stats (id) VALUES (1);
+
+                -- Weekly challenges
+                CREATE TABLE IF NOT EXISTS weekly_challenges (
+                    week_start TEXT PRIMARY KEY,
+                    challenge_ids TEXT,
+                    current_step INTEGER DEFAULT 0,
+                    completed_at INTEGER,
+                    player_level INTEGER
+                );
+
+                -- Challenge progress
+                CREATE TABLE IF NOT EXISTS challenge_progress (
+                    id TEXT PRIMARY KEY,
+                    week_start TEXT NOT NULL,
+                    progress INTEGER DEFAULT 0,
+                    completed_at INTEGER
+                );
+                CREATE INDEX IF NOT EXISTS idx_challenge_week ON challenge_progress(week_start);
+                "#,
+            )?;
+            conn.execute("INSERT OR REPLACE INTO schema_version VALUES (3)", [])?;
+        }
+
         Ok(())
     }
 
     /// Delete all statistics data (reset to empty state)
+    /// Note: This does NOT reset achievements/XP - use reset_achievements() for that
     pub fn reset_all(&self) -> Result<()> {
         let conn = self.conn();
         conn.execute_batch(
@@ -116,6 +169,21 @@ impl StatsDb {
             DELETE FROM mode_stats;
             DELETE FROM tool_usage_stats;
             DELETE FROM file_access_stats;
+            "#,
+        )?;
+        Ok(())
+    }
+
+    /// Delete all gamification data (achievements, XP, streaks, challenges)
+    pub fn reset_achievements(&self) -> Result<()> {
+        let conn = self.conn();
+        conn.execute_batch(
+            r#"
+            DELETE FROM achievements;
+            DELETE FROM streaks;
+            DELETE FROM challenge_progress;
+            DELETE FROM weekly_challenges;
+            UPDATE player_stats SET total_xp = 0, level = 1, title = 'Apprentice' WHERE id = 1;
             "#,
         )?;
         Ok(())
@@ -235,7 +303,55 @@ CREATE TABLE IF NOT EXISTS file_access_stats (
 
 -- Schema version
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
-INSERT OR IGNORE INTO schema_version VALUES (2);
+INSERT OR IGNORE INTO schema_version VALUES (3);
+
+-- ============================================
+-- GAMIFICATION TABLES
+-- ============================================
+
+-- Unlocked achievements
+CREATE TABLE IF NOT EXISTS achievements (
+    id TEXT PRIMARY KEY,
+    unlocked_at INTEGER NOT NULL,
+    progress INTEGER DEFAULT 0
+);
+
+-- Streak tracking (daily usage, success streaks)
+CREATE TABLE IF NOT EXISTS streaks (
+    streak_type TEXT PRIMARY KEY,
+    current_count INTEGER DEFAULT 0,
+    best_count INTEGER DEFAULT 0,
+    last_activity_day TEXT,
+    updated_at INTEGER
+);
+
+-- Player stats (XP, level, title) - singleton row
+CREATE TABLE IF NOT EXISTS player_stats (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    total_xp INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1,
+    title TEXT DEFAULT 'Apprentice'
+);
+INSERT OR IGNORE INTO player_stats (id) VALUES (1);
+
+-- Weekly challenges
+CREATE TABLE IF NOT EXISTS weekly_challenges (
+    week_start TEXT PRIMARY KEY,
+    challenge_ids TEXT,
+    current_step INTEGER DEFAULT 0,
+    completed_at INTEGER,
+    player_level INTEGER
+);
+
+-- Challenge progress tracking
+CREATE TABLE IF NOT EXISTS challenge_progress (
+    id TEXT PRIMARY KEY,
+    week_start TEXT NOT NULL,
+    progress INTEGER DEFAULT 0,
+    completed_at INTEGER,
+    FOREIGN KEY (week_start) REFERENCES weekly_challenges(week_start)
+);
+CREATE INDEX IF NOT EXISTS idx_challenge_week ON challenge_progress(week_start);
 "#;
 
 #[cfg(test)]

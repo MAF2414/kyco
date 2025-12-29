@@ -251,6 +251,12 @@ impl KycoApp {
             stats_filter_workspace: None,
             dashboard_summary: crate::stats::DashboardSummary::default(),
             stats_reset_confirm: false,
+
+            // Gamification
+            gamification_events: std::collections::VecDeque::new(),
+            current_toast: None,
+            player_stats: None,
+            streaks: None,
         }
     }
 }
