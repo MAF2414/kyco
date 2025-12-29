@@ -54,11 +54,24 @@ async fn executor_loop(
     let agent_registry = AgentRegistry::new();
     let git_manager = GitManager::new(&work_dir).ok();
 
+    // Cache config-derived values to reduce RwLock contention in the hot loop
+    let mut cached_use_worktree = config
+        .read()
+        .map(|cfg| cfg.settings.use_worktree)
+        .unwrap_or(false);
+    let mut config_check_counter = 0u32;
+
     loop {
-        let should_use_worktree = config
-            .read()
-            .map(|cfg| cfg.settings.use_worktree)
-            .unwrap_or(false);
+        // Only re-read config every 10 iterations (~5 seconds) to reduce lock contention
+        config_check_counter += 1;
+        if config_check_counter >= 10 {
+            config_check_counter = 0;
+            cached_use_worktree = config
+                .read()
+                .map(|cfg| cfg.settings.use_worktree)
+                .unwrap_or(false);
+        }
+        let should_use_worktree = cached_use_worktree;
 
         let (running_count, next_queued) = {
             let Ok(mut manager) = job_manager.lock() else {

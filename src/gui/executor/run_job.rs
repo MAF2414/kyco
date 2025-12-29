@@ -11,7 +11,7 @@ use crate::job::JobManager;
 use crate::{Job, JobStatus, LogEvent, SessionMode};
 
 use super::chain::run_chain_job;
-use super::git_utils::calculate_git_numstat;
+use super::git_utils::calculate_git_numstat_async;
 use super::log_forwarder::spawn_log_forwarder;
 use super::worktree_setup::setup_worktree;
 use super::ExecutorEvent;
@@ -163,6 +163,9 @@ pub async fn run_job(
     let (log_tx, log_rx) = tokio::sync::mpsc::channel::<LogEvent>(100);
     let log_forwarder = spawn_log_forwarder(log_rx, event_tx.clone(), Arc::clone(job_manager), job_id);
 
+    // Track git stats info for async calculation after lock release
+    let mut git_stats_info: Option<(usize, Option<String>)> = None;
+
     match adapter
         .run(&job, &worktree_path, &agent_config, log_tx)
         .await
@@ -196,13 +199,9 @@ pub async fn run_job(
                 }
 
                 let files_changed = result.changed_files.len();
-                if files_changed > 0 {
-                    let (lines_added, lines_removed) = if j.git_worktree_path.is_some() {
-                        calculate_git_numstat(&worktree_path, j.base_branch.as_deref())
-                    } else {
-                        (0, 0)
-                    };
-                    j.set_file_stats(files_changed, lines_added, lines_removed);
+                // Store info for async git stats calculation after lock release
+                if files_changed > 0 && j.git_worktree_path.is_some() {
+                    git_stats_info = Some((files_changed, j.base_branch.clone()));
                 }
 
                 if result.success {
@@ -245,6 +244,21 @@ pub async fn run_job(
                 job_id, error
             ))));
             let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+        }
+    }
+
+    // Calculate git stats asynchronously after releasing the lock
+    // This avoids blocking the async runtime with synchronous git operations
+    if let Some((files_changed, base_branch)) = git_stats_info {
+        let (lines_added, lines_removed) =
+            calculate_git_numstat_async(&worktree_path, base_branch.as_deref()).await;
+
+        // Re-acquire lock to update file stats
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.set_file_stats(files_changed, lines_added, lines_removed);
+            }
+            manager.touch();
         }
     }
 
