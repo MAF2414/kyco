@@ -165,6 +165,11 @@ fn looks_like_file_path(s: &str) -> bool {
         return false;
     }
 
+    // Skip strings with spaces (likely descriptions, not paths)
+    if s.contains(' ') {
+        return false;
+    }
+
     // Skip system binary paths
     if s.starts_with("/bin/") || s.starts_with("/usr/bin/") || s.starts_with("/usr/local/bin/")
         || s.starts_with("/sbin/") || s.starts_with("/opt/")
@@ -192,7 +197,7 @@ fn looks_like_file_path(s: &str) -> bool {
     // Check for path-like structure
     let has_path_structure = s.contains('/') || s.starts_with("./") || s.starts_with("src/");
 
-    has_extension || (has_path_structure && !s.contains(' ') && !s.starts_with("http"))
+    has_extension || (has_path_structure && !s.starts_with("http"))
 }
 
 /// Extract file paths from a shell command string
@@ -482,6 +487,7 @@ mod tests {
         assert!(!looks_like_file_path("-l"));
         assert!(!looks_like_file_path("https://example.com/foo"));
         assert!(!looks_like_file_path("some random text"));
+        assert!(!looks_like_file_path("Count lines in src/lib.rs")); // Description, not path
 
         // System binaries should be excluded
         assert!(!looks_like_file_path("/bin/zsh"));
