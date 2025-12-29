@@ -83,6 +83,13 @@ impl eframe::App for KycoApp {
         // Poll apply/merge result if an operation is running
         self.poll_apply_result();
 
+        // Ensure player stats are loaded for status bar
+        if self.player_stats.is_none() {
+            if let Some(manager) = &self.stats_manager {
+                self.player_stats = manager.achievements().get_player_stats().ok();
+            }
+        }
+
         // Bottom status bar - MUST be rendered before SidePanel/CentralPanel
         // so that those panels can properly account for the status bar's height
         super::status_bar::render_status_bar(
@@ -99,6 +106,7 @@ impl eframe::App for KycoApp {
                 update_info: update_info.as_ref(),
                 install_status: &mut self.update_install_status,
                 orchestrator_requested: &mut self.orchestrator_requested,
+                player_stats: self.player_stats.as_ref(),
             },
         );
 

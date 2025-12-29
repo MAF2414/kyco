@@ -90,6 +90,9 @@ impl KycoApp {
             ViewMode::Stats => {
                 self.render_stats(ctx);
             }
+            ViewMode::Achievements => {
+                self.render_achievements(ctx);
+            }
         }
     }
 

@@ -23,12 +23,9 @@ impl KycoApp {
             self.refresh_dashboard();
         }
 
-        // Reset confirmation dialogs
+        // Reset confirmation dialog
         if self.stats_reset_confirm {
             self.render_reset_confirm_dialog(ctx);
-        }
-        if self.achievements_reset_confirm {
-            self.render_achievements_reset_dialog(ctx);
         }
 
         egui::CentralPanel::default()
@@ -77,43 +74,6 @@ impl KycoApp {
                             }
                         }
                         self.stats_reset_confirm = false;
-                    }
-                });
-            });
-    }
-
-    fn render_achievements_reset_dialog(&mut self, ctx: &egui::Context) {
-        egui::Window::new("Reset Profile")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .frame(egui::Frame::window(&ctx.style()).fill(BG_HIGHLIGHT).inner_margin(20.0))
-            .show(ctx, |ui| {
-                ui.label(RichText::new("⚠️ Reset your profile?").size(16.0).color(ACCENT_YELLOW));
-                ui.add_space(8.0);
-                ui.label(RichText::new("This will reset:").color(TEXT_PRIMARY));
-                ui.label(RichText::new("• All achievements (locked again)").color(TEXT_DIM));
-                ui.label(RichText::new("• XP and level (back to Level 1)").color(TEXT_DIM));
-                ui.label(RichText::new("• All streaks (daily, success)").color(TEXT_DIM));
-                ui.add_space(4.0);
-                ui.label(RichText::new("Statistics are NOT affected.").color(ACCENT_CYAN));
-                ui.label(RichText::new("This action cannot be undone.").color(ACCENT_RED));
-                ui.add_space(16.0);
-
-                ui.horizontal(|ui| {
-                    if ui.button(RichText::new("Cancel").color(TEXT_DIM)).clicked() {
-                        self.achievements_reset_confirm = false;
-                    }
-                    ui.add_space(16.0);
-                    if ui.button(RichText::new("🔄 Reset Profile").color(ACCENT_RED)).clicked() {
-                        if let Some(manager) = &self.stats_manager {
-                            if manager.reset_achievements().is_ok() {
-                                // Clear cached gamification data to force refresh
-                                self.player_stats = None;
-                                self.streaks = None;
-                            }
-                        }
-                        self.achievements_reset_confirm = false;
                     }
                 });
             });

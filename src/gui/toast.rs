@@ -8,7 +8,7 @@ use eframe::egui::{self, Align2, Color32, Id, RichText, Vec2};
 
 use crate::gui::app::KycoApp;
 use crate::gui::theme::{ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, BG_SECONDARY};
-use crate::stats::{GamificationEvent, LevelUp, UnlockedAchievement};
+use crate::stats::{CompletedChallenge, GamificationEvent, LevelUp, UnlockedAchievement};
 
 /// How long a toast is displayed
 const TOAST_DURATION: Duration = Duration::from_secs(4);
@@ -105,6 +105,9 @@ fn render_toast_content(ui: &mut egui::Ui, event: &GamificationEvent, alpha: f32
         GamificationEvent::AchievementUnlocked(unlocked) => {
             render_achievement_toast(ui, unlocked, alpha);
         }
+        GamificationEvent::ChallengeCompleted(completed) => {
+            render_challenge_toast(ui, completed, alpha);
+        }
         GamificationEvent::LevelUp(level_up) => {
             render_level_up_toast(ui, level_up, alpha);
         }
@@ -145,6 +148,41 @@ fn render_achievement_toast(ui: &mut egui::Ui, unlocked: &UnlockedAchievement, a
             );
             ui.label(
                 RichText::new(format!("+{} XP", achievement.xp_reward))
+                    .color(apply_alpha(ACCENT_GREEN, alpha))
+                    .size(12.0),
+            );
+        });
+    });
+}
+
+/// Render challenge completed toast
+fn render_challenge_toast(ui: &mut egui::Ui, completed: &CompletedChallenge, alpha: f32) {
+    let challenge = completed.challenge;
+    let color = apply_alpha(ACCENT_CYAN, alpha);
+
+    ui.horizontal(|ui| {
+        // Icon (large)
+        ui.label(RichText::new(challenge.icon).size(32.0));
+
+        ui.vertical(|ui| {
+            ui.label(
+                RichText::new(format!("Challenge #{} Complete!", challenge.id.number()))
+                    .color(color)
+                    .size(12.0),
+            );
+            ui.label(
+                RichText::new(challenge.name)
+                    .color(apply_alpha(Color32::WHITE, alpha))
+                    .strong()
+                    .size(16.0),
+            );
+            ui.label(
+                RichText::new(challenge.description)
+                    .color(apply_alpha(Color32::GRAY, alpha))
+                    .size(11.0),
+            );
+            ui.label(
+                RichText::new(format!("+{} XP", challenge.xp_reward))
                     .color(apply_alpha(ACCENT_GREEN, alpha))
                     .size(12.0),
             );

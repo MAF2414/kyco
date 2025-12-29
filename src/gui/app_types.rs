@@ -27,6 +27,8 @@ pub enum ViewMode {
     Chains,
     /// Statistics dashboard view
     Stats,
+    /// Achievements gallery view
+    Achievements,
 }
 
 // Keep old types for compatibility

@@ -1,11 +1,12 @@
 //! Status bar module for the GUI
 //!
-//! Renders the bottom status bar with auto-run toggle,
+//! Renders the bottom status bar with auto-run toggle, profile info,
 //! settings button, modes button, agents button, and update notifications.
 
 use eframe::egui::{self, RichText};
 
 use crate::gui::animations::animated_button;
+use crate::stats::PlayerStats;
 
 /// Compile-time version string to avoid runtime allocation
 const VERSION_TEXT: &str = concat!("kyco v", env!("CARGO_PKG_VERSION"));
@@ -13,7 +14,7 @@ const VERSION_TEXT: &str = concat!("kyco v", env!("CARGO_PKG_VERSION"));
 use crate::gui::app::ViewMode;
 use crate::gui::theme::{
     ACCENT_CYAN, ACCENT_GREEN, ACCENT_PURPLE, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY,
-    TEXT_MUTED, TEXT_PRIMARY,
+    TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
 };
 use crate::gui::update::{UpdateInfo, open_url};
 
@@ -48,6 +49,8 @@ pub struct StatusBarState<'a> {
     pub install_status: &'a mut InstallStatus,
     /// User requested to launch an external orchestrator session
     pub orchestrator_requested: &'a mut bool,
+    /// Player stats for profile display (optional)
+    pub player_stats: Option<&'a PlayerStats>,
 }
 
 /// Render the bottom status bar
@@ -76,6 +79,41 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     .clicked()
                 {
                     *state.auto_run = !*state.auto_run;
+                }
+
+                // Profile level/title display
+                if let Some(stats) = state.player_stats {
+                    ui.add_space(16.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    // Level badge
+                    let tier = stats.tier();
+                    if ui
+                        .label(
+                            RichText::new(format!("{} Lv{}", tier.icon(), stats.level))
+                                .small()
+                                .color(ACCENT_PURPLE),
+                        )
+                        .on_hover_text(format!("{}\n{}", stats.title, tier.description()))
+                        .clicked()
+                    {
+                        *state.view_mode = ViewMode::Achievements;
+                    }
+
+                    // Title (clickable)
+                    ui.add_space(4.0);
+                    if ui
+                        .label(
+                            RichText::new(&stats.title)
+                                .small()
+                                .color(TEXT_DIM),
+                        )
+                        .on_hover_text("Click to view achievements")
+                        .clicked()
+                    {
+                        *state.view_mode = ViewMode::Achievements;
+                    }
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -165,6 +203,10 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     ui.add_space(8.0);
                     if animated_button(ui, "Stats", ACCENT_CYAN, "statusbar_stats").clicked() {
                         *state.view_mode = ViewMode::Stats;
+                    }
+                    ui.add_space(8.0);
+                    if animated_button(ui, "Achievements", ACCENT_YELLOW, "statusbar_achievements").clicked() {
+                        *state.view_mode = ViewMode::Achievements;
                     }
                     ui.add_space(8.0);
                     if animated_button(ui, "Orchestrator", ACCENT_GREEN, "statusbar_orchestrator")

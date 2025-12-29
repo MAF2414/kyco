@@ -1,6 +1,6 @@
 //! Player profile section for the dashboard
 //!
-//! Shows level, XP progress, streaks, and unlocked achievements.
+//! Shows level, XP progress, and streaks.
 
 use eframe::egui::{self, RichText, Vec2};
 
@@ -9,7 +9,7 @@ use crate::gui::theme::{
     ACCENT_GREEN, ACCENT_PURPLE, ACCENT_YELLOW, BG_HIGHLIGHT, BG_SECONDARY, TEXT_DIM,
     TEXT_MUTED, TEXT_PRIMARY,
 };
-use crate::stats::{Achievement, AchievementId, PlayerStats, Streaks};
+use crate::stats::{PlayerStats, Streaks};
 
 impl KycoApp {
     /// Render the player profile section at the top of the dashboard
@@ -43,18 +43,9 @@ impl KycoApp {
                     ui.separator();
                     ui.add_space(32.0);
 
-                    // Middle: Streaks
+                    // Right: Streaks
                     ui.vertical(|ui| {
                         render_streaks_display(ui, &streaks);
-                    });
-
-                    ui.add_space(32.0);
-                    ui.separator();
-                    ui.add_space(32.0);
-
-                    // Right: Achievement summary
-                    ui.vertical(|ui| {
-                        self.render_achievements_summary(ui);
                     });
                 });
             });
@@ -74,50 +65,6 @@ impl KycoApp {
         }
     }
 
-    /// Render achievements summary with count and recent unlocks
-    fn render_achievements_summary(&self, ui: &mut egui::Ui) {
-        let unlocked_ids = self
-            .stats_manager
-            .as_ref()
-            .and_then(|m| m.achievements().get_unlocked_ids().ok())
-            .unwrap_or_default();
-
-        let unlocked_count = unlocked_ids.len();
-        let total_count = Achievement::total_count();
-
-        ui.label(RichText::new("ACHIEVEMENTS").small().color(TEXT_MUTED));
-        ui.add_space(4.0);
-
-        // Count display
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("🏆").size(24.0));
-            ui.label(
-                RichText::new(format!("{} / {}", unlocked_count, total_count))
-                    .size(20.0)
-                    .color(ACCENT_YELLOW)
-                    .strong(),
-            );
-        });
-
-        ui.add_space(8.0);
-
-        // Show recent unlocked achievements (up to 5)
-        ui.horizontal_wrapped(|ui| {
-            for id_str in unlocked_ids.iter().take(8) {
-                if let Some(id) = AchievementId::from_str(id_str) {
-                    let achievement = Achievement::get(id);
-                    ui.label(RichText::new(achievement.icon).size(18.0))
-                        .on_hover_text(format!("{}\n{}", achievement.name, achievement.description));
-                }
-            }
-
-            // Show "more" indicator if there are more
-            let remaining = unlocked_count.saturating_sub(8);
-            if remaining > 0 {
-                ui.label(RichText::new(format!("+{}", remaining)).small().color(TEXT_DIM));
-            }
-        });
-    }
 }
 
 /// Render level and XP progress

@@ -148,10 +148,6 @@ impl KycoApp {
                 if animated_button(ui, "Reset Stats", ACCENT_RED, "stats_reset").clicked() {
                     self.stats_reset_confirm = true;
                 }
-                ui.add_space(4.0);
-                if animated_button(ui, "Reset Profile", ACCENT_RED, "achievements_reset").clicked() {
-                    self.achievements_reset_confirm = true;
-                }
             });
         });
     }

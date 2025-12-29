@@ -10,3 +10,4 @@
 /bridge/dist/
 /bridge/*.db
 /bridge/kyco-sessions.json*
+.worktrees/

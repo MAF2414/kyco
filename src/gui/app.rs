@@ -298,8 +298,6 @@ pub struct KycoApp {
     pub(crate) dashboard_summary: crate::stats::DashboardSummary,
     /// Show stats reset confirmation dialog
     pub(crate) stats_reset_confirm: bool,
-    /// Show achievements/profile reset confirmation dialog
-    pub(crate) achievements_reset_confirm: bool,
 
     // Gamification state
     /// Queue of gamification events to display (achievements, level-ups, etc.)

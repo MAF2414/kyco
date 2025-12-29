@@ -36,8 +36,11 @@ mod recorder;
 mod time_bucket;
 
 pub use achievements::{
-    Achievement, AchievementCategory, AchievementId, AchievementManager, GamificationEvent, Level,
-    LevelUp, PlayerStats, StreakType, Streaks, UnlockedAchievement, ACHIEVEMENTS, LEVELS,
+    level_for_xp, title_for_level, xp_for_level, Achievement, AchievementCategory, AchievementId,
+    AchievementManager, Challenge, ChallengeId, ChallengeProgress, ChallengeRequirement,
+    ChallengeState, ChallengeTier, CompletedChallenge, GamificationEvent, LevelTier, LevelUp,
+    PlayerStats, StreakType, Streaks, UnlockedAchievement, XpRewards, ACHIEVEMENTS, CHALLENGES,
+    MAX_LEVEL,
 };
 pub use db::StatsDb;
 pub use models::{

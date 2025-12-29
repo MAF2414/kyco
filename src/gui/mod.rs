@@ -17,6 +17,7 @@
 pub mod agents;
 pub mod animations;
 pub mod app;
+mod app_achievements;
 mod app_diff;
 mod app_eframe;
 mod app_helpers;

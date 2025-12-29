@@ -153,6 +153,29 @@ impl StatsDb {
             conn.execute("INSERT OR REPLACE INTO schema_version VALUES (3)", [])?;
         }
 
+        // Migration 4: Add progressive challenges table
+        if version < 4 {
+            conn.execute_batch(
+                r#"
+                -- Progressive challenges (sequential unlock, permanent progress)
+                CREATE TABLE IF NOT EXISTS progressive_challenges (
+                    id TEXT PRIMARY KEY,          -- Challenge ID (e.g., "ch_first_steps")
+                    completed_at INTEGER,         -- Timestamp when completed (NULL if not completed)
+                    progress INTEGER DEFAULT 0    -- Current progress towards goal
+                );
+
+                -- Track which challenge is currently active
+                CREATE TABLE IF NOT EXISTS challenge_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    current_challenge INTEGER DEFAULT 1,  -- Challenge number (1-50)
+                    highest_completed INTEGER DEFAULT 0   -- Highest completed challenge number
+                );
+                INSERT OR IGNORE INTO challenge_state (id) VALUES (1);
+                "#,
+            )?;
+            conn.execute("INSERT OR REPLACE INTO schema_version VALUES (4)", [])?;
+        }
+
         Ok(())
     }
 
@@ -183,7 +206,9 @@ impl StatsDb {
             DELETE FROM streaks;
             DELETE FROM challenge_progress;
             DELETE FROM weekly_challenges;
+            DELETE FROM progressive_challenges;
             UPDATE player_stats SET total_xp = 0, level = 1, title = 'Apprentice' WHERE id = 1;
+            UPDATE challenge_state SET current_challenge = 1, highest_completed = 0 WHERE id = 1;
             "#,
         )?;
         Ok(())
