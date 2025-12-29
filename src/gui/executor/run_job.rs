@@ -113,9 +113,28 @@ pub async fn run_job(
         (job_work_dir.clone(), false)
     };
 
-    let agent_config = config
+    let mut agent_config = config
         .get_agent_for_job(&job.agent_id, &job.mode)
         .unwrap_or_default();
+
+    // When using a worktree, automatically allow git commands for committing
+    if job.git_worktree_path.is_some() {
+        let git_tools = [
+            "git",
+            "Bash(git:*)",
+            "Bash(git add:*)",
+            "Bash(git commit:*)",
+            "Bash(git status:*)",
+            "Bash(git diff:*)",
+            "Bash(git log:*)",
+        ];
+        for tool in git_tools {
+            let tool_str = tool.to_string();
+            if !agent_config.allowed_tools.contains(&tool_str) {
+                agent_config.allowed_tools.push(tool_str);
+            }
+        }
+    }
 
     let is_repl = matches!(agent_config.session_mode, SessionMode::Repl);
     if let Ok(mut manager) = job_manager.lock() {
