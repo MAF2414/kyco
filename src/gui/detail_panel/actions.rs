@@ -78,7 +78,15 @@ pub(super) fn render_action_buttons(
                 }
             }
             JobStatus::Running => {
-                ui.label(RichText::new("⟳ Running...").color(STATUS_RUNNING));
+                let is_stopping = job.cancel_requested;
+                ui.label(
+                    RichText::new(if is_stopping {
+                        "⟳ Stopping..."
+                    } else {
+                        "⟳ Running..."
+                    })
+                    .color(STATUS_RUNNING),
+                );
                 ui.add_space(8.0);
 
                 if job.is_repl {
@@ -92,9 +100,20 @@ pub(super) fn render_action_buttons(
                     }
                 } else {
                     // Print mode jobs: can be stopped/killed
+                    let stop_enabled = !job.cancel_sent;
+                    let hover = if job.cancel_sent {
+                        "Stop signal sent (waiting for agent to stop)"
+                    } else if is_stopping {
+                        "Stop requested (click to retry)"
+                    } else {
+                        "Stop this job"
+                    };
                     if ui
-                        .button(RichText::new("■ Stop").color(ACCENT_RED))
-                        .on_hover_text("Stop this job")
+                        .add_enabled(
+                            stop_enabled,
+                            egui::Button::new(RichText::new("■ Stop").color(ACCENT_RED)),
+                        )
+                        .on_hover_text(hover)
                         .clicked()
                     {
                         action = Some(DetailPanelAction::Kill(current_job_id));

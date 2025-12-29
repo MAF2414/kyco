@@ -156,6 +156,22 @@ pub enum JobCommands {
         #[arg(long)]
         state: bool,
     },
+    /// Merge a job's changes into the base branch
+    Merge {
+        job_id: u64,
+        /// Custom commit message (optional)
+        #[arg(long, short = 'm')]
+        message: Option<String>,
+    },
+    /// Reject a job's changes and cleanup its worktree
+    Reject { job_id: u64 },
+    /// Show the diff of a job's changes
+    Diff {
+        job_id: u64,
+        /// Print JSON output with metadata
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

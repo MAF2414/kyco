@@ -261,9 +261,18 @@ export async function* executeClaudeQuery(
 export async function interruptClaudeQuery(sessionId: string): Promise<boolean> {
   const q = activeQueries.get(sessionId);
   if (q) {
-    cleanupSessionApprovals(sessionId);
-    await q.interrupt();
-    return true;
+    try {
+      cleanupSessionApprovals(sessionId);
+      // Fire-and-forget: `interrupt()` resolves when the query fully stops, but callers
+      // (KYCo UI/CLI) need an immediate response to avoid blocking/hanging the abort UX.
+      void q.interrupt().catch(error => {
+        console.warn(`[bridge] Failed to interrupt Claude session ${sessionId}:`, error);
+      });
+      return true;
+    } catch (error) {
+      console.warn(`[bridge] Claude interrupt threw for session ${sessionId}:`, error);
+      return false;
+    }
   }
   return false;
 }

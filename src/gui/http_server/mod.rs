@@ -25,8 +25,9 @@ pub use types::{
 use handlers::{
     handle_batch_request, handle_control_config_reload, handle_control_job_abort,
     handle_control_job_continue, handle_control_job_create, handle_control_job_delete,
-    handle_control_job_get, handle_control_job_queue, handle_control_jobs_list, handle_control_log,
-    handle_selection_request,
+    handle_control_job_diff, handle_control_job_get, handle_control_job_merge,
+    handle_control_job_queue, handle_control_job_reject, handle_control_jobs_list,
+    handle_control_log, handle_selection_request,
 };
 
 const AUTH_HEADER: &str = "X-KYCO-Token";
@@ -149,6 +150,22 @@ pub fn start_http_server(
                         }
                     };
                     handle_control_job_continue(&control, p, &body, request);
+                }
+                ("POST", p) if p.starts_with("/ctl/jobs/") && p.ends_with("/merge") => {
+                    let body = match read_request_body(&mut request) {
+                        Ok(body) => body,
+                        Err(response) => {
+                            let _ = request.respond(response);
+                            continue;
+                        }
+                    };
+                    handle_control_job_merge(&control, p, &body, request);
+                }
+                ("POST", p) if p.starts_with("/ctl/jobs/") && p.ends_with("/reject") => {
+                    handle_control_job_reject(&control, p, request);
+                }
+                ("GET", p) if p.starts_with("/ctl/jobs/") && p.ends_with("/diff") => {
+                    handle_control_job_diff(&control, p, request);
                 }
                 ("POST", "/ctl/log") => {
                     let body = match read_request_body(&mut request) {

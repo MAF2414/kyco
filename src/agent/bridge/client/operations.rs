@@ -20,7 +20,7 @@ impl BridgeClient {
         }
 
         let response: Response = self
-            .client
+            .control
             .post(&url)
             .call()
             .context("Failed to interrupt session")?
@@ -54,7 +54,7 @@ impl BridgeClient {
         }
 
         let response: ResponseBody = self
-            .client
+            .control
             .post(&url)
             .send_json(RequestBody { permission_mode })
             .context("Failed to set Claude permission mode")?
@@ -78,7 +78,7 @@ impl BridgeClient {
         }
 
         let response: Response = self
-            .client
+            .control
             .post(&url)
             .call()
             .context("Failed to interrupt Codex thread")?
@@ -101,7 +101,7 @@ impl BridgeClient {
         }
 
         let response: Response = self
-            .client
+            .control
             .get(&url)
             .call()
             .context("Failed to list sessions")?
@@ -119,7 +119,7 @@ impl BridgeClient {
             encode_url_path_segment(session_id)
         );
 
-        let response = self.client.get(&url).call();
+        let response = self.control.get(&url).call();
 
         match response {
             Ok(resp) => {
@@ -148,7 +148,7 @@ impl BridgeClient {
         }
 
         let resp: Response = self
-            .client
+            .control
             .post(&url)
             .send_json(response)
             .context("Failed to send tool approval")?
@@ -168,7 +168,7 @@ impl BridgeClient {
         }
 
         let resp: ResponseBody = self
-            .client
+            .control
             .get(&url)
             .call()
             .context("Failed to get pending tool approvals")?

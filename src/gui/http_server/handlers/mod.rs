@@ -5,6 +5,7 @@ mod job_continue;
 mod job_create;
 mod job_delete;
 mod job_lifecycle;
+mod job_worktree;
 mod misc;
 
 use crate::JobId;
@@ -20,6 +21,9 @@ pub use job_delete::handle_control_job_delete;
 pub use job_lifecycle::{
     handle_control_job_abort, handle_control_job_get, handle_control_job_queue,
     handle_control_jobs_list,
+};
+pub use job_worktree::{
+    handle_control_job_diff, handle_control_job_merge, handle_control_job_reject,
 };
 pub use misc::{handle_control_config_reload, handle_control_log};
 

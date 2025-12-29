@@ -176,6 +176,7 @@ pub async fn run_job(
                 return;
             };
             if let Some(j) = manager.get_mut(job_id) {
+                let was_cancel_requested = j.cancel_requested;
                 j.sent_prompt = result.sent_prompt.clone();
 
                 // Copy token usage from agent result
@@ -213,7 +214,11 @@ pub async fn run_job(
                     ))));
                     let _ = event_tx.send(ExecutorEvent::JobCompleted(job_id));
                 } else {
-                    let error = result.error.unwrap_or_else(|| "Unknown error".to_string());
+                    let error = if was_cancel_requested {
+                        "Job aborted by user".to_string()
+                    } else {
+                        result.error.unwrap_or_else(|| "Unknown error".to_string())
+                    };
                     j.fail(error.clone());
                     let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
                         "Job #{} failed: {}",
@@ -225,9 +230,12 @@ pub async fn run_job(
             manager.touch();
         }
         Err(e) => {
-            let error = e.to_string();
+            let mut error = e.to_string();
             if let Ok(mut manager) = job_manager.lock() {
                 if let Some(j) = manager.get_mut(job_id) {
+                    if j.cancel_requested {
+                        error = "Job aborted by user".to_string();
+                    }
                     j.fail(error.clone());
                 }
                 manager.touch();

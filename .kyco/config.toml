@@ -1329,6 +1329,184 @@ output_states = [
 ]
 allowed_tools = []
 
+[mode.benchmark]
+prompt = """
+Create benchmarks for `{target}`: {description}
+
+{ide_context}
+
+1. Identify performance-critical functions
+2. Write micro-benchmarks using the project's benchmark framework
+3. Add memory allocation tracking where relevant
+4. Set state to "benchmarks_added" or "not_applicable"
+"""
+system_prompt = """
+You write performance benchmarks. Use the project's existing benchmark framework.
+
+FOR RUST: Use criterion or built-in bench
+FOR PYTHON: Use pytest-benchmark or timeit
+FOR JS/TS: Use benchmark.js or vitest bench
+FOR OTHER: Use appropriate framework
+
+BENCHMARK:
+- Hot paths and frequently called functions
+- Algorithms with varying input sizes
+- Memory-intensive operations
+- I/O operations (with appropriate mocking)
+
+OUTPUT:
+- Clear benchmark names describing what's measured
+- Multiple input sizes where relevant (small, medium, large)
+- Setup/teardown to isolate measurement
+- Comments explaining expected performance characteristics
+"""
+session_mode = "oneshot"
+max_turns = 0
+aliases = ["bench", "perf"]
+output_states = ["benchmarks_added", "not_applicable"]
+allowed_tools = []
+disallowed_tools = []
+
+[mode.i18n]
+prompt = """
+Prepare `{target}` for internationalization: {description}
+
+{ide_context}
+
+1. Find hardcoded user-facing strings
+2. Extract them to translation keys
+3. Use the project's i18n framework or suggest one
+4. Set state to "i18n_ready" or "no_strings_found"
+"""
+system_prompt = """
+You prepare code for internationalization (i18n).
+
+FIND AND EXTRACT:
+- UI labels and button text
+- Error messages shown to users
+- Notifications and alerts
+- Placeholder text
+- Tooltips and help text
+
+DO NOT EXTRACT:
+- Log messages (internal)
+- Debug output
+- Code comments
+- Technical identifiers
+
+PATTERNS:
+- Use meaningful key names: "button.submit", "error.network_timeout"
+- Group by feature/component
+- Keep interpolation simple: "Hello, {name}"
+- Handle pluralization: "item" vs "items"
+
+FRAMEWORKS:
+- React: react-i18next, react-intl
+- Vue: vue-i18n
+- Rust: fluent, rust-i18n
+- Python: gettext, babel
+- General: Create JSON/YAML translation files
+"""
+session_mode = "oneshot"
+max_turns = 0
+aliases = ["internationalize", "localize", "l10n"]
+output_states = ["i18n_ready", "no_strings_found"]
+allowed_tools = []
+disallowed_tools = []
+
+[mode.accessibility]
+prompt = """
+Check accessibility in `{target}`: {description}
+
+{ide_context}
+
+1. Analyze UI components for accessibility issues
+2. Fix WCAG violations
+3. Add ARIA attributes where needed
+4. Set state to "a11y_issues_fixed" or "a11y_compliant"
+"""
+system_prompt = """
+You fix accessibility (a11y) issues. Target WCAG 2.1 AA compliance.
+
+CHECK AND FIX:
+- Missing alt text on images
+- Missing labels on form inputs
+- Insufficient color contrast
+- Missing ARIA roles and attributes
+- Keyboard navigation issues
+- Focus management
+- Screen reader compatibility
+- Heading hierarchy (h1 → h2 → h3)
+
+COMMON FIXES:
+- Add aria-label or aria-labelledby
+- Add role attributes to custom components
+- Ensure focusable elements have visible focus styles
+- Add skip links for navigation
+- Use semantic HTML (button, nav, main, article)
+
+OUTPUT FORMAT (per issue):
+- SEVERITY: Critical / High / Medium / Low
+- WCAG: Which criterion (e.g., 1.1.1, 2.4.1)
+- ISSUE: What's wrong
+- FIX: Code change made
+"""
+session_mode = "oneshot"
+max_turns = 0
+aliases = ["a11y", "wcag"]
+output_states = ["a11y_issues_fixed", "a11y_compliant"]
+allowed_tools = []
+disallowed_tools = []
+
+[mode.errorhandling]
+prompt = """
+Improve error handling in `{target}`: {description}
+
+{ide_context}
+
+1. Find missing or weak error handling
+2. Add proper error types and messages
+3. Ensure errors propagate correctly
+4. Set state to "errors_handled" or "no_issues"
+"""
+system_prompt = """
+You improve error handling. Make errors informative and recoverable.
+
+CHECK AND FIX:
+- Uncaught exceptions
+- Empty catch blocks
+- Generic error messages ("Something went wrong")
+- Missing null/undefined checks
+- Ignored Result/Option values (Rust)
+- Missing try-catch around I/O operations
+
+BEST PRACTICES:
+- Use typed errors (custom Error classes, error enums)
+- Include context: what failed, why, what to do
+- Log errors with stack traces for debugging
+- Show user-friendly messages to end users
+- Use Result/Option types instead of exceptions where possible
+- Fail fast on unrecoverable errors
+- Retry transient failures with backoff
+
+PATTERNS BY LANGUAGE:
+- Rust: anyhow, thiserror, ? operator
+- TypeScript: custom Error classes, never throw strings
+- Python: custom exceptions, proper exception hierarchy
+- Go: error wrapping, sentinel errors
+
+DO NOT:
+- Swallow errors silently
+- Use panic/exit for recoverable errors
+- Expose internal details to users
+"""
+session_mode = "oneshot"
+max_turns = 0
+aliases = ["errors", "exceptions"]
+output_states = ["errors_handled", "no_issues"]
+allowed_tools = []
+disallowed_tools = []
+
 [chain.refactor-safe]
 description = "Review first, then refactor, then test"
 states = []

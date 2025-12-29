@@ -121,7 +121,7 @@ pub fn job_abort_command(
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/abort");
     let _ = http_post_json(&url, token.as_deref(), serde_json::json!({}))?;
-    println!("Aborted job #{}", job_id);
+    println!("Abort requested for job #{}", job_id);
     Ok(())
 }
 
@@ -267,4 +267,126 @@ fn is_terminal_status(status: JobStatus) -> bool {
         status,
         JobStatus::Done | JobStatus::Failed | JobStatus::Rejected | JobStatus::Merged
     )
+}
+
+pub fn job_merge_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+    message: Option<String>,
+) -> Result<()> {
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/merge");
+    let payload = match message {
+        Some(msg) => serde_json::json!({ "message": msg }),
+        None => serde_json::json!({}),
+    };
+    let value = http_post_json(&url, token.as_deref(), payload)?;
+
+    let status = value
+        .get("status")
+        .and_then(|s| s.as_str())
+        .unwrap_or("unknown");
+
+    if status == "ok" {
+        let default_msg = format!("Merged job #{}", job_id);
+        let msg = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or(&default_msg);
+        println!("{}", msg);
+        Ok(())
+    } else {
+        let error = value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("unknown_error");
+        let message = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Merge failed");
+        anyhow::bail!("{}: {}", error, message)
+    }
+}
+
+pub fn job_reject_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+) -> Result<()> {
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/reject");
+    let value = http_post_json(&url, token.as_deref(), serde_json::json!({}))?;
+
+    let status = value
+        .get("status")
+        .and_then(|s| s.as_str())
+        .unwrap_or("unknown");
+
+    if status == "ok" {
+        let default_msg = format!("Rejected job #{}", job_id);
+        let msg = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or(&default_msg);
+        println!("{}", msg);
+        Ok(())
+    } else {
+        let error = value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("unknown_error");
+        let message = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Reject failed");
+        anyhow::bail!("{}: {}", error, message)
+    }
+}
+
+pub fn job_diff_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+    json: bool,
+) -> Result<()> {
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/diff");
+    let value = http_get_json(&url, token.as_deref())?;
+
+    if let Some(error) = value.get("error").and_then(|e| e.as_str()) {
+        let message = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Diff failed");
+        anyhow::bail!("{}: {}", error, message);
+    }
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&value)?);
+        return Ok(());
+    }
+
+    // Print human-readable output
+    if let Some(changed_files) = value.get("changed_files").and_then(|f| f.as_array()) {
+        if !changed_files.is_empty() {
+            println!("Changed files ({}):", changed_files.len());
+            for file in changed_files {
+                if let Some(f) = file.as_str() {
+                    println!("  {}", f);
+                }
+            }
+            println!();
+        }
+    }
+
+    if let Some(diff) = value.get("diff").and_then(|d| d.as_str()) {
+        if diff.is_empty() {
+            println!("No changes");
+        } else {
+            println!("{}", diff);
+        }
+    }
+
+    Ok(())
 }

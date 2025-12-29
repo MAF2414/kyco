@@ -70,14 +70,18 @@ pub fn reject_job(job_manager: &Arc<Mutex<JobManager>>, job_id: JobId, logs: &mu
 
 /// Kill/stop a running job
 ///
-/// For print-mode jobs, this signals the executor to cancel the job.
-/// The actual process termination happens in the executor via cancellation tokens.
+/// Marks the job as "cancel requested" so the executor can interrupt the active
+/// Bridge session as soon as the session ID is known.
 pub fn kill_job(job_manager: &Arc<Mutex<JobManager>>, job_id: JobId, logs: &mut Vec<LogEvent>) {
     if let Ok(mut manager) = job_manager.lock() {
         if let Some(job) = manager.get_mut(job_id) {
             if job.status == JobStatus::Running {
-                job.fail("Job stopped by user".to_string());
-                logs.push(LogEvent::system(format!("Stopped job #{}", job_id)));
+                job.cancel_requested = true;
+                logs.push(LogEvent::system(format!(
+                    "Stop requested for job #{}",
+                    job_id
+                )));
+                manager.touch();
             }
         }
     }
@@ -101,5 +105,44 @@ pub fn mark_job_complete(
             "Marked job #{} as complete",
             job_id
         )));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::CommentTag;
+    use tempfile::tempdir;
+
+    #[test]
+    fn kill_job_marks_cancel_requested_without_failing() {
+        let tmp = tempdir().expect("tempdir");
+        let file_path = tmp.path().join("src").join("main.rs");
+        std::fs::create_dir_all(file_path.parent().unwrap()).expect("mkdir");
+        std::fs::write(&file_path, "fn main() {}\n").expect("write");
+
+        let tag = CommentTag::new_simple(
+            file_path.clone(),
+            1,
+            "// @claude#refactor".to_string(),
+            "claude".to_string(),
+            "refactor".to_string(),
+        );
+
+        let mut manager = JobManager::new(tmp.path());
+        let job_id = manager.create_job(&tag, "claude").expect("create_job");
+        manager.set_status(job_id, JobStatus::Running);
+
+        let job_manager = Arc::new(Mutex::new(manager));
+        let mut logs = Vec::new();
+
+        kill_job(&job_manager, job_id, &mut logs);
+
+        let guard = job_manager.lock().expect("lock");
+        let job = guard.get(job_id).expect("job exists");
+        assert_eq!(job.status, JobStatus::Running);
+        assert!(job.cancel_requested);
+        assert!(!job.cancel_sent);
+        assert!(logs.iter().any(|l| l.summary.contains("Stop requested")));
     }
 }

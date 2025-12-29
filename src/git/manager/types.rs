@@ -20,6 +20,14 @@ pub struct CommitMessage {
 }
 
 impl CommitMessage {
+    /// Create a CommitMessage from a custom subject and optional body.
+    pub fn new(subject: impl Into<String>, body: Option<String>) -> Self {
+        Self {
+            subject: subject.into(),
+            body,
+        }
+    }
+
     pub fn from_job(job: &Job) -> Self {
         let subject = job
             .result

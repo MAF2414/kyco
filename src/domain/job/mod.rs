@@ -49,6 +49,16 @@ pub struct Job {
     /// Current status of the job
     pub status: JobStatus,
 
+    /// Whether the user requested cancellation for this job.
+    ///
+    /// For running jobs this means: "send an interrupt to the bridge ASAP".
+    #[serde(default)]
+    pub cancel_requested: bool,
+
+    /// Whether an interrupt signal has already been sent for this job.
+    #[serde(default)]
+    pub cancel_sent: bool,
+
     /// When the job was created
     pub created_at: DateTime<Utc>,
 

@@ -27,6 +27,8 @@ impl Job {
             description,
             agent_id,
             status: JobStatus::Pending,
+            cancel_requested: false,
+            cancel_sent: false,
             created_at: now,
             updated_at: now,
             git_base_revision: None,

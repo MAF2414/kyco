@@ -68,8 +68,16 @@ export function createClaudeRoutes(store: SessionStore, kycoCallbackUrl?: string
    */
   router.post('/interrupt/:sessionId', async (req: Request, res: Response) => {
     const { sessionId } = req.params;
-    const success = await interruptClaudeQuery(sessionId);
-    res.json({ success, sessionId });
+    try {
+      const success = await interruptClaudeQuery(sessionId);
+      res.json({ success, sessionId });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   /**

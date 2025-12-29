@@ -64,6 +64,12 @@ Job lifecycle (GUI must be running)
 - Inspect job JSON: `kyco job get <job_id> --json`
 - Continue a session job with a follow-up prompt (creates a new job):
   `kyco job continue <job_id> --prompt "<follow-up>" [--pending]`
+- View job diff (shows changes made by the job):
+  `kyco job diff <job_id> [--json]`
+- Merge job changes into base branch:
+  `kyco job merge <job_id> [-m "<commit message>"]`
+- Reject job changes and cleanup worktree:
+  `kyco job reject <job_id>`
 
 Mode CRUD (only with explicit user confirmation)
 - Create/update mode: `kyco mode set <name> [--prompt ...] [--system-prompt ...] [--aliases ...] [--readonly] ...`

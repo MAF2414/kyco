@@ -167,6 +167,15 @@ async fn main() -> Result<()> {
                     state,
                 )?;
             }
+            JobCommands::Merge { job_id, message } => {
+                cli::job::job_merge_command(&work_dir, config_path.as_ref(), job_id, message)?;
+            }
+            JobCommands::Reject { job_id } => {
+                cli::job::job_reject_command(&work_dir, config_path.as_ref(), job_id)?;
+            }
+            JobCommands::Diff { job_id, json } => {
+                cli::job::job_diff_command(&work_dir, config_path.as_ref(), job_id, json)?;
+            }
         },
         Some(Commands::Mode { command }) => match command {
             ModeCommands::List { json } => {

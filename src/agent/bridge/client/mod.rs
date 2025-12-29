@@ -40,7 +40,8 @@ const DEFAULT_BRIDGE_URL: &str = "http://127.0.0.1:17432";
 #[derive(Clone)]
 pub struct BridgeClient {
     pub(super) base_url: String,
-    pub(super) client: ureq::Agent,
+    pub(super) control: ureq::Agent,
+    pub(super) streaming: ureq::Agent,
 }
 
 impl BridgeClient {
@@ -51,14 +52,22 @@ impl BridgeClient {
 
     /// Create a new bridge client with a custom URL
     pub fn with_url(base_url: impl Into<String>) -> Self {
-        let client = ureq::AgentBuilder::new()
+        // Short timeouts for non-streaming control operations (interrupts, approvals, etc.).
+        let control = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(5))
+            .timeout_read(Duration::from_secs(10))
+            .build();
+
+        // Longer read timeout for NDJSON streaming (queries can take a while between events).
+        let streaming = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(5))
             .timeout_read(Duration::from_secs(300)) // 5 minute read timeout for long operations
             .build();
 
         Self {
             base_url: base_url.into(),
-            client,
+            control,
+            streaming,
         }
     }
 
@@ -66,7 +75,7 @@ impl BridgeClient {
     pub fn health_check(&self) -> Result<HealthResponse> {
         let url = format!("{}/health", self.base_url);
         let response: HealthResponse = self
-            .client
+            .control
             .get(&url)
             .call()
             .context("Failed to connect to bridge")?
@@ -79,7 +88,7 @@ impl BridgeClient {
     pub fn status(&self) -> Result<StatusResponse> {
         let url = format!("{}/status", self.base_url);
         let response: StatusResponse = self
-            .client
+            .control
             .get(&url)
             .call()
             .context("Failed to get bridge status")?
@@ -104,7 +113,7 @@ impl BridgeClient {
         let mut last_error = None;
 
         for attempt in 1..=MAX_RETRIES {
-            match self.client.post(&url).send_json(request) {
+            match self.streaming.post(&url).send_json(request) {
                 Ok(response) => {
                     return Ok(EventStream::new(response.into_reader()));
                 }
@@ -145,7 +154,7 @@ impl BridgeClient {
         let url = format!("{}/codex/query", self.base_url);
 
         let response = self
-            .client
+            .streaming
             .post(&url)
             .send_json(request)
             .context("Failed to start Codex query")?;

@@ -108,11 +108,42 @@ pub fn handle_control_job_abort(control: &ControlApiState, path: &str, request: 
 
     let (agent_id, session_id, status) = match control.job_manager.lock() {
         Ok(mut manager) => match manager.get_mut(job_id) {
-            Some(job) => (
-                job.agent_id.clone(),
-                job.bridge_session_id.clone(),
-                job.status,
-            ),
+            Some(job) => {
+                let status = job.status;
+                let agent_id = job.agent_id.clone();
+                let mut session_id = job.bridge_session_id.clone();
+
+                let mut touch = false;
+                let mut release_locks = false;
+
+                // For running jobs: request cancellation, but keep status as Running until the
+                // executor actually stops (prevents "can't stop" when session_id isn't known yet).
+                if status == JobStatus::Running {
+                    job.cancel_requested = true;
+                    touch = true;
+                } else if matches!(
+                    status,
+                    JobStatus::Queued | JobStatus::Pending | JobStatus::Blocked
+                ) {
+                    // For jobs that haven't started yet: fail immediately so the executor won't pick them up.
+                    job.cancel_requested = true;
+                    job.cancel_sent = true;
+                    job.fail("Job aborted by user".to_string());
+                    session_id = None;
+                    release_locks = true;
+                    touch = true;
+                }
+
+                // End the mutable borrow of `job` before calling other `manager` methods.
+                if release_locks {
+                    manager.release_job_locks(job_id);
+                }
+                if touch {
+                    manager.touch();
+                }
+
+                (agent_id, session_id, status)
+            }
             None => {
                 respond_json(request, 404, serde_json::json!({ "error": "not_found" }));
                 return;
@@ -151,6 +182,13 @@ pub fn handle_control_job_abort(control: &ControlApiState, path: &str, request: 
 
             match interrupt_attempt {
                 Ok(Ok(true)) => {
+                    // Mark that we successfully sent an interrupt signal.
+                    if let Ok(mut manager) = control.job_manager.lock() {
+                        if let Some(job) = manager.get_mut(job_id) {
+                            job.cancel_sent = true;
+                        }
+                        manager.touch();
+                    }
                     let _ = control
                         .executor_tx
                         .send(ExecutorEvent::Log(LogEvent::system(format!(
@@ -183,40 +221,14 @@ pub fn handle_control_job_abort(control: &ControlApiState, path: &str, request: 
                         ))));
                 }
             }
+        } else if status == JobStatus::Running {
+            let _ = control.executor_tx.send(ExecutorEvent::Log(LogEvent::system(
+                format!("Stop requested for job #{} (waiting for session start)", job_id),
+            )));
         }
-
-        // Mark job as failed ("aborted")
-        match control.job_manager.lock() {
-            Ok(mut manager) => {
-                if let Some(job) = manager.get_mut(job_id) {
-                    job.fail("Job aborted by user".to_string());
-                } else {
-                    // Job was deleted by another request between our first lock and now
-                    let _ = control
-                        .executor_tx
-                        .send(ExecutorEvent::Log(LogEvent::error(format!(
-                            "Job #{} no longer exists during abort",
-                            job_id
-                        ))));
-                }
-            }
-            Err(e) => {
-                // Lock poisoned - log the error but continue to respond
-                let _ = control
-                    .executor_tx
-                    .send(ExecutorEvent::Log(LogEvent::error(format!(
-                        "Lock poisoned during job #{} abort: {}",
-                        job_id, e
-                    ))));
-            }
-        }
-
-        let _ = control
-            .executor_tx
-            .send(ExecutorEvent::Log(LogEvent::system(format!(
-                "Aborted job #{}",
-                job_id
-            ))));
+        let _ = control.executor_tx.send(ExecutorEvent::Log(LogEvent::system(
+            format!("Abort requested for job #{}", job_id),
+        )));
 
         respond_json(
             request,

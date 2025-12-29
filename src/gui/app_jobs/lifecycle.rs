@@ -8,8 +8,8 @@ use crate::{JobId, LogEvent, SdkType};
 impl KycoApp {
     /// Kill/stop a running job
     pub(crate) fn kill_job(&mut self, job_id: JobId) {
-        // First, mark the job as failed in the manager (even before interrupting)
-        // This ensures the job state is updated even if interrupt fails
+        // Mark cancellation requested (even before interrupting).
+        // This prevents "can't stop" when the job has not emitted a session_id yet.
         jobs::kill_job(&self.job_manager, job_id, &mut self.logs);
 
         let session_info = self.job_manager.lock().ok().and_then(|manager| {
@@ -56,10 +56,18 @@ impl KycoApp {
             }));
 
             match interrupted {
-                Ok(Ok(true)) => self.logs.push(LogEvent::system(format!(
-                    "Sent interrupt for job #{}",
-                    job_id
-                ))),
+                Ok(Ok(true)) => {
+                    self.logs.push(LogEvent::system(format!(
+                        "Sent interrupt for job #{}",
+                        job_id
+                    )));
+                    if let Ok(mut manager) = self.job_manager.lock() {
+                        if let Some(job) = manager.get_mut(job_id) {
+                            job.cancel_sent = true;
+                        }
+                        manager.touch();
+                    }
+                }
                 Ok(Ok(false)) => self.logs.push(LogEvent::error(format!(
                     "Interrupt was rejected (job #{})",
                     job_id
@@ -73,6 +81,11 @@ impl KycoApp {
                     job_id
                 ))),
             };
+        } else {
+            self.logs.push(LogEvent::system(format!(
+                "Stop requested for job #{} (waiting for session start)",
+                job_id
+            )));
         }
 
         self.refresh_jobs();
