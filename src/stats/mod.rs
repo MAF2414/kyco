@@ -112,9 +112,9 @@ mod tests {
 
     #[test]
     fn test_stats_manager_roundtrip() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("should create temp directory");
         let db_path = dir.path().join("test_stats.db");
-        let manager = StatsManager::with_path(&db_path).unwrap();
+        let manager = StatsManager::with_path(&db_path).expect("should open test database");
 
         // Record a job
         let job = JobStatsRecord {
@@ -139,7 +139,7 @@ mod tests {
             workspace_path: None,
         };
 
-        manager.recorder().record_job(&job).unwrap();
+        manager.recorder().record_job(&job).expect("should record job");
 
         // Record tool calls
         let tool = ToolStatsRecord {
@@ -150,7 +150,7 @@ mod tests {
             success: true,
             timestamp: chrono::Utc::now().timestamp_millis(),
         };
-        manager.recorder().record_tool_call(&tool).unwrap();
+        manager.recorder().record_tool_call(&tool).expect("should record tool call");
 
         // Record file access
         let file = FileStatsRecord {
@@ -160,10 +160,10 @@ mod tests {
             access_type: FileAccessType::Edit,
             timestamp: chrono::Utc::now().timestamp_millis(),
         };
-        manager.recorder().record_file_access(&file).unwrap();
+        manager.recorder().record_file_access(&file).expect("should record file access");
 
         // Query summary
-        let summary = manager.query().get_summary(TimeRange::AllTime).unwrap();
+        let summary = manager.query().get_summary(TimeRange::AllTime).expect("should query summary");
 
         assert_eq!(summary.total_jobs, 1);
         assert_eq!(summary.total_tokens, 1500); // 1000 + 500
