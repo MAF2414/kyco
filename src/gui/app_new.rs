@@ -251,6 +251,7 @@ impl KycoApp {
             stats_filter_workspace: None,
             dashboard_summary: crate::stats::DashboardSummary::default(),
             stats_reset_confirm: false,
+            achievements_reset_confirm: false,
 
             // Gamification
             gamification_events: std::collections::VecDeque::new(),

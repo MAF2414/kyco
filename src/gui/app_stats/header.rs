@@ -135,7 +135,7 @@ impl KycoApp {
                 self.refresh_dashboard();
             }
 
-            // Right side: Reset + Refresh + Close
+            // Right side: Reset buttons + Refresh + Close
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if animated_button(ui, "Close", TEXT_DIM, "stats_close").clicked() {
                     self.view_mode = ViewMode::JobList;
@@ -145,8 +145,12 @@ impl KycoApp {
                     self.refresh_dashboard();
                 }
                 ui.add_space(8.0);
-                if animated_button(ui, "Reset", ACCENT_RED, "stats_reset").clicked() {
+                if animated_button(ui, "Reset Stats", ACCENT_RED, "stats_reset").clicked() {
                     self.stats_reset_confirm = true;
+                }
+                ui.add_space(4.0);
+                if animated_button(ui, "Reset Profile", ACCENT_RED, "achievements_reset").clicked() {
+                    self.achievements_reset_confirm = true;
                 }
             });
         });
