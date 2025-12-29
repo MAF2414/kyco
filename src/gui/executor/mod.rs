@@ -7,6 +7,7 @@ mod event;
 mod git_utils;
 mod log_forwarder;
 mod run_job;
+mod worktree_setup;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
