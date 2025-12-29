@@ -295,7 +295,6 @@ impl AgentRunner for ClaudeAdapter {
             .unwrap_or(false)
     }
 }
-
 #[cfg(test)]
 #[path = "adapter_tests.rs"]
 mod tests;
