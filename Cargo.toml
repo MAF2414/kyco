@@ -70,6 +70,9 @@ semver = "1"
 egui_commonmark = "0.21.1"
 regex = "1.12.2"
 
+# Statistics storage
+rusqlite = { version = "0.33", features = ["bundled"] }
+
 # Unix (macOS/Linux) system calls for permission checks
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

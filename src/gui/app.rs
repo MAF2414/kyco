@@ -138,6 +138,8 @@ pub struct KycoApp {
     pub(crate) agent_edit_aliases: String,
     /// Agent editor: sdk type (claude/codex)
     pub(crate) agent_edit_cli_type: String,
+    /// Agent editor: model override
+    pub(crate) agent_edit_model: String,
     /// Agent editor: session mode (oneshot/session)
     pub(crate) agent_edit_mode: String,
     /// Agent editor: system_prompt_mode
@@ -148,6 +150,12 @@ pub struct KycoApp {
     pub(crate) agent_edit_allowed_tools: String,
     /// Agent editor: status message
     pub(crate) agent_edit_status: Option<(String, bool)>,
+    /// Agent editor: input token price per 1M tokens
+    pub(crate) agent_edit_price_input: String,
+    /// Agent editor: cached input token price per 1M tokens
+    pub(crate) agent_edit_price_cached_input: String,
+    /// Agent editor: output token price per 1M tokens
+    pub(crate) agent_edit_price_output: String,
     /// Mode editor: default agent
     pub(crate) mode_edit_agent: String,
     /// Mode editor: allowed_tools
@@ -168,6 +176,8 @@ pub struct KycoApp {
     pub(crate) mode_edit_output_states: String,
     /// Mode editor: state prompt for chain workflows
     pub(crate) mode_edit_state_prompt: String,
+    /// Mode editor: use worktree (None = global, Some(true) = always, Some(false) = never)
+    pub(crate) mode_edit_use_worktree: Option<bool>,
     /// Settings editor: max concurrent jobs
     pub(crate) settings_max_concurrent: String,
     /// Settings editor: auto run
@@ -240,6 +250,8 @@ pub struct KycoApp {
     pub(crate) chain_edit_stop_on_failure: bool,
     /// Chain editor: pass full response to next step
     pub(crate) chain_edit_pass_full_response: bool,
+    /// Chain editor: use worktree (None = global, Some(true) = always, Some(false) = never)
+    pub(crate) chain_edit_use_worktree: Option<bool>,
     /// Chain editor: status message
     pub(crate) chain_edit_status: Option<(String, bool)>,
     /// Chain editor: pending confirmation dialog
@@ -268,9 +280,6 @@ pub struct KycoApp {
     /// Last time we ran log truncation (to avoid running every frame)
     pub(crate) last_log_cleanup: std::time::Instant,
 
-    // ═══════════════════════════════════════════════════════════════════════════
-    // GLOBAL VOICE HOTKEY - Voice input from any app (Cmd+Shift+V)
-    // ═══════════════════════════════════════════════════════════════════════════
     /// Global hotkey manager for voice input
     pub(crate) global_hotkey_manager: Option<GlobalHotKeyManager>,
     /// Registered voice hotkey ID (for future multi-hotkey support)
@@ -282,4 +291,25 @@ pub struct KycoApp {
     pub(crate) global_voice_auto_paste: bool,
     /// Show voice overlay window (small indicator when recording)
     pub(crate) show_voice_overlay: bool,
+
+    /// Statistics manager (None if initialization failed)
+    pub(crate) stats_manager: Option<crate::stats::StatsManager>,
+    /// Cached stats summary for GUI display (legacy)
+    pub(crate) stats_summary: crate::stats::StatsSummary,
+    /// Selected time range for stats view
+    pub(crate) stats_time_range: crate::stats::TimeRange,
+    /// Selected graph type (legacy)
+    pub(crate) stats_graph: crate::stats::StatsGraph,
+    /// Last time stats were refreshed
+    pub(crate) stats_last_refresh: std::time::Instant,
+
+    // Dashboard V2 state
+    /// Dashboard filter: agent (None = all)
+    pub(crate) stats_filter_agent: Option<String>,
+    /// Dashboard filter: mode/chain (None = all)
+    pub(crate) stats_filter_mode: Option<String>,
+    /// Dashboard V2 cached summary
+    pub(crate) dashboard_summary: crate::stats::DashboardSummary,
+    /// Show stats reset confirmation dialog
+    pub(crate) stats_reset_confirm: bool,
 }

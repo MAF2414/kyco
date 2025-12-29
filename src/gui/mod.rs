@@ -27,6 +27,7 @@ mod app_orchestrator;
 mod app_popup;
 mod app_render;
 mod app_selection;
+mod app_stats;
 mod app_theme;
 mod app_types;
 mod app_update;

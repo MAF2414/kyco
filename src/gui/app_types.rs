@@ -25,6 +25,8 @@ pub enum ViewMode {
     Agents,
     /// Chains configuration view
     Chains,
+    /// Statistics dashboard view
+    Stats,
 }
 
 // Keep old types for compatibility

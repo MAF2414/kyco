@@ -144,6 +144,7 @@ pub fn mode_set_command(
         output_states: Vec::new(),
         state_prompt: None,
         allowed_tools: Vec::new(),
+        use_worktree: None,
     });
 
     if let Some(prompt) = args.prompt {

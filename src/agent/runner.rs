@@ -59,6 +59,18 @@ pub struct AgentResult {
     /// Reported by agents that track API usage costs (e.g., Claude).
     pub cost_usd: Option<f64>,
 
+    /// Input tokens used.
+    pub input_tokens: Option<u64>,
+
+    /// Output tokens generated.
+    pub output_tokens: Option<u64>,
+
+    /// Cache read tokens (prompt caching).
+    pub cache_read_tokens: Option<u64>,
+
+    /// Cache write tokens (prompt caching).
+    pub cache_write_tokens: Option<u64>,
+
     /// Duration in milliseconds.
     ///
     /// Wall-clock time from agent start to completion.

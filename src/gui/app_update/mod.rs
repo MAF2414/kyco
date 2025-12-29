@@ -3,6 +3,7 @@
 //! Contains event handling methods extracted from the main update loop.
 
 mod permission;
+mod stats;
 mod voice;
 
 use super::app::KycoApp;
@@ -26,6 +27,8 @@ impl KycoApp {
                 ExecutorEvent::JobCompleted(job_id) => {
                     self.logs
                         .push(LogEvent::system(format!("Job #{} completed", job_id)));
+                    // Record job statistics
+                    self.record_job_stats(job_id);
                     // Check if this job is part of a group and update group status
                     self.check_group_completion(job_id);
                     // Reload diff if this is the currently selected job
@@ -38,6 +41,8 @@ impl KycoApp {
                         "Job #{} failed: {}",
                         job_id, error
                     )));
+                    // Record job statistics (including failures)
+                    self.record_job_stats(job_id);
                     // Check if this job is part of a group and update group status
                     self.check_group_completion(job_id);
                 }
@@ -87,6 +92,10 @@ impl KycoApp {
                     }
                 }
                 ExecutorEvent::Log(log_event) => {
+                    // Record tool calls to stats database
+                    if log_event.kind == crate::LogEventKind::ToolCall {
+                        self.record_tool_call_from_event(&log_event);
+                    }
                     self.logs.push(log_event);
                 }
                 ExecutorEvent::PermissionNeeded {

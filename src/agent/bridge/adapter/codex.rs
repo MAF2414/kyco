@@ -101,11 +101,12 @@ impl AgentRunner for CodexBridgeAdapter {
             sandbox: config.sandbox.clone().or_else(|| Some("workspace-write".to_string())),
             env: if config.env.is_empty() { None } else { Some(config.env.clone()) },
             output_schema: parse_json_schema(config.structured_output_schema.as_deref()),
-            model: None, effort: None, approval_policy: None, skip_git_repo_check: None,
+            model: config.model.clone(), effort: None, approval_policy: None, skip_git_repo_check: None,
         };
 
         let mut result = AgentResult {
             success: false, error: None, changed_files: Vec::new(), cost_usd: None,
+            input_tokens: None, output_tokens: None, cache_read_tokens: None, cache_write_tokens: None,
             duration_ms: None, sent_prompt: Some(prompt), output_text: None, session_id: None,
         };
 
@@ -136,8 +137,15 @@ impl AgentRunner for CodexBridgeAdapter {
                     if !partial { output_text.push_str(&content); output_text.push('\n'); }
                     let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
                 }
-                BridgeEvent::ToolUse { tool_name, tool_input, .. } => {
-                    let _ = event_tx.send(LogEvent::tool_call(tool_name.clone(), format_tool_call(&tool_name, &tool_input)).for_job(job_id)).await;
+                BridgeEvent::ToolUse { tool_name, tool_input, tool_use_id, .. } => {
+                    // Merge tool_use_id into tool_input for stats tracking
+                    let mut args = tool_input.clone();
+                    if let Some(obj) = args.as_object_mut() {
+                        obj.insert("tool_use_id".to_string(), serde_json::json!(tool_use_id));
+                    }
+                    let _ = event_tx.send(LogEvent::tool_call(tool_name.clone(), format_tool_call(&tool_name, &tool_input))
+                        .with_tool_args(args)
+                        .for_job(job_id)).await;
                 }
                 BridgeEvent::ToolResult { output, files_changed, .. } => {
                     if let Some(files) = files_changed { for f in files { result.changed_files.push(std::path::PathBuf::from(f)); } }
@@ -149,6 +157,13 @@ impl AgentRunner for CodexBridgeAdapter {
                 }
                 BridgeEvent::SessionComplete { success, duration_ms, usage, result: sr, .. } => {
                     result.success = success; result.duration_ms = Some(duration_ms); structured_result = sr;
+                    if let Some(ref u) = usage {
+                        result.input_tokens = Some(u.input_tokens);
+                        result.output_tokens = Some(u.output_tokens);
+                        // Codex uses cached_input_tokens instead of cache_read_tokens
+                        result.cache_read_tokens = Some(u.effective_cache_read());
+                        result.cache_write_tokens = u.cache_write_tokens;
+                    }
                     let usage_info = usage.map(|u| format!(", {} tokens", u.input_tokens + u.output_tokens)).unwrap_or_default();
                     let _ = event_tx.send(LogEvent::system(format!("Completed: {} (duration: {}ms{})", if success { "success" } else { "failed" }, duration_ms, usage_info)).for_job(job_id)).await;
                 }

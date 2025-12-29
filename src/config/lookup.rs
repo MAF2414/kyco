@@ -64,7 +64,7 @@ impl Config {
                 sdk_type,
                 session_mode,
                 permission_mode,
-                model: None,
+                model: toml.model.clone(),
                 sandbox: None,
                 max_turns: 0,
                 system_prompt_mode: toml.system_prompt_mode,
@@ -140,7 +140,10 @@ impl Config {
                 };
             }
             agent_config.max_turns = mode_config.max_turns;
-            agent_config.model = mode_config.model.clone();
+            // Mode model overrides agent model only if explicitly set
+            if mode_config.model.is_some() {
+                agent_config.model = mode_config.model.clone();
+            }
 
             match agent_config.sdk_type {
                 SdkType::Codex => {

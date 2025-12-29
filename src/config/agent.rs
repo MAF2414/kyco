@@ -21,6 +21,9 @@ pub struct AgentConfigToml {
     /// Legacy config key: `cli_type`
     #[serde(default, alias = "cli_type", alias = "sdk_type")]
     pub sdk: SdkType,
+    /// Model to use (e.g., "sonnet", "opus", "haiku" for Claude; "o3", "gpt-4o" for Codex)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// Session mode ("oneshot" or "session")
     ///
     /// Legacy config key: `mode`
@@ -42,4 +45,15 @@ pub struct AgentConfigToml {
     /// Programmatically defined Claude subagents (Claude SDK only)
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub agents: HashMap<String, ClaudeAgentDefinition>,
+
+    // Token pricing (per 1M tokens in USD) for cost estimation
+    /// Input token price per 1M tokens (e.g., 3.0 for $3.00/1M)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_input: Option<f64>,
+    /// Cached input token price per 1M tokens (e.g., 0.3 for $0.30/1M)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_cached_input: Option<f64>,
+    /// Output token price per 1M tokens (e.g., 15.0 for $15.00/1M)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub price_output: Option<f64>,
 }

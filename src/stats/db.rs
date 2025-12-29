@@ -1,0 +1,219 @@
+//! SQLite database connection and schema management for statistics
+//!
+//! Manages the `~/.kyco/stats.db` database with automatic schema migration.
+
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Context, Result};
+use rusqlite::Connection;
+
+use crate::config::Config;
+
+/// Database wrapper with connection pooling
+#[derive(Clone)]
+pub struct StatsDb {
+    conn: Arc<Mutex<Connection>>,
+}
+
+impl StatsDb {
+    /// Open or create the stats database at the default location (~/.kyco/stats.db)
+    pub fn open_default() -> Result<Self> {
+        let db_path = Config::global_config_dir().join("stats.db");
+        Self::open(&db_path)
+    }
+
+    /// Open or create the stats database at a specific path
+    pub fn open(path: &Path) -> Result<Self> {
+        // Ensure parent directory exists
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create stats dir: {}", parent.display()))?;
+        }
+
+        let conn = Connection::open(path)
+            .with_context(|| format!("Failed to open stats db: {}", path.display()))?;
+
+        // Enable WAL mode for concurrent access from Rust and Bridge
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+
+        let db = Self {
+            conn: Arc::new(Mutex::new(conn)),
+        };
+        db.init_schema()?;
+        Ok(db)
+    }
+
+    /// Get a reference to the connection (for queries)
+    pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        self.conn.lock().expect("Stats DB lock poisoned")
+    }
+
+    /// Initialize the database schema
+    fn init_schema(&self) -> Result<()> {
+        let conn = self.conn();
+        conn.execute_batch(SCHEMA_SQL)?;
+        Ok(())
+    }
+
+    /// Delete all statistics data (reset to empty state)
+    pub fn reset_all(&self) -> Result<()> {
+        let conn = self.conn();
+        conn.execute_batch(
+            r#"
+            DELETE FROM job_stats;
+            DELETE FROM tool_stats;
+            DELETE FROM file_stats;
+            DELETE FROM daily_stats;
+            DELETE FROM mode_stats;
+            DELETE FROM tool_usage_stats;
+            DELETE FROM file_access_stats;
+            "#,
+        )?;
+        Ok(())
+    }
+}
+
+/// SQL schema for the stats database
+const SCHEMA_SQL: &str = r#"
+-- Job statistics (one row per completed job)
+CREATE TABLE IF NOT EXISTS job_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER NOT NULL UNIQUE,
+    session_id TEXT,
+    mode TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    agent_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cache_read_tokens INTEGER DEFAULT 0,
+    cache_write_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0.0,
+    duration_ms INTEGER DEFAULT 0,
+    files_changed INTEGER DEFAULT 0,
+    lines_added INTEGER DEFAULT 0,
+    lines_removed INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    started_at INTEGER,
+    finished_at INTEGER,
+    day_bucket TEXT NOT NULL,
+    interval_bucket TEXT NOT NULL,
+    workspace_id TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_job_day ON job_stats(day_bucket);
+CREATE INDEX IF NOT EXISTS idx_job_mode ON job_stats(mode);
+CREATE INDEX IF NOT EXISTS idx_job_agent ON job_stats(agent_type);
+
+-- Tool call statistics
+CREATE TABLE IF NOT EXISTS tool_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER NOT NULL,
+    session_id TEXT,
+    tool_name TEXT NOT NULL,
+    tool_use_id TEXT,
+    success INTEGER NOT NULL DEFAULT 1,
+    timestamp INTEGER NOT NULL,
+    day_bucket TEXT NOT NULL,
+    interval_bucket TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tool_name ON tool_stats(tool_name);
+CREATE INDEX IF NOT EXISTS idx_tool_day ON tool_stats(day_bucket);
+CREATE INDEX IF NOT EXISTS idx_tool_job ON tool_stats(job_id);
+
+-- File access statistics
+CREATE TABLE IF NOT EXISTS file_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id INTEGER NOT NULL,
+    session_id TEXT,
+    file_path TEXT NOT NULL,
+    access_type TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    day_bucket TEXT NOT NULL,
+    interval_bucket TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_file_path ON file_stats(file_path);
+CREATE INDEX IF NOT EXISTS idx_file_day ON file_stats(day_bucket);
+
+-- Daily aggregates (for fast graph queries)
+CREATE TABLE IF NOT EXISTS daily_stats (
+    day_bucket TEXT PRIMARY KEY,
+    total_jobs INTEGER DEFAULT 0,
+    done_jobs INTEGER DEFAULT 0,
+    failed_jobs INTEGER DEFAULT 0,
+    total_input_tokens INTEGER DEFAULT 0,
+    total_output_tokens INTEGER DEFAULT 0,
+    total_cache_read INTEGER DEFAULT 0,
+    total_cache_write INTEGER DEFAULT 0,
+    total_cost_usd REAL DEFAULT 0.0,
+    claude_jobs INTEGER DEFAULT 0,
+    codex_jobs INTEGER DEFAULT 0,
+    total_files_changed INTEGER DEFAULT 0,
+    total_tool_calls INTEGER DEFAULT 0,
+    last_updated INTEGER NOT NULL
+);
+
+-- Mode usage aggregates
+CREATE TABLE IF NOT EXISTS mode_stats (
+    mode TEXT PRIMARY KEY,
+    total_jobs INTEGER DEFAULT 0,
+    done_jobs INTEGER DEFAULT 0,
+    failed_jobs INTEGER DEFAULT 0,
+    total_tokens INTEGER DEFAULT 0,
+    total_cost_usd REAL DEFAULT 0.0,
+    last_updated INTEGER NOT NULL
+);
+
+-- Tool usage aggregates
+CREATE TABLE IF NOT EXISTS tool_usage_stats (
+    tool_name TEXT PRIMARY KEY,
+    total_calls INTEGER DEFAULT 0,
+    successful_calls INTEGER DEFAULT 0,
+    failed_calls INTEGER DEFAULT 0,
+    last_updated INTEGER NOT NULL
+);
+
+-- File access aggregates
+CREATE TABLE IF NOT EXISTS file_access_stats (
+    file_path TEXT PRIMARY KEY,
+    total_accesses INTEGER DEFAULT 0,
+    read_count INTEGER DEFAULT 0,
+    write_count INTEGER DEFAULT 0,
+    edit_count INTEGER DEFAULT 0,
+    last_updated INTEGER NOT NULL
+);
+
+-- Schema version
+CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
+INSERT OR IGNORE INTO schema_version VALUES (1);
+"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_open_and_init() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_stats.db");
+        let db = StatsDb::open(&db_path).unwrap();
+
+        // Verify tables exist
+        let conn = db.conn();
+        let mut stmt = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+            .unwrap();
+        let tables: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        assert!(tables.contains(&"job_stats".to_string()));
+        assert!(tables.contains(&"tool_stats".to_string()));
+        assert!(tables.contains(&"file_stats".to_string()));
+    }
+}

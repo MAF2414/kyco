@@ -11,6 +11,7 @@ pub mod domain;
 pub mod git;
 pub mod gui;
 pub mod job;
+pub mod stats;
 pub mod workspace;
 
 pub use domain::*;

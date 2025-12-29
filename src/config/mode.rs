@@ -142,6 +142,13 @@ pub struct ModeConfig {
     /// Legacy: allowed_tools (deprecated, use disallowed_tools instead)
     #[serde(default)]
     pub allowed_tools: Vec<String>,
+
+    /// Force running in a git worktree for this mode
+    /// - None: Use global settings (default)
+    /// - Some(true): Always run in worktree
+    /// - Some(false): Never run in worktree (overrides global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_worktree: Option<bool>,
 }
 
 impl ModeConfig {

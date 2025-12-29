@@ -33,6 +33,7 @@ pub fn load_mode_for_editing(state: &mut ModeEditorState<'_>, name: &str) {
             || mode.disallowed_tools.contains(&"Edit".to_string());
         *state.mode_edit_output_states = mode.output_states.join(", ");
         *state.mode_edit_state_prompt = mode.state_prompt.clone().unwrap_or_default();
+        *state.mode_edit_use_worktree = mode.use_worktree;
         *state.mode_edit_status = None;
     }
 }
@@ -150,6 +151,7 @@ pub fn save_mode_to_config(state: &mut ModeEditorState<'_>, is_new: bool) {
         output_states,
         state_prompt,
         allowed_tools, // Legacy, deprecated
+        use_worktree: *state.mode_edit_use_worktree,
     };
 
     // Store old value for rollback on save failure

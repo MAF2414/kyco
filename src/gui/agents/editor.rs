@@ -73,6 +73,19 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(8.0);
 
+            // Model override (optional - empty uses user's default)
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Model:").color(TEXT_MUTED));
+                ui.add(
+                    egui::TextEdit::singleline(state.agent_edit_model)
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT_PRIMARY)
+                        .hint_text("(uses default)")
+                        .desired_width(200.0),
+                );
+            });
+            ui.add_space(8.0);
+
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Session Mode:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("agent_mode")
@@ -145,6 +158,48 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
                         .text_color(TEXT_PRIMARY)
                         .hint_text("Write, Edit")
                         .desired_width(300.0),
+                );
+            });
+            ui.add_space(16.0);
+
+            ui.separator();
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new("Token Pricing (per 1M tokens, USD)")
+                    .monospace()
+                    .color(TEXT_PRIMARY),
+            );
+            ui.label(
+                RichText::new("Used for cost estimation when API doesn't return cost")
+                    .small()
+                    .color(TEXT_MUTED),
+            );
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Input:").color(TEXT_MUTED));
+                ui.add(
+                    egui::TextEdit::singleline(state.agent_edit_price_input)
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT_PRIMARY)
+                        .hint_text("e.g., 3.00")
+                        .desired_width(80.0),
+                );
+                ui.label(RichText::new("Cached:").color(TEXT_MUTED));
+                ui.add(
+                    egui::TextEdit::singleline(state.agent_edit_price_cached_input)
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT_PRIMARY)
+                        .hint_text("e.g., 0.30")
+                        .desired_width(80.0),
+                );
+                ui.label(RichText::new("Output:").color(TEXT_MUTED));
+                ui.add(
+                    egui::TextEdit::singleline(state.agent_edit_price_output)
+                        .font(egui::TextStyle::Monospace)
+                        .text_color(TEXT_PRIMARY)
+                        .hint_text("e.g., 15.00")
+                        .desired_width(80.0),
                 );
             });
             ui.add_space(16.0);

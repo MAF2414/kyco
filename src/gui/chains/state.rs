@@ -53,6 +53,7 @@ pub struct ChainEditorState<'a> {
     pub chain_edit_steps: &'a mut Vec<ChainStepEdit>,
     pub chain_edit_stop_on_failure: &'a mut bool,
     pub chain_edit_pass_full_response: &'a mut bool,
+    pub chain_edit_use_worktree: &'a mut Option<bool>,
     pub chain_edit_status: &'a mut Option<(String, bool)>,
     pub pending_confirmation: &'a mut PendingConfirmation,
     pub view_mode: &'a mut ViewMode,

@@ -91,6 +91,27 @@ pub fn render_chain_editor(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>, 
                          When disabled, only the summary is passed.",
                     );
             });
+            ui.add_space(8.0);
+
+            // Worktree option
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Use Worktree:").color(TEXT_MUTED));
+                let display_text = match state.chain_edit_use_worktree {
+                    None => "global",
+                    Some(true) => "always",
+                    Some(false) => "never",
+                };
+                egui::ComboBox::from_id_salt("chain_use_worktree")
+                    .selected_text(display_text)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(state.chain_edit_use_worktree, None, "global")
+                            .on_hover_text("Use the global worktree setting");
+                        ui.selectable_value(state.chain_edit_use_worktree, Some(true), "always")
+                            .on_hover_text("Always run in a git worktree");
+                        ui.selectable_value(state.chain_edit_use_worktree, Some(false), "never")
+                            .on_hover_text("Never run in a worktree (even if global is enabled)");
+                    });
+            });
             ui.add_space(16.0);
 
             // Flow preview

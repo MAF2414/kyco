@@ -176,15 +176,20 @@ impl KycoApp {
             mode_edit_codex_sandbox: "auto".to_string(),
             mode_edit_output_states: String::new(),
             mode_edit_state_prompt: String::new(),
+            mode_edit_use_worktree: None,
             selected_agent: None,
             agent_edit_name: String::new(),
             agent_edit_aliases: String::new(),
             agent_edit_cli_type: String::new(),
+            agent_edit_model: String::new(),
             agent_edit_mode: String::new(),
             agent_edit_system_prompt_mode: String::new(),
             agent_edit_disallowed_tools: String::new(),
             agent_edit_allowed_tools: String::new(),
             agent_edit_status: None,
+            agent_edit_price_input: String::new(),
+            agent_edit_price_cached_input: String::new(),
+            agent_edit_price_output: String::new(),
             settings_max_concurrent,
             settings_auto_run,
             settings_use_worktree,
@@ -220,6 +225,7 @@ impl KycoApp {
             chain_edit_steps: Vec::new(),
             chain_edit_stop_on_failure: true,
             chain_edit_pass_full_response: true,
+            chain_edit_use_worktree: None,
             chain_edit_status: None,
             chain_pending_confirmation: super::chains::PendingConfirmation::None,
             voice_config_changed: false,
@@ -244,6 +250,19 @@ impl KycoApp {
             global_voice_recording: false,
             global_voice_auto_paste: true,
             show_voice_overlay: false,
+
+            // Statistics tracking
+            stats_manager: crate::stats::StatsManager::new().ok(),
+            stats_summary: crate::stats::StatsSummary::default(),
+            stats_time_range: crate::stats::TimeRange::default(),
+            stats_graph: crate::stats::StatsGraph::default(),
+            stats_last_refresh: std::time::Instant::now(),
+
+            // Dashboard V2
+            stats_filter_agent: None,
+            stats_filter_mode: None,
+            dashboard_summary: crate::stats::DashboardSummary::default(),
+            stats_reset_confirm: false,
         }
     }
 }

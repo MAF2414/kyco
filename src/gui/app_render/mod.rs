@@ -87,6 +87,9 @@ impl KycoApp {
             ViewMode::Chains => {
                 self.render_chains(ctx);
             }
+            ViewMode::Stats => {
+                self.render_stats(ctx);
+            }
         }
     }
 

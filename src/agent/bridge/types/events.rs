@@ -3,13 +3,30 @@
 use serde::Deserialize;
 
 /// Token usage statistics
+///
+/// Supports both Claude format (cache_read/write_tokens) and
+/// Codex format (cached_input_tokens).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageStats {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Claude: cache read tokens
+    #[serde(alias = "cacheReadTokens")]
     pub cache_read_tokens: Option<u64>,
+    /// Claude: cache write tokens
+    #[serde(alias = "cacheWriteTokens")]
     pub cache_write_tokens: Option<u64>,
+    /// Codex: cached input tokens (maps to cache_read)
+    #[serde(alias = "cachedInputTokens")]
+    pub cached_input_tokens: Option<u64>,
+}
+
+impl UsageStats {
+    /// Get effective cache read tokens (Claude or Codex format)
+    pub fn effective_cache_read(&self) -> u64 {
+        self.cache_read_tokens.or(self.cached_input_tokens).unwrap_or(0)
+    }
 }
 
 /// Bridge event - union of all possible events

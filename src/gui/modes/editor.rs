@@ -106,6 +106,26 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
                         .desired_width(200.0),
                 );
             });
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Use Worktree:").color(TEXT_MUTED));
+                let display_text = match state.mode_edit_use_worktree {
+                    None => "global",
+                    Some(true) => "always",
+                    Some(false) => "never",
+                };
+                egui::ComboBox::from_id_salt("mode_use_worktree")
+                    .selected_text(display_text)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(state.mode_edit_use_worktree, None, "global")
+                            .on_hover_text("Use the global worktree setting");
+                        ui.selectable_value(state.mode_edit_use_worktree, Some(true), "always")
+                            .on_hover_text("Always run in a git worktree");
+                        ui.selectable_value(state.mode_edit_use_worktree, Some(false), "never")
+                            .on_hover_text("Never run in a worktree (even if global is enabled)");
+                    });
+            });
             ui.add_space(16.0);
 
             ui.separator();

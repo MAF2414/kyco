@@ -70,6 +70,13 @@ pub struct ModeChain {
     /// When true, the complete output is passed; when false, only the summary
     #[serde(default = "default_pass_full_response")]
     pub pass_full_response: bool,
+
+    /// Force running in a git worktree for this chain
+    /// - None: Use global settings (default)
+    /// - Some(true): Always run in worktree
+    /// - Some(false): Never run in worktree (overrides global)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_worktree: Option<bool>,
 }
 
 fn default_stop_on_failure() -> bool {

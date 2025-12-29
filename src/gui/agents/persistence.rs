@@ -15,6 +15,7 @@ pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
             SdkType::Codex => "codex".to_string(),
             _ => "claude".to_string(),
         };
+        *state.agent_edit_model = agent.model.clone().unwrap_or_default();
         *state.agent_edit_mode = match agent.session_mode {
             SessionMode::Session | SessionMode::Repl => "session".to_string(),
             _ => "oneshot".to_string(),
@@ -23,6 +24,19 @@ pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
             format!("{:?}", agent.system_prompt_mode).to_lowercase();
         *state.agent_edit_disallowed_tools = agent.disallowed_tools.join(", ");
         *state.agent_edit_allowed_tools = agent.allowed_tools.join(", ");
+        // Pricing fields
+        *state.agent_edit_price_input = agent
+            .price_input
+            .map(|v| format!("{:.2}", v))
+            .unwrap_or_default();
+        *state.agent_edit_price_cached_input = agent
+            .price_cached_input
+            .map(|v| format!("{:.3}", v))
+            .unwrap_or_default();
+        *state.agent_edit_price_output = agent
+            .price_output
+            .map(|v| format!("{:.2}", v))
+            .unwrap_or_default();
         *state.agent_edit_status = None;
     }
 }
@@ -88,10 +102,22 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         .map(|a| (a.env.clone(), a.mcp_servers.clone(), a.agents.clone()))
         .unwrap_or_else(|| (HashMap::new(), HashMap::new(), HashMap::new()));
 
+    let model = if state.agent_edit_model.is_empty() {
+        None
+    } else {
+        Some(state.agent_edit_model.clone())
+    };
+
+    // Parse pricing fields
+    let price_input = state.agent_edit_price_input.trim().parse::<f64>().ok();
+    let price_cached_input = state.agent_edit_price_cached_input.trim().parse::<f64>().ok();
+    let price_output = state.agent_edit_price_output.trim().parse::<f64>().ok();
+
     let agent_config = AgentConfigToml {
         version: 0, // User-created agents start at version 0
         aliases,
         sdk,
+        model,
         session_mode,
         system_prompt_mode,
         disallowed_tools,
@@ -99,6 +125,9 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         env,
         mcp_servers,
         agents,
+        price_input,
+        price_cached_input,
+        price_output,
     };
 
     state.config.agent.insert(name.clone(), agent_config);

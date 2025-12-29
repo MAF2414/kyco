@@ -64,6 +64,9 @@ impl KycoApp {
             ViewMode::Chains => {
                 self.handle_chains_input(i);
             }
+            ViewMode::Stats => {
+                self.handle_stats_input(i);
+            }
         }
 
         // Global shortcut for auto_run toggle (Shift+A)
@@ -251,6 +254,12 @@ impl KycoApp {
             } else {
                 self.view_mode = ViewMode::JobList;
             }
+        }
+    }
+
+    fn handle_stats_input(&mut self, i: &egui::InputState) {
+        if i.key_pressed(Key::Escape) {
+            self.view_mode = ViewMode::JobList;
         }
     }
 }

@@ -34,11 +34,11 @@ system_prompt_mode = "append"
 # and it will be merged into users' configs on next load.
 
 [mode.refactor]
-version = 1
+version = 2
 aliases = ["r", "ref"]
+use_worktree = true
 output_states = ["refactored"]
 state_prompt = "When done, output: state: refactored"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 prompt = """
 Refactor `{target}`: {description}
 
@@ -64,11 +64,11 @@ DON'T:
 """
 
 [mode.rustloc300]
-version = 1
+version = 3
 aliases = ["rs300", "rust300", "l300"]
+use_worktree = true
 output_states = ["under_300_locs", "already_under_300_locs", "loc_reduction_blocked"]
 state_prompt = "Output: state: under_300_locs (success), state: already_under_300_locs (no changes needed), state: loc_reduction_blocked (cannot do without behavior change)"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Reduce `{target}` to <= 300 LOC (Rust) without behavior changes: {description}
 
@@ -154,11 +154,11 @@ OUTPUT
 """
 
 [mode.pythonloc300]
-version = 2
+version = 4
 aliases = ["py300", "python300"]
+use_worktree = true
 output_states = ["under_300_locs", "already_under_300_locs", "loc_reduction_blocked"]
 state_prompt = "Output: state: under_300_locs (success), state: already_under_300_locs (no changes needed), state: loc_reduction_blocked (cannot do without behavior change)"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Reduce `{target}` to <= 300 LOC (Python) without behavior changes: {description}
 
@@ -211,11 +211,11 @@ IMPORT HYGIENE
 """
 
 [mode.csharploc300]
-version = 2
+version = 4
 aliases = ["cs300", "csharp300"]
+use_worktree = true
 output_states = ["under_300_locs", "already_under_300_locs", "loc_reduction_blocked"]
 state_prompt = "Output: state: under_300_locs (success), state: already_under_300_locs (no changes needed), state: loc_reduction_blocked (cannot do without behavior change)"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Reduce `{target}` to <= 300 LOC (C#) without behavior changes: {description}
 
@@ -273,11 +273,11 @@ MODERN C# PATTERNS
 """
 
 [mode.typescriptloc300]
-version = 2
+version = 4
 aliases = ["ts300", "typescript300"]
+use_worktree = true
 output_states = ["under_300_locs", "already_under_300_locs", "loc_reduction_blocked"]
 state_prompt = "Output: state: under_300_locs (success), state: already_under_300_locs (no changes needed), state: loc_reduction_blocked (cannot do without behavior change)"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Reduce `{target}` to <= 300 LOC (TypeScript) without behavior changes: {description}
 
@@ -335,11 +335,11 @@ IMPORT HYGIENE
 """
 
 [mode.kotlinloc300]
-version = 2
+version = 4
 aliases = ["kt300", "kotlin300"]
+use_worktree = true
 output_states = ["under_300_locs", "already_under_300_locs", "loc_reduction_blocked"]
 state_prompt = "Output: state: under_300_locs (success), state: already_under_300_locs (no changes needed), state: loc_reduction_blocked (cannot do without behavior change)"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Reduce `{target}` to <= 300 LOC (Kotlin) without behavior changes: {description}
 
@@ -398,11 +398,10 @@ MULTIPLATFORM (expect/actual)
 """
 
 [mode.tests]
-version = 1
+version = 2
 aliases = ["t", "test"]
 output_states = ["tests_pass", "tests_fail"]
 state_prompt = "Run tests and output: state: tests_pass or state: tests_fail"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Write tests for `{target}`: {description}
 
@@ -431,11 +430,10 @@ DON'T:
 """
 
 [mode.docs]
-version = 1
+version = 2
 aliases = ["d", "doc"]
 output_states = ["documented"]
 state_prompt = "When done, output: state: documented"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 prompt = """
 Document `{target}`: {description}
 
@@ -492,11 +490,10 @@ Use dependency list to check for broader impact.
 """
 
 [mode.fix]
-version = 1
+version = 2
 aliases = ["f"]
 output_states = ["fixed", "unfixable"]
 state_prompt = "Output: state: fixed if issue resolved, state: unfixable if cannot be fixed"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Fix `{target}`: {description}
 
@@ -523,11 +520,10 @@ DON'T:
 """
 
 [mode.implement]
-version = 1
+version = 2
 aliases = ["i", "impl"]
 output_states = ["implemented", "blocked"]
 state_prompt = "Output: state: implemented if done, state: blocked if cannot proceed"
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Implement at `{target}`: {description}
 
@@ -569,10 +565,9 @@ COMPLEXITY BUDGET:
 """
 
 [mode.optimize]
-version = 1
+version = 2
 aliases = ["o", "opt"]
 output_states = ["optimized"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Optimize `{target}`: {description}
 
@@ -657,10 +652,10 @@ RULES:
 """
 
 [mode.decouple]
-version = 1
+version = 2
 aliases = ["dec", "inject", "di"]
+use_worktree = true
 output_states = ["decoupled"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 prompt = """
 Decouple dependency at `{target}`: {description}
 
@@ -688,10 +683,10 @@ DON'T:
 """
 
 [mode.extract]
-version = 1
+version = 2
 aliases = ["ex", "split"]
+use_worktree = true
 output_states = ["extracted"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 prompt = """
 Extract from `{target}`: {description}
 
@@ -719,10 +714,9 @@ DON'T:
 """
 
 [mode.logging]
-version = 1
+version = 2
 aliases = ["log", "l"]
 output_states = ["logged"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 prompt = """
 Add meaningful logging to `{target}`: {description}
 
@@ -774,10 +768,9 @@ RULE OF THUMB:
 """
 
 [mode.security]
-version = 1
+version = 2
 aliases = ["sec", "harden"]
 output_states = ["secured", "vulnerabilities_remain"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Secure `{target}`: {description}
 
@@ -810,10 +803,9 @@ DON'T:
 """
 
 [mode.types]
-version = 1
+version = 2
 aliases = ["ty", "typing"]
 output_states = ["typed"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep"]
 prompt = """
 Add types to `{target}`: {description}
 
@@ -841,10 +833,9 @@ DON'T:
 """
 
 [mode.coverage]
-version = 1
+version = 2
 aliases = ["cov"]
 output_states = ["coverage_improved"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Improve test coverage for `{target}`: {description}
 
@@ -876,10 +867,9 @@ DON'T:
 """
 
 [mode.nullcheck]
-version = 1
+version = 2
 aliases = ["null", "npe", "nullable"]
 output_states = ["null_safe", "null_issues_fixed"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Check and fix null safety issues in `{target}`: {description}
 
@@ -931,10 +921,10 @@ DON'T:
 """
 
 [mode.migrate]
-version = 1
+version = 2
 aliases = ["mig", "upgrade"]
+use_worktree = true
 output_states = ["migrated", "migration_blocked"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Migrate `{target}`: {description}
 
@@ -962,10 +952,9 @@ DON'T:
 """
 
 [mode.cleanup]
-version = 1
+version = 2
 aliases = ["clean", "tidy"]
 output_states = ["cleaned"]
-allowed_tools = ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 prompt = """
 Clean up `{target}`: {description}
 

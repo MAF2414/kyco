@@ -60,8 +60,19 @@ pub async fn run_job(
 
     // Multi-agent jobs always require worktrees for isolation
     let is_multi_agent_job = job.group_id.is_some();
-    let should_use_worktree =
-        config.settings.use_worktree || is_multi_agent_job || job.force_worktree;
+
+    // Check if the mode/chain has a use_worktree override
+    let mode_use_worktree = config
+        .mode
+        .get(&job.mode)
+        .and_then(|m| m.use_worktree)
+        .or_else(|| config.chain.get(&job.mode).and_then(|c| c.use_worktree));
+
+    let should_use_worktree = match mode_use_worktree {
+        Some(true) => true,   // Mode/chain explicitly enables worktree
+        Some(false) => false, // Mode/chain explicitly disables worktree
+        None => config.settings.use_worktree || is_multi_agent_job || job.force_worktree,
+    };
 
     let job_work_dir = job
         .workspace_path
@@ -146,6 +157,13 @@ pub async fn run_job(
             };
             if let Some(j) = manager.get_mut(job_id) {
                 j.sent_prompt = result.sent_prompt.clone();
+
+                // Copy token usage from agent result
+                j.input_tokens = result.input_tokens;
+                j.output_tokens = result.output_tokens;
+                j.cache_read_tokens = result.cache_read_tokens;
+                j.cache_write_tokens = result.cache_write_tokens;
+                j.cost_usd = result.cost_usd;
 
                 if let Some(output) = &result.output_text {
                     j.full_response = Some(output.clone());

@@ -107,6 +107,26 @@ pub struct Job {
     #[serde(default)]
     pub stats: Option<JobStats>,
 
+    /// Input tokens used (from API response)
+    #[serde(default)]
+    pub input_tokens: Option<u64>,
+
+    /// Output tokens generated (from API response)
+    #[serde(default)]
+    pub output_tokens: Option<u64>,
+
+    /// Cache read tokens (prompt caching)
+    #[serde(default)]
+    pub cache_read_tokens: Option<u64>,
+
+    /// Cache write tokens (prompt caching)
+    #[serde(default)]
+    pub cache_write_tokens: Option<u64>,
+
+    /// Total cost in USD (from API response)
+    #[serde(default)]
+    pub cost_usd: Option<f64>,
+
     /// When the job started running
     #[serde(default)]
     pub started_at: Option<DateTime<Utc>>,
