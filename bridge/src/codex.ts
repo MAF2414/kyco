@@ -40,6 +40,7 @@ export async function* executeCodexQuery(
   const startTime = Date.now();
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
+  let totalCacheReadTokens = 0;
   let success = true;
   let lastAgentMessage: string | null = null;
 
@@ -138,6 +139,7 @@ export async function* executeCodexQuery(
 
           case 'turn.completed':
             totalInputTokens += event.usage.input_tokens;
+            totalCacheReadTokens += event.usage.cached_input_tokens;
             totalOutputTokens += event.usage.output_tokens;
             break;
 
@@ -176,7 +178,11 @@ export async function* executeCodexQuery(
       timestamp: Date.now(),
       success,
       ...(structuredResult ? { result: structuredResult } : {}),
-      usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
+      usage: {
+        inputTokens: Math.max(0, totalInputTokens - totalCacheReadTokens),
+        outputTokens: totalOutputTokens,
+        cacheReadTokens: totalCacheReadTokens,
+      },
       durationMs: Date.now() - startTime,
     };
 

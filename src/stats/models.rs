@@ -292,6 +292,8 @@ pub struct DashboardSummary {
     pub total_cost: TrendValue,
     pub total_bytes: TrendValue,
     pub avg_duration_ms: TrendValue,
+    /// Total time: sum(duration_ms) in milliseconds
+    pub total_duration_ms: TrendValue,
     /// Wall clock time: max(finished_at) - min(started_at) in milliseconds
     /// This shows actual elapsed time, not sum of job durations
     pub wall_clock_ms: TrendValue,
@@ -322,4 +324,3 @@ pub struct DashboardSummary {
     pub available_modes: Vec<String>,
     pub available_workspaces: Vec<String>,
 }
-

@@ -17,6 +17,10 @@ pub struct StatsQuery {
     db: StatsDb,
 }
 
+fn escape_sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
 /// Internal struct for period statistics query result
 struct PeriodStats {
     succeeded_jobs: f64,
@@ -24,6 +28,7 @@ struct PeriodStats {
     total_cost: f64,
     total_bytes: f64,
     avg_duration: f64,
+    total_duration: f64,
     wall_clock: f64,
     input_tokens: f64,
     output_tokens: f64,
@@ -230,16 +235,18 @@ impl StatsQuery {
         // Build WHERE clause based on filter
         let where_clause = self.build_where_clause(filter, cutoff.as_deref());
         let prev_where = self.build_where_clause(filter, prev_cutoff.as_deref());
+        let join_where = self.build_where_clause_for_alias(filter, cutoff.as_deref(), "j");
+        let prev_join_where = self.build_where_clause_for_alias(filter, prev_cutoff.as_deref(), "j");
 
         // Get current period stats
         let current = self.query_period_stats(&conn, &where_clause)?;
         let previous = self.query_period_stats(&conn, &prev_where)?;
 
         // Get tool calls and file accesses
-        let current_tools = self.query_total_tool_calls(&conn, &where_clause).unwrap_or(0);
-        let previous_tools = self.query_total_tool_calls(&conn, &prev_where).unwrap_or(0);
-        let current_files = self.query_total_file_accesses(&conn, &where_clause).unwrap_or(0);
-        let previous_files = self.query_total_file_accesses(&conn, &prev_where).unwrap_or(0);
+        let current_tools = self.query_total_tool_calls(&conn, &join_where).unwrap_or(0);
+        let previous_tools = self.query_total_tool_calls(&conn, &prev_join_where).unwrap_or(0);
+        let current_files = self.query_total_file_accesses(&conn, &join_where).unwrap_or(0);
+        let previous_files = self.query_total_file_accesses(&conn, &prev_join_where).unwrap_or(0);
 
         // Get token breakdown
         let tokens = self.query_token_breakdown(&conn, &where_clause)?;
@@ -250,9 +257,9 @@ impl StatsQuery {
         // Get mode stats
         let modes = self.query_mode_stats(&conn, &where_clause)?;
 
-        // Get top tools/files (unfiltered for now)
-        let top_tools = self.get_top_tools(&conn, 8)?;
-        let top_files = self.get_top_files(&conn, 8)?;
+        // Get top tools/files (filtered to match dashboard)
+        let top_tools = self.query_top_tools(&conn, &join_where, 8)?;
+        let top_files = self.query_top_files(&conn, &join_where, 8)?;
 
         // Get available filter options
         let available_agents = self.get_available_agents(&conn)?;
@@ -266,6 +273,7 @@ impl StatsQuery {
             total_cost: TrendValue { current: current.total_cost, previous: previous.total_cost },
             total_bytes: TrendValue { current: current.total_bytes, previous: previous.total_bytes },
             avg_duration_ms: TrendValue { current: current.avg_duration, previous: previous.avg_duration },
+            total_duration_ms: TrendValue { current: current.total_duration, previous: previous.total_duration },
             wall_clock_ms: TrendValue { current: current.wall_clock, previous: previous.wall_clock },
             // Row 2
             input_tokens: TrendValue { current: current.input_tokens, previous: previous.input_tokens },
@@ -299,10 +307,6 @@ impl StatsQuery {
     }
 
     fn build_where_clause(&self, filter: &DashboardFilter, cutoff: Option<&str>) -> String {
-        fn escape_sql_literal(value: &str) -> String {
-            value.replace('\'', "''")
-        }
-
         let mut conditions = Vec::new();
         if let Some(c) = cutoff {
             conditions.push(format!("day_bucket >= '{}'", escape_sql_literal(c)));
@@ -326,17 +330,50 @@ impl StatsQuery {
         }
     }
 
+    fn build_where_clause_for_alias(
+        &self,
+        filter: &DashboardFilter,
+        cutoff: Option<&str>,
+        alias: &str,
+    ) -> String {
+        let mut conditions = Vec::new();
+        if let Some(c) = cutoff {
+            conditions.push(format!("{alias}.day_bucket >= '{}'", escape_sql_literal(c)));
+        }
+        if let Some(agent) = &filter.agent {
+            conditions.push(format!(
+                "{alias}.agent_type = '{}'",
+                escape_sql_literal(agent)
+            ));
+        }
+        if let Some(mode) = &filter.mode_or_chain {
+            conditions.push(format!("{alias}.mode = '{}'", escape_sql_literal(mode)));
+        }
+        if let Some(workspace) = &filter.workspace {
+            conditions.push(format!(
+                "{alias}.workspace_path = '{}'",
+                escape_sql_literal(workspace)
+            ));
+        }
+        if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        }
+    }
+
     /// Extended period stats tuple:
-    /// (succeeded_jobs, total_tokens, total_cost, total_bytes, avg_duration, wall_clock,
+    /// (succeeded_jobs, total_tokens, total_cost, total_bytes, avg_duration, total_duration, wall_clock,
     ///  input_tokens, output_tokens, cached_tokens, failed_jobs)
     fn query_period_stats(&self, conn: &rusqlite::Connection, where_clause: &str) -> Result<PeriodStats> {
         let sql = format!(
             "SELECT
                 COALESCE(SUM(CASE WHEN status IN ('done', 'merged') THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(input_tokens + output_tokens), 0),
+                COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0),
                 COALESCE(SUM(cost_usd), 0),
-                COALESCE(SUM(input_tokens + output_tokens), 0) * 4,
+                COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) * 4,
                 COALESCE(AVG(duration_ms), 0),
+                COALESCE(SUM(duration_ms), 0),
                 COALESCE(MAX(finished_at) - MIN(started_at), 0),
                 COALESCE(SUM(input_tokens), 0),
                 COALESCE(SUM(output_tokens), 0),
@@ -352,11 +389,12 @@ impl StatsQuery {
                 total_cost: row.get(2)?,
                 total_bytes: row.get(3)?,
                 avg_duration: row.get(4)?,
-                wall_clock: row.get(5)?,
-                input_tokens: row.get(6)?,
-                output_tokens: row.get(7)?,
-                cached_tokens: row.get(8)?,
-                failed_jobs: row.get(9)?,
+                total_duration: row.get(5)?,
+                wall_clock: row.get(6)?,
+                input_tokens: row.get(7)?,
+                output_tokens: row.get(8)?,
+                cached_tokens: row.get(9)?,
+                failed_jobs: row.get(10)?,
             })
         })?;
         Ok(result)
@@ -387,6 +425,68 @@ impl StatsQuery {
             )
         };
         Ok(conn.query_row(&sql, [], |row| row.get(0))?)
+    }
+
+    fn query_top_tools(
+        &self,
+        conn: &rusqlite::Connection,
+        where_clause: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, u64)>> {
+        let sql = if where_clause.is_empty() {
+            "SELECT tool_name, COUNT(*) as cnt
+             FROM tool_stats
+             GROUP BY tool_name
+             ORDER BY cnt DESC
+             LIMIT ?"
+                .to_string()
+        } else {
+            format!(
+                "SELECT t.tool_name, COUNT(*) as cnt
+                 FROM tool_stats t
+                 INNER JOIN job_stats j ON t.job_id = j.job_id
+                 {}
+                 GROUP BY t.tool_name
+                 ORDER BY cnt DESC
+                 LIMIT ?",
+                where_clause
+            )
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([limit], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
+    }
+
+    fn query_top_files(
+        &self,
+        conn: &rusqlite::Connection,
+        where_clause: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, u64)>> {
+        let sql = if where_clause.is_empty() {
+            "SELECT file_path, COUNT(*) as cnt
+             FROM file_stats
+             GROUP BY file_path
+             ORDER BY cnt DESC
+             LIMIT ?"
+                .to_string()
+        } else {
+            format!(
+                "SELECT f.file_path, COUNT(*) as cnt
+                 FROM file_stats f
+                 INNER JOIN job_stats j ON f.job_id = j.job_id
+                 {}
+                 GROUP BY f.file_path
+                 ORDER BY cnt DESC
+                 LIMIT ?",
+                where_clause
+            )
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map([limit], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
     fn get_available_workspaces(&self, conn: &rusqlite::Connection) -> Result<Vec<String>> {

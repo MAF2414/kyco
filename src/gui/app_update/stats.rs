@@ -275,7 +275,14 @@ fn job_to_stats_record(job: &Job, agent_config: Option<&AgentConfigToml>) -> Job
 
     // Use real cost if available, otherwise estimate from tokens using agent pricing
     let cost_usd = job.cost_usd.unwrap_or_else(|| {
-        estimate_cost(input_tokens, output_tokens, cache_read, &job.agent_id, agent_config)
+        estimate_cost(
+            input_tokens,
+            output_tokens,
+            cache_read,
+            cache_write,
+            &job.agent_id,
+            agent_config,
+        )
     });
 
     // Calculate duration
@@ -346,6 +353,7 @@ fn estimate_cost(
     input: u64,
     output: u64,
     cache_read: u64,
+    cache_write: u64,
     agent_id: &str,
     agent_config: Option<&AgentConfigToml>,
 ) -> f64 {
@@ -371,8 +379,10 @@ fn estimate_cost(
     };
 
     // Calculate cost (prices are per 1M tokens)
-    let fresh_input = input.saturating_sub(cache_read);
-    let input_cost = fresh_input as f64 * price_input / 1_000_000.0;
+    // - `input`: uncached input tokens
+    // - `cache_read`: cached input tokens (discounted)
+    // - `cache_write`: tokens written to cache (charged at input rate)
+    let input_cost = (input + cache_write) as f64 * price_input / 1_000_000.0;
     let cache_cost = cache_read as f64 * price_cached / 1_000_000.0;
     let output_cost = output as f64 * price_output / 1_000_000.0;
 

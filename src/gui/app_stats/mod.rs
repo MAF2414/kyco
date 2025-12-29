@@ -224,18 +224,21 @@ impl KycoApp {
     fn render_summary_cards(&self, ui: &mut egui::Ui) {
         let s = &self.dashboard_summary;
         let spacing = 8.0;
-        let num_cards = 6.0;
-        let card_width = (ui.available_width() - spacing * (num_cards - 1.0)) / num_cards;
+        let row1_cards = 7.0;
+        let row2_cards = 6.0;
+        let row1_card_width = (ui.available_width() - spacing * (row1_cards - 1.0)) / row1_cards;
+        let row2_card_width = (ui.available_width() - spacing * (row2_cards - 1.0)) / row2_cards;
 
-        // Row 1: Jobs, Tokens, Cost, Bytes, Avg Time, Wall Clock
+        // Row 1: Jobs, Tokens, Cost, Bytes, Avg Time, Total Time, Wall Clock
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = spacing;
-            summary_card_full(ui, "Jobs ✓", s.succeeded_jobs.current as u64, &s.succeeded_jobs, |v| v.to_string(), ACCENT_CYAN, card_width, false);
-            summary_card_full(ui, "Tokens", s.total_tokens.current as u64, &s.total_tokens, charts::format_tokens, ACCENT_CYAN, card_width, false);
-            summary_card_full_f64(ui, "Cost", s.total_cost.current, &s.total_cost, |v| format!("${:.2}", v), ACCENT_CYAN, card_width, false);
-            summary_card_full_f64(ui, "Bytes", s.total_bytes.current, &s.total_bytes, charts::format_bytes, ACCENT_CYAN, card_width, false);
-            summary_card_full_f64(ui, "Avg Time", s.avg_duration_ms.current, &s.avg_duration_ms, charts::format_duration, ACCENT_CYAN, card_width, false);
-            summary_card_full_f64(ui, "Wall Clock", s.wall_clock_ms.current, &s.wall_clock_ms, charts::format_duration, ACCENT_CYAN, card_width, false);
+            summary_card_full(ui, "Jobs ✓", s.succeeded_jobs.current as u64, &s.succeeded_jobs, |v| v.to_string(), ACCENT_CYAN, row1_card_width, false);
+            summary_card_full(ui, "Tokens", s.total_tokens.current as u64, &s.total_tokens, charts::format_tokens, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Cost", s.total_cost.current, &s.total_cost, |v| format!("${:.2}", v), ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Bytes", s.total_bytes.current, &s.total_bytes, charts::format_bytes, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Avg Time", s.avg_duration_ms.current, &s.avg_duration_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Total Time", s.total_duration_ms.current, &s.total_duration_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
+            summary_card_full_f64(ui, "Wall Clock", s.wall_clock_ms.current, &s.wall_clock_ms, charts::format_duration, ACCENT_CYAN, row1_card_width, false);
         });
 
         ui.add_space(spacing);
@@ -243,12 +246,12 @@ impl KycoApp {
         // Row 2: Input Tokens, Output Tokens, Cached, Tools, Files, Failed
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = spacing;
-            summary_card_full(ui, "Input", s.input_tokens.current as u64, &s.input_tokens, charts::format_tokens, ACCENT_CYAN, card_width, false);
-            summary_card_full(ui, "Output", s.output_tokens.current as u64, &s.output_tokens, charts::format_tokens, ACCENT_CYAN, card_width, false);
-            summary_card_full(ui, "Cached", s.cached_tokens.current as u64, &s.cached_tokens, charts::format_tokens, ACCENT_CYAN, card_width, false);
-            summary_card_full(ui, "Tools", s.total_tool_calls.current as u64, &s.total_tool_calls, |v| v.to_string(), ACCENT_CYAN, card_width, false);
-            summary_card_full(ui, "Files", s.total_file_accesses.current as u64, &s.total_file_accesses, |v| v.to_string(), ACCENT_CYAN, card_width, false);
-            summary_card_full(ui, "Failed", s.failed_jobs.current as u64, &s.failed_jobs, |v| v.to_string(), ACCENT_RED, card_width, true);
+            summary_card_full(ui, "Input", s.input_tokens.current as u64, &s.input_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Output", s.output_tokens.current as u64, &s.output_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Cached", s.cached_tokens.current as u64, &s.cached_tokens, charts::format_tokens, ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Tools", s.total_tool_calls.current as u64, &s.total_tool_calls, |v| v.to_string(), ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Files", s.total_file_accesses.current as u64, &s.total_file_accesses, |v| v.to_string(), ACCENT_CYAN, row2_card_width, false);
+            summary_card_full(ui, "Failed", s.failed_jobs.current as u64, &s.failed_jobs, |v| v.to_string(), ACCENT_RED, row2_card_width, true);
         });
     }
 
