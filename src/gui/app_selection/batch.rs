@@ -94,22 +94,14 @@ impl KycoApp {
 
         // Create jobs for each file
         for file in &self.batch_files {
-            // Extract workspace from batch file
-            // Priority: project_root (includes git detection) > git_root > workspace
-            let effective_path = file
+            // Extract workspace path for SDK cwd resolution
+            // Priority: project_root > git_root > workspace
+            let workspace_path = file
                 .project_root
                 .as_ref()
                 .or(file.git_root.as_ref())
-                .map(|s| s.as_str())
-                .unwrap_or(&file.workspace);
-            let ws_path_buf = PathBuf::from(effective_path);
-            let (workspace_id, workspace_path) =
-                if let Ok(mut registry) = self.workspace_registry.lock() {
-                    let ws_id = registry.get_or_create(ws_path_buf.clone());
-                    (Some(ws_id), Some(ws_path_buf))
-                } else {
-                    (None, Some(ws_path_buf))
-                };
+                .map(|s| PathBuf::from(s))
+                .or_else(|| Some(PathBuf::from(&file.workspace)));
 
             // Create SelectionContext for this file
             let selection = SelectionContext {
@@ -124,7 +116,6 @@ impl KycoApp {
                 additional_dependency_count: None,
                 related_tests: None,
                 diagnostics: None, // Batch files don't have diagnostics
-                workspace_id,
                 workspace_path,
             };
 

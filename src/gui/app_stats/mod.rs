@@ -30,17 +30,19 @@ impl KycoApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(16.0))
             .show(ctx, |ui| {
-                ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    self.render_dashboard_header(ui);
-                    ui.add_space(12.0);
-                    self.render_summary_cards(ui);
-                    ui.add_space(16.0);
-                    self.render_ring_charts(ui);
-                    ui.add_space(16.0);
-                    self.render_mode_table(ui);
-                    ui.add_space(16.0);
-                    self.render_bottom_section(ui);
-                });
+                ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        self.render_dashboard_header(ui);
+                        ui.add_space(12.0);
+                        self.render_summary_cards(ui);
+                        ui.add_space(16.0);
+                        self.render_ring_charts(ui);
+                        ui.add_space(16.0);
+                        self.render_mode_table(ui);
+                        ui.add_space(16.0);
+                        self.render_bottom_section(ui);
+                    });
             });
     }
 
@@ -147,8 +149,44 @@ impl KycoApp {
                 self.stats_filter_mode = new_mode;
             }
 
+            ui.add_space(12.0);
+
+            // Workspace filter
+            ui.label(RichText::new("Workspace:").small().color(TEXT_DIM));
+            let workspace_label = self.stats_filter_workspace
+                .as_ref()
+                .map(|w| {
+                    // Show just the last path component
+                    w.rsplit('/').next().unwrap_or(w)
+                })
+                .unwrap_or("All");
+            let available_workspaces = self.dashboard_summary.available_workspaces.clone();
+            let mut workspace_changed = false;
+            let mut new_workspace: Option<String> = self.stats_filter_workspace.clone();
+            egui::ComboBox::from_id_salt("stats_filter_workspace")
+                .selected_text(workspace_label)
+                .width(100.0)
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(new_workspace.is_none(), "All").clicked() {
+                        new_workspace = None;
+                        workspace_changed = true;
+                    }
+                    for ws in &available_workspaces {
+                        let selected = new_workspace.as_ref() == Some(ws);
+                        // Show short name in dropdown
+                        let display = ws.rsplit('/').next().unwrap_or(ws);
+                        if ui.selectable_label(selected, display).clicked() {
+                            new_workspace = Some(ws.clone());
+                            workspace_changed = true;
+                        }
+                    }
+                });
+            if workspace_changed {
+                self.stats_filter_workspace = new_workspace;
+            }
+
             // Trigger refresh if filters changed
-            if agent_changed || mode_changed {
+            if agent_changed || mode_changed || workspace_changed {
                 self.refresh_dashboard();
             }
 
@@ -174,6 +212,7 @@ impl KycoApp {
             let filter = DashboardFilter {
                 agent: self.stats_filter_agent.clone(),
                 mode_or_chain: self.stats_filter_mode.clone(),
+                workspace: self.stats_filter_workspace.clone(),
             };
             if let Ok(summary) = manager.query().get_dashboard(self.stats_time_range, &filter) {
                 self.dashboard_summary = summary;
@@ -183,31 +222,33 @@ impl KycoApp {
     }
 
     fn render_summary_cards(&self, ui: &mut egui::Ui) {
+        let s = &self.dashboard_summary;
+        let spacing = 8.0;
+        let num_cards = 6.0;
+        let card_width = (ui.available_width() - spacing * (num_cards - 1.0)) / num_cards;
+
+        // Row 1: Jobs, Tokens, Cost, Bytes, Avg Time, Wall Clock
         ui.horizontal(|ui| {
-            let s = &self.dashboard_summary;
+            ui.spacing_mut().item_spacing.x = spacing;
+            summary_card_full(ui, "Jobs ✓", s.succeeded_jobs.current as u64, &s.succeeded_jobs, |v| v.to_string(), ACCENT_CYAN, card_width, false);
+            summary_card_full(ui, "Tokens", s.total_tokens.current as u64, &s.total_tokens, charts::format_tokens, ACCENT_CYAN, card_width, false);
+            summary_card_full_f64(ui, "Cost", s.total_cost.current, &s.total_cost, |v| format!("${:.2}", v), ACCENT_CYAN, card_width, false);
+            summary_card_full_f64(ui, "Bytes", s.total_bytes.current, &s.total_bytes, charts::format_bytes, ACCENT_CYAN, card_width, false);
+            summary_card_full_f64(ui, "Avg Time", s.avg_duration_ms.current, &s.avg_duration_ms, charts::format_duration, ACCENT_CYAN, card_width, false);
+            summary_card_full_f64(ui, "Wall Clock", s.wall_clock_ms.current, &s.wall_clock_ms, charts::format_duration, ACCENT_CYAN, card_width, false);
+        });
 
-            // Jobs (succeeded)
-            summary_card_with_trend(ui, "Jobs ✓", s.succeeded_jobs.current as u64, &s.succeeded_jobs, |v| v.to_string());
-            ui.add_space(8.0);
+        ui.add_space(spacing);
 
-            // Tokens
-            summary_card_with_trend(ui, "Tokens", s.total_tokens.current as u64, &s.total_tokens, charts::format_tokens);
-            ui.add_space(8.0);
-
-            // Cost
-            summary_card_with_trend_f64(ui, "Cost", s.total_cost.current, &s.total_cost, |v| format!("${:.2}", v));
-            ui.add_space(8.0);
-
-            // Bytes
-            summary_card_with_trend_f64(ui, "Bytes", s.total_bytes.current, &s.total_bytes, charts::format_bytes);
-            ui.add_space(8.0);
-
-            // Avg Duration
-            summary_card_with_trend_f64(ui, "Avg Time", s.avg_duration_ms.current, &s.avg_duration_ms, charts::format_duration);
-            ui.add_space(8.0);
-
-            // Total Duration
-            summary_card_with_trend_f64(ui, "Total Time", s.total_duration_ms.current, &s.total_duration_ms, charts::format_duration);
+        // Row 2: Input Tokens, Output Tokens, Cached, Tools, Files, Failed
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = spacing;
+            summary_card_full(ui, "Input", s.input_tokens.current as u64, &s.input_tokens, charts::format_tokens, ACCENT_CYAN, card_width, false);
+            summary_card_full(ui, "Output", s.output_tokens.current as u64, &s.output_tokens, charts::format_tokens, ACCENT_CYAN, card_width, false);
+            summary_card_full(ui, "Cached", s.cached_tokens.current as u64, &s.cached_tokens, charts::format_tokens, ACCENT_CYAN, card_width, false);
+            summary_card_full(ui, "Tools", s.total_tool_calls.current as u64, &s.total_tool_calls, |v| v.to_string(), ACCENT_CYAN, card_width, false);
+            summary_card_full(ui, "Files", s.total_file_accesses.current as u64, &s.total_file_accesses, |v| v.to_string(), ACCENT_CYAN, card_width, false);
+            summary_card_full(ui, "Failed", s.failed_jobs.current as u64, &s.failed_jobs, |v| v.to_string(), ACCENT_RED, card_width, true);
         });
     }
 
@@ -305,14 +346,18 @@ impl KycoApp {
                 if self.dashboard_summary.top_tools.is_empty() {
                     ui.label(RichText::new("No tool data").small().color(TEXT_DIM));
                 } else {
-                    for (name, count) in &self.dashboard_summary.top_tools {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(name).small().color(TEXT_PRIMARY));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(RichText::new(count.to_string()).small().color(ACCENT_CYAN));
-                            });
+                    egui::Grid::new("top_tools_grid")
+                        .num_columns(2)
+                        .spacing([8.0, 2.0])
+                        .show(ui, |ui| {
+                            for (name, count) in &self.dashboard_summary.top_tools {
+                                ui.label(RichText::new(name).small().color(TEXT_PRIMARY));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(RichText::new(count.to_string()).small().color(ACCENT_CYAN));
+                                });
+                                ui.end_row();
+                            }
                         });
-                    }
                 }
             });
 
@@ -322,19 +367,23 @@ impl KycoApp {
                 if self.dashboard_summary.top_files.is_empty() {
                     ui.label(RichText::new("No file data").small().color(TEXT_DIM));
                 } else {
-                    for (path, count) in &self.dashboard_summary.top_files {
-                        ui.horizontal(|ui| {
-                            let display = if path.len() > 35 {
-                                format!("…{}", &path[path.len() - 34..])
-                            } else {
-                                path.clone()
-                            };
-                            ui.label(RichText::new(display).small().color(TEXT_PRIMARY));
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(RichText::new(count.to_string()).small().color(ACCENT_PURPLE));
-                            });
+                    egui::Grid::new("top_files_grid")
+                        .num_columns(2)
+                        .spacing([8.0, 2.0])
+                        .show(ui, |ui| {
+                            for (path, count) in &self.dashboard_summary.top_files {
+                                let display = if path.len() > 30 {
+                                    format!("…{}", &path[path.len() - 29..])
+                                } else {
+                                    path.clone()
+                                };
+                                ui.label(RichText::new(display).small().color(TEXT_PRIMARY));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(RichText::new(count.to_string()).small().color(ACCENT_PURPLE));
+                                });
+                                ui.end_row();
+                            }
                         });
-                    }
                 }
             });
         });
@@ -343,30 +392,64 @@ impl KycoApp {
 
 // Helper functions for summary cards
 
-fn summary_card_with_trend<F>(ui: &mut egui::Ui, label: &str, value: u64, trend: &crate::stats::TrendValue, format: F)
-where
+fn summary_card_full<F>(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: u64,
+    trend: &crate::stats::TrendValue,
+    format: F,
+    value_color: egui::Color32,
+    width: f32,
+    invert_trend: bool,
+) where
     F: Fn(u64) -> String,
 {
-    egui::Frame::NONE.fill(BG_SECONDARY).corner_radius(4.0).inner_margin(12.0).show(ui, |ui| {
-        ui.vertical(|ui| {
-            ui.label(RichText::new(label).small().color(TEXT_DIM));
-            ui.label(RichText::new(format(value)).size(18.0).color(ACCENT_CYAN));
-            render_trend(ui, trend);
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .corner_radius(4.0)
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(width - 24.0); // Account for inner margin
+            ui.vertical(|ui| {
+                ui.label(RichText::new(label).small().color(TEXT_DIM));
+                ui.label(RichText::new(format(value)).size(18.0).color(value_color));
+                if invert_trend {
+                    render_trend_inverted(ui, trend);
+                } else {
+                    render_trend(ui, trend);
+                }
+            });
         });
-    });
 }
 
-fn summary_card_with_trend_f64<F>(ui: &mut egui::Ui, label: &str, value: f64, trend: &crate::stats::TrendValue, format: F)
-where
+fn summary_card_full_f64<F>(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: f64,
+    trend: &crate::stats::TrendValue,
+    format: F,
+    value_color: egui::Color32,
+    width: f32,
+    invert_trend: bool,
+) where
     F: Fn(f64) -> String,
 {
-    egui::Frame::NONE.fill(BG_SECONDARY).corner_radius(4.0).inner_margin(12.0).show(ui, |ui| {
-        ui.vertical(|ui| {
-            ui.label(RichText::new(label).small().color(TEXT_DIM));
-            ui.label(RichText::new(format(value)).size(18.0).color(ACCENT_CYAN));
-            render_trend(ui, trend);
+    egui::Frame::NONE
+        .fill(BG_SECONDARY)
+        .corner_radius(4.0)
+        .inner_margin(12.0)
+        .show(ui, |ui| {
+            ui.set_width(width - 24.0);
+            ui.vertical(|ui| {
+                ui.label(RichText::new(label).small().color(TEXT_DIM));
+                ui.label(RichText::new(format(value)).size(18.0).color(value_color));
+                if invert_trend {
+                    render_trend_inverted(ui, trend);
+                } else {
+                    render_trend(ui, trend);
+                }
+            });
         });
-    });
 }
 
 fn render_trend(ui: &mut egui::Ui, trend: &crate::stats::TrendValue) {
@@ -378,6 +461,21 @@ fn render_trend(ui: &mut egui::Ui, trend: &crate::stats::TrendValue) {
             ("▲", ACCENT_GREEN)
         } else {
             ("▼", ACCENT_RED)
+        };
+        ui.label(RichText::new(format!("{}{:.0}%", prefix, pct.abs())).small().color(color));
+    }
+}
+
+fn render_trend_inverted(ui: &mut egui::Ui, trend: &crate::stats::TrendValue) {
+    let pct = trend.percent_change();
+    if pct.abs() < 0.1 {
+        ui.label(RichText::new("—").small().color(TEXT_DIM));
+    } else {
+        // Inverted: up is bad (red), down is good (green)
+        let (prefix, color) = if pct > 0.0 {
+            ("▲", ACCENT_RED)
+        } else {
+            ("▼", ACCENT_GREEN)
         };
         ui.label(RichText::new(format!("{}{:.0}%", prefix, pct.abs())).small().color(color));
     }

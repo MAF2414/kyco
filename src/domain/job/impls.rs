@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use super::{Job, JobId, JobResult, JobStats, JobStatus, MAX_JOB_LOG_EVENTS};
 use crate::domain::{LogEvent, ScopeDefinition};
-use crate::workspace::WorkspaceId;
 
 impl Job {
     /// Create a new pending job
@@ -21,7 +20,6 @@ impl Job {
         let now = Utc::now();
         Self {
             id,
-            workspace_id: None,
             workspace_path: None,
             mode,
             scope,
@@ -64,36 +62,6 @@ impl Job {
             chain_total_steps: None,
             chain_name: None,
         }
-    }
-
-    /// Create a new pending job with workspace association
-    pub fn new_with_workspace(
-        id: JobId,
-        workspace_id: WorkspaceId,
-        workspace_path: PathBuf,
-        mode: String,
-        scope: ScopeDefinition,
-        target: String,
-        description: Option<String>,
-        agent_id: String,
-        source_file: PathBuf,
-        source_line: usize,
-        raw_tag_line: Option<String>,
-    ) -> Self {
-        let mut job = Self::new(
-            id,
-            mode,
-            scope,
-            target,
-            description,
-            agent_id,
-            source_file,
-            source_line,
-            raw_tag_line,
-        );
-        job.workspace_id = Some(workspace_id);
-        job.workspace_path = Some(workspace_path);
-        job
     }
 
     /// Update the job status

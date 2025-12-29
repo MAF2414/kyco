@@ -12,7 +12,5 @@ pub mod git;
 pub mod gui;
 pub mod job;
 pub mod stats;
-pub mod workspace;
 
 pub use domain::*;
-pub use workspace::{Workspace, WorkspaceId, WorkspaceRegistry};

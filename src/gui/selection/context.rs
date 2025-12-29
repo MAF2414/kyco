@@ -1,7 +1,6 @@
 //! Selection context - information about the current selection from IDE
 
 use crate::gui::http_server::{Dependency, Diagnostic};
-use crate::workspace::WorkspaceId;
 use std::path::PathBuf;
 
 /// Information about the current selection context (received from IDE extensions)
@@ -29,9 +28,7 @@ pub struct SelectionContext {
     pub related_tests: Option<Vec<String>>,
     /// Diagnostics (errors, warnings) from the IDE for this file
     pub diagnostics: Option<Vec<Diagnostic>>,
-    /// Workspace ID this selection belongs to (for multi-workspace support)
-    pub workspace_id: Option<WorkspaceId>,
-    /// Workspace root path (for multi-workspace support)
+    /// Workspace root path (for SDK cwd resolution)
     pub workspace_path: Option<PathBuf>,
 }
 

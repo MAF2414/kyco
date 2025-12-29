@@ -12,6 +12,7 @@ use chrono::{DateTime, Datelike, Timelike, Utc};
 ///
 /// # Example
 /// ```
+/// use kyco::stats::day_bucket;
 /// let bucket = day_bucket(1703721600000); // 2023-12-28
 /// assert_eq!(bucket, "2023-12-28");
 /// ```
@@ -27,6 +28,7 @@ pub fn day_bucket(timestamp_ms: i64) -> String {
 ///
 /// # Example
 /// ```
+/// use kyco::stats::interval_bucket;
 /// let bucket = interval_bucket(1703721600000); // 2023-12-28 00:00:00
 /// assert_eq!(bucket, "2023-12-28-00-00");
 ///

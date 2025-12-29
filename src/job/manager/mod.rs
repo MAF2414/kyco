@@ -1,7 +1,5 @@
 //! Job manager implementation
 
-mod workspace;
-
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -51,13 +49,13 @@ impl JobManager {
         Ok(Self::new(root))
     }
 
-    /// Allocate the next job ID (used by workspace module)
-    pub(super) fn allocate_id(&self) -> JobId {
+    /// Allocate the next job ID
+    fn allocate_id(&self) -> JobId {
         self.next_id.fetch_add(1, Ordering::SeqCst)
     }
 
-    /// Insert a job and increment generation (used by workspace module)
-    pub(super) fn insert_job(&mut self, id: JobId, job: Job) {
+    /// Insert a job and increment generation
+    fn insert_job(&mut self, id: JobId, job: Job) {
         self.jobs.insert(id, job);
         self.generation += 1;
     }

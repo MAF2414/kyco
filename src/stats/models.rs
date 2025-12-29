@@ -193,8 +193,9 @@ pub enum StatsGraph {
 /// Filter options for the dashboard
 #[derive(Debug, Clone, Default)]
 pub struct DashboardFilter {
-    pub agent: Option<String>,      // None = all, Some("claude") or Some("codex")
+    pub agent: Option<String>,         // None = all, Some("claude") or Some("codex")
     pub mode_or_chain: Option<String>, // None = all
+    pub workspace: Option<String>,     // None = all, Some(path) filters by workspace_path
 }
 
 /// Token breakdown by type
@@ -285,13 +286,23 @@ impl TrendValue {
 /// Complete dashboard summary with all metrics
 #[derive(Debug, Clone, Default)]
 pub struct DashboardSummary {
-    // Summary card values (with trends)
+    // Summary card values (with trends) - Row 1
     pub succeeded_jobs: TrendValue,
     pub total_tokens: TrendValue,
     pub total_cost: TrendValue,
     pub total_bytes: TrendValue,
     pub avg_duration_ms: TrendValue,
-    pub total_duration_ms: TrendValue,
+    /// Wall clock time: max(finished_at) - min(started_at) in milliseconds
+    /// This shows actual elapsed time, not sum of job durations
+    pub wall_clock_ms: TrendValue,
+
+    // Summary card values - Row 2
+    pub input_tokens: TrendValue,
+    pub output_tokens: TrendValue,
+    pub cached_tokens: TrendValue,
+    pub total_tool_calls: TrendValue,
+    pub total_file_accesses: TrendValue,
+    pub failed_jobs: TrendValue,
 
     // Token breakdown for ring chart
     pub tokens: TokenBreakdown,
@@ -309,5 +320,6 @@ pub struct DashboardSummary {
     // Available filter options
     pub available_agents: Vec<String>,
     pub available_modes: Vec<String>,
+    pub available_workspaces: Vec<String>,
 }
 

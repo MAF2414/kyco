@@ -55,6 +55,52 @@ impl StatsDb {
     fn init_schema(&self) -> Result<()> {
         let conn = self.conn();
         conn.execute_batch(SCHEMA_SQL)?;
+        drop(conn);
+        self.run_migrations()?;
+        Ok(())
+    }
+
+    /// Run any pending migrations
+    fn run_migrations(&self) -> Result<()> {
+        let conn = self.conn();
+
+        // Get current schema version
+        let version: i32 = conn
+            .query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |r| r.get(0))
+            .unwrap_or(0);
+
+        // Migration 2: Rename workspace_id to workspace_path
+        if version < 2 {
+            // Check if workspace_id column exists (old schema)
+            let has_workspace_id: bool = conn
+                .prepare("SELECT COUNT(*) FROM pragma_table_info('job_stats') WHERE name = 'workspace_id'")
+                .and_then(|mut s| s.query_row([], |r| r.get::<_, i32>(0)))
+                .map(|c| c > 0)
+                .unwrap_or(false);
+
+            let has_workspace_path: bool = conn
+                .prepare("SELECT COUNT(*) FROM pragma_table_info('job_stats') WHERE name = 'workspace_path'")
+                .and_then(|mut s| s.query_row([], |r| r.get::<_, i32>(0)))
+                .map(|c| c > 0)
+                .unwrap_or(false);
+
+            if has_workspace_id && !has_workspace_path {
+                // Rename workspace_id to workspace_path
+                conn.execute_batch(r#"
+                    ALTER TABLE job_stats RENAME COLUMN workspace_id TO workspace_path;
+                    CREATE INDEX IF NOT EXISTS idx_job_workspace ON job_stats(workspace_path);
+                "#)?;
+            } else if !has_workspace_path {
+                // Add workspace_path if neither exists
+                conn.execute_batch(r#"
+                    ALTER TABLE job_stats ADD COLUMN workspace_path TEXT;
+                    CREATE INDEX IF NOT EXISTS idx_job_workspace ON job_stats(workspace_path);
+                "#)?;
+            }
+
+            conn.execute("INSERT OR REPLACE INTO schema_version VALUES (2)", [])?;
+        }
+
         Ok(())
     }
 
@@ -188,7 +234,7 @@ CREATE TABLE IF NOT EXISTS file_access_stats (
 
 -- Schema version
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY);
-INSERT OR IGNORE INTO schema_version VALUES (1);
+INSERT OR IGNORE INTO schema_version VALUES (2);
 "#;
 
 #[cfg(test)]

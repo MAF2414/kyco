@@ -106,7 +106,6 @@ pub fn handle_control_job_continue(
             job.target = original.target;
             job.ide_context = original.ide_context;
             job.force_worktree = original.force_worktree;
-            job.workspace_id = original.workspace_id;
             job.workspace_path = original.workspace_path.clone();
         }
 

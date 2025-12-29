@@ -9,7 +9,6 @@ use super::app::KycoApp;
 use super::app_types::ViewMode;
 use super::http_server::SelectionRequest;
 use super::selection::SelectionContext;
-use crate::LogEvent;
 use eframe::egui;
 use std::path::PathBuf;
 use tracing::info;
@@ -29,44 +28,17 @@ impl KycoApp {
             req.workspace
         );
 
-        // Auto-register workspace from IDE request
-        // Priority: project_root (includes git detection) > workspace > active workspace
-        let effective_path = req
+        // Determine workspace path for SDK cwd resolution
+        // Priority: project_root > git_root > workspace > file's directory
+        let workspace_path = req
             .project_root
             .as_ref()
             .or(req.git_root.as_ref())
-            .or(req.workspace.as_ref());
-
-        let (workspace_id, workspace_path) = if let Some(ref ws_path) = effective_path {
-            let ws_path_buf = PathBuf::from(ws_path);
-            if let Ok(mut registry) = self.workspace_registry.lock() {
-                let ws_id = registry.get_or_create(ws_path_buf.clone());
-                // Switch to this workspace and update active
-                registry.set_active(ws_id);
-                self.active_workspace_id = Some(ws_id);
-                // Save registry to persist the new workspace
-                if let Err(e) = registry.save_default() {
-                    self.logs.push(LogEvent::error(format!(
-                        "Failed to save workspace registry: {}",
-                        e
-                    )));
-                }
-                (Some(ws_id), Some(ws_path_buf))
-            } else {
-                (None, Some(ws_path_buf))
-            }
-        } else {
-            // Use currently active workspace if no workspace specified
-            (
-                self.active_workspace_id,
-                self.active_workspace_id.and_then(|id| {
-                    self.workspace_registry
-                        .lock()
-                        .ok()
-                        .and_then(|r| r.get(id).map(|w| w.path.clone()))
-                }),
-            )
-        };
+            .or(req.workspace.as_ref())
+            .map(PathBuf::from)
+            .or_else(|| req.file_path.as_ref().and_then(|f| {
+                PathBuf::from(f).parent().map(PathBuf::from)
+            }));
 
         self.selection = SelectionContext {
             app_name: Some("IDE".to_string()),
@@ -80,7 +52,6 @@ impl KycoApp {
             additional_dependency_count: req.additional_dependency_count,
             related_tests: req.related_tests,
             diagnostics: req.diagnostics,
-            workspace_id,
             workspace_path,
         };
 

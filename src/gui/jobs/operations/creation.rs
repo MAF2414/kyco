@@ -120,7 +120,6 @@ pub fn create_jobs_from_selection_multi(
                             job.ide_context = Some(ide_context);
                         }
                         job.force_worktree = force_worktree;
-                        job.workspace_id = selection.workspace_id;
                         job.workspace_path = selection.workspace_path.clone();
                     }
                     logs.push(LogEvent::system(format!("Created job #{}", job_id)));
@@ -178,7 +177,6 @@ pub fn create_jobs_from_selection_multi(
                             job.ide_context = Some(ide_context);
                         }
                         job.force_worktree = force_worktree;
-                        job.workspace_id = selection.workspace_id;
                         job.workspace_path = selection.workspace_path.clone();
                     }
 

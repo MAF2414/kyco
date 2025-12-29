@@ -96,8 +96,6 @@ impl eframe::App for KycoApp {
                 chain_edit_status: &mut self.chain_edit_status,
                 update_info: update_info.as_ref(),
                 install_status: &mut self.update_install_status,
-                workspace_registry: Some(&self.workspace_registry),
-                active_workspace_id: &mut self.active_workspace_id,
                 orchestrator_requested: &mut self.orchestrator_requested,
             },
         );

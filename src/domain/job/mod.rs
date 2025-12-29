@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use super::{AgentGroupId, LogEvent, ScopeDefinition};
-use crate::workspace::WorkspaceId;
 
 /// Maximum number of log events to keep per job (FIFO eviction)
 /// Prevents unbounded memory growth from tool call accumulation
@@ -28,11 +27,7 @@ pub struct Job {
     /// Unique identifier
     pub id: JobId,
 
-    /// Workspace this job belongs to (for multi-workspace support)
-    #[serde(default)]
-    pub workspace_id: Option<WorkspaceId>,
-
-    /// Workspace root path (for display and cwd resolution)
+    /// Workspace root path (for SDK cwd resolution)
     #[serde(default)]
     pub workspace_path: Option<PathBuf>,
 

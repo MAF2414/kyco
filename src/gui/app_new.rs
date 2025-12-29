@@ -17,7 +17,6 @@ use crate::LogEvent;
 use crate::agent::bridge::BridgeClient;
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
-use crate::workspace::WorkspaceRegistry;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
@@ -110,11 +109,6 @@ impl KycoApp {
             .system_prompt
             .clone();
 
-        // Load or create workspace registry and register the initial workspace
-        let mut workspace_registry = WorkspaceRegistry::load_or_create();
-        let initial_workspace_id = workspace_registry.get_or_create(work_dir.clone());
-        workspace_registry.set_active(initial_workspace_id);
-
         // Initialize global hotkey manager with configured hotkey (before struct init)
         let global_hotkey_manager = Self::init_global_hotkey_manager(&voice_settings_global_hotkey);
 
@@ -124,8 +118,6 @@ impl KycoApp {
             config_exists,
             job_manager,
             group_manager,
-            workspace_registry: Arc::new(Mutex::new(workspace_registry)),
-            active_workspace_id: Some(initial_workspace_id),
             cached_jobs: Vec::new(),
             last_job_generation: 0,
             selected_job_id: None,
@@ -233,11 +225,6 @@ impl KycoApp {
             update_checker: UpdateChecker::new(),
             update_install_status: super::status_bar::InstallStatus::default(),
             update_install_rx: None,
-            import_workspace_selected: 0,
-            import_modes: true,
-            import_agents: true,
-            import_chains: false,
-            import_settings: false,
             orchestrator_cli_agent,
             orchestrator_cli_command,
             orchestrator_system_prompt,
@@ -259,6 +246,7 @@ impl KycoApp {
             // Dashboard V2
             stats_filter_agent: None,
             stats_filter_mode: None,
+            stats_filter_workspace: None,
             dashboard_summary: crate::stats::DashboardSummary::default(),
             stats_reset_confirm: false,
         }

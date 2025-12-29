@@ -20,7 +20,6 @@ use super::voice::VoiceManager;
 use crate::agent::bridge::{BridgeClient, PermissionMode};
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
-use crate::workspace::{WorkspaceId, WorkspaceRegistry};
 use crate::{Job, JobId, LogEvent};
 use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
 use std::collections::HashMap;
@@ -45,10 +44,6 @@ pub struct KycoApp {
     pub(crate) job_manager: Arc<Mutex<JobManager>>,
     /// Group manager for multi-agent parallel execution
     pub(crate) group_manager: Arc<Mutex<GroupManager>>,
-    /// Workspace registry for multi-repository support
-    pub(crate) workspace_registry: Arc<Mutex<WorkspaceRegistry>>,
-    /// Currently active workspace ID (for filtering jobs in UI)
-    pub(crate) active_workspace_id: Option<WorkspaceId>,
     /// Cached jobs for display (updated only when changed)
     pub(crate) cached_jobs: Vec<Job>,
     /// Last known job manager generation (for change detection)
@@ -256,17 +251,6 @@ pub struct KycoApp {
     pub(crate) chain_edit_status: Option<(String, bool)>,
     /// Chain editor: pending confirmation dialog
     pub(crate) chain_pending_confirmation: super::chains::PendingConfirmation,
-    /// Config import: selected workspace index
-    pub(crate) import_workspace_selected: usize,
-    /// Config import: import modes
-    pub(crate) import_modes: bool,
-    /// Config import: import agents
-    pub(crate) import_agents: bool,
-    /// Config import: import chains
-    pub(crate) import_chains: bool,
-    /// Config import: import settings
-    pub(crate) import_settings: bool,
-
     /// Orchestrator settings: CLI agent (claude/codex)
     pub(crate) orchestrator_cli_agent: String,
     /// Orchestrator settings: CLI command
@@ -304,6 +288,8 @@ pub struct KycoApp {
     pub(crate) stats_filter_agent: Option<String>,
     /// Dashboard filter: mode/chain (None = all)
     pub(crate) stats_filter_mode: Option<String>,
+    /// Dashboard filter: workspace (None = all)
+    pub(crate) stats_filter_workspace: Option<String>,
     /// Dashboard V2 cached summary
     pub(crate) dashboard_summary: crate::stats::DashboardSummary,
     /// Show stats reset confirmation dialog

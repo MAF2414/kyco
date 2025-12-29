@@ -117,7 +117,7 @@ mod tests {
             created_at: chrono::Utc::now().timestamp_millis(),
             started_at: Some(chrono::Utc::now().timestamp_millis()),
             finished_at: Some(chrono::Utc::now().timestamp_millis()),
-            workspace_id: None,
+            workspace_path: None,
         };
 
         manager.recorder().record_job(&job).unwrap();

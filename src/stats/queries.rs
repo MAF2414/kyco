@@ -17,6 +17,20 @@ pub struct StatsQuery {
     db: StatsDb,
 }
 
+/// Internal struct for period statistics query result
+struct PeriodStats {
+    succeeded_jobs: f64,
+    total_tokens: f64,
+    total_cost: f64,
+    total_bytes: f64,
+    avg_duration: f64,
+    wall_clock: f64,
+    input_tokens: f64,
+    output_tokens: f64,
+    cached_tokens: f64,
+    failed_jobs: f64,
+}
+
 impl StatsQuery {
     pub fn new(db: StatsDb) -> Self {
         Self { db }
@@ -221,6 +235,12 @@ impl StatsQuery {
         let current = self.query_period_stats(&conn, &where_clause)?;
         let previous = self.query_period_stats(&conn, &prev_where)?;
 
+        // Get tool calls and file accesses
+        let current_tools = self.query_total_tool_calls(&conn, &where_clause).unwrap_or(0);
+        let previous_tools = self.query_total_tool_calls(&conn, &prev_where).unwrap_or(0);
+        let current_files = self.query_total_file_accesses(&conn, &where_clause).unwrap_or(0);
+        let previous_files = self.query_total_file_accesses(&conn, &prev_where).unwrap_or(0);
+
         // Get token breakdown
         let tokens = self.query_token_breakdown(&conn, &where_clause)?;
 
@@ -237,14 +257,24 @@ impl StatsQuery {
         // Get available filter options
         let available_agents = self.get_available_agents(&conn)?;
         let available_modes = self.get_available_modes(&conn)?;
+        let available_workspaces = self.get_available_workspaces(&conn)?;
 
         Ok(DashboardSummary {
-            succeeded_jobs: TrendValue { current: current.0, previous: previous.0 },
-            total_tokens: TrendValue { current: current.1, previous: previous.1 },
-            total_cost: TrendValue { current: current.2, previous: previous.2 },
-            total_bytes: TrendValue { current: current.3, previous: previous.3 },
-            avg_duration_ms: TrendValue { current: current.4, previous: previous.4 },
-            total_duration_ms: TrendValue { current: current.5, previous: previous.5 },
+            // Row 1
+            succeeded_jobs: TrendValue { current: current.succeeded_jobs, previous: previous.succeeded_jobs },
+            total_tokens: TrendValue { current: current.total_tokens, previous: previous.total_tokens },
+            total_cost: TrendValue { current: current.total_cost, previous: previous.total_cost },
+            total_bytes: TrendValue { current: current.total_bytes, previous: previous.total_bytes },
+            avg_duration_ms: TrendValue { current: current.avg_duration, previous: previous.avg_duration },
+            wall_clock_ms: TrendValue { current: current.wall_clock, previous: previous.wall_clock },
+            // Row 2
+            input_tokens: TrendValue { current: current.input_tokens, previous: previous.input_tokens },
+            output_tokens: TrendValue { current: current.output_tokens, previous: previous.output_tokens },
+            cached_tokens: TrendValue { current: current.cached_tokens, previous: previous.cached_tokens },
+            total_tool_calls: TrendValue { current: current_tools as f64, previous: previous_tools as f64 },
+            total_file_accesses: TrendValue { current: current_files as f64, previous: previous_files as f64 },
+            failed_jobs: TrendValue { current: current.failed_jobs, previous: previous.failed_jobs },
+            // Breakdowns
             tokens,
             agents,
             modes,
@@ -252,6 +282,7 @@ impl StatsQuery {
             top_files,
             available_agents,
             available_modes,
+            available_workspaces,
         })
     }
 
@@ -268,15 +299,25 @@ impl StatsQuery {
     }
 
     fn build_where_clause(&self, filter: &DashboardFilter, cutoff: Option<&str>) -> String {
+        fn escape_sql_literal(value: &str) -> String {
+            value.replace('\'', "''")
+        }
+
         let mut conditions = Vec::new();
         if let Some(c) = cutoff {
-            conditions.push(format!("day_bucket >= '{}'", c));
+            conditions.push(format!("day_bucket >= '{}'", escape_sql_literal(c)));
         }
         if let Some(agent) = &filter.agent {
-            conditions.push(format!("agent_type = '{}'", agent));
+            conditions.push(format!("agent_type = '{}'", escape_sql_literal(agent)));
         }
         if let Some(mode) = &filter.mode_or_chain {
-            conditions.push(format!("mode = '{}'", mode));
+            conditions.push(format!("mode = '{}'", escape_sql_literal(mode)));
+        }
+        if let Some(workspace) = &filter.workspace {
+            conditions.push(format!(
+                "workspace_path = '{}'",
+                escape_sql_literal(workspace)
+            ));
         }
         if conditions.is_empty() {
             String::new()
@@ -285,7 +326,10 @@ impl StatsQuery {
         }
     }
 
-    fn query_period_stats(&self, conn: &rusqlite::Connection, where_clause: &str) -> Result<(f64, f64, f64, f64, f64, f64)> {
+    /// Extended period stats tuple:
+    /// (succeeded_jobs, total_tokens, total_cost, total_bytes, avg_duration, wall_clock,
+    ///  input_tokens, output_tokens, cached_tokens, failed_jobs)
+    fn query_period_stats(&self, conn: &rusqlite::Connection, where_clause: &str) -> Result<PeriodStats> {
         let sql = format!(
             "SELECT
                 COALESCE(SUM(CASE WHEN status IN ('done', 'merged') THEN 1 ELSE 0 END), 0),
@@ -293,15 +337,64 @@ impl StatsQuery {
                 COALESCE(SUM(cost_usd), 0),
                 COALESCE(SUM(input_tokens + output_tokens), 0) * 4,
                 COALESCE(AVG(duration_ms), 0),
-                COALESCE(SUM(duration_ms), 0)
+                COALESCE(MAX(finished_at) - MIN(started_at), 0),
+                COALESCE(SUM(input_tokens), 0),
+                COALESCE(SUM(output_tokens), 0),
+                COALESCE(SUM(cache_read_tokens + cache_write_tokens), 0),
+                COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0)
              FROM job_stats {}",
             where_clause
         );
         let result = conn.query_row(&sql, [], |row| {
-            Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?, row.get::<_, f64>(2)?,
-                row.get::<_, f64>(3)?, row.get::<_, f64>(4)?, row.get::<_, f64>(5)?))
+            Ok(PeriodStats {
+                succeeded_jobs: row.get(0)?,
+                total_tokens: row.get(1)?,
+                total_cost: row.get(2)?,
+                total_bytes: row.get(3)?,
+                avg_duration: row.get(4)?,
+                wall_clock: row.get(5)?,
+                input_tokens: row.get(6)?,
+                output_tokens: row.get(7)?,
+                cached_tokens: row.get(8)?,
+                failed_jobs: row.get(9)?,
+            })
         })?;
         Ok(result)
+    }
+
+    fn query_total_tool_calls(&self, conn: &rusqlite::Connection, where_clause: &str) -> Result<u64> {
+        // Tool stats don't have all job_stats filters, so we join
+        let sql = if where_clause.is_empty() {
+            "SELECT COUNT(*) FROM tool_stats".to_string()
+        } else {
+            format!(
+                "SELECT COUNT(*) FROM tool_stats t
+                 INNER JOIN job_stats j ON t.job_id = j.job_id {}",
+                where_clause
+            )
+        };
+        Ok(conn.query_row(&sql, [], |row| row.get(0))?)
+    }
+
+    fn query_total_file_accesses(&self, conn: &rusqlite::Connection, where_clause: &str) -> Result<u64> {
+        let sql = if where_clause.is_empty() {
+            "SELECT COUNT(*) FROM file_stats".to_string()
+        } else {
+            format!(
+                "SELECT COUNT(*) FROM file_stats f
+                 INNER JOIN job_stats j ON f.job_id = j.job_id {}",
+                where_clause
+            )
+        };
+        Ok(conn.query_row(&sql, [], |row| row.get(0))?)
+    }
+
+    fn get_available_workspaces(&self, conn: &rusqlite::Connection) -> Result<Vec<String>> {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT workspace_path FROM job_stats WHERE workspace_path IS NOT NULL ORDER BY workspace_path"
+        )?;
+        let rows = stmt.query_map([], |row| row.get(0))?;
+        Ok(rows.filter_map(|r| r.ok()).collect())
     }
 
     fn query_token_breakdown(&self, conn: &rusqlite::Connection, where_clause: &str) -> Result<TokenBreakdown> {

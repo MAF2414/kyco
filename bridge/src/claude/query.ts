@@ -25,7 +25,8 @@ export async function* executeClaudeQuery(
   store: SessionStore,
   _kycoCallbackUrl?: string,
 ): AsyncGenerator<BridgeEvent> {
-  let sessionId = request.sessionId || '';
+  // Use object to allow sessionId to be updated by reference in closures
+  const sessionState = { id: request.sessionId || '' };
   const startTime = Date.now();
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -47,8 +48,9 @@ export async function* executeClaudeQuery(
   let q: Query | null = null;
 
   try {
-    const options = buildQueryOptions(request, sessionId, emitEvent);
-    options!.canUseTool = createCanUseToolCallback(sessionId, emitEvent);
+    const options = buildQueryOptions(request, sessionState.id, emitEvent);
+    // Use getter function so canUseTool always gets current sessionId
+    options!.canUseTool = createCanUseToolCallback(() => sessionState.id, emitEvent);
 
     q = query({ prompt: buildClaudePrompt(request), options });
 
@@ -58,8 +60,8 @@ export async function* executeClaudeQuery(
           switch (message.type) {
             case 'system': {
               if (message.subtype === 'init') {
-                sessionId = message.session_id;
-                activeQueries.set(sessionId, q!);
+                sessionState.id = message.session_id;
+                activeQueries.set(sessionState.id, q!);
                 emitEvent({
                   type: 'session.start',
                   sessionId: message.session_id,
@@ -75,7 +77,7 @@ export async function* executeClaudeQuery(
                 if (block.type === 'text') {
                   emitEvent({
                     type: 'text',
-                    sessionId,
+                    sessionId: sessionState.id,
                     timestamp: Date.now(),
                     content: block.text,
                     partial: false,
@@ -83,7 +85,7 @@ export async function* executeClaudeQuery(
                 } else if (block.type === 'tool_use') {
                   emitEvent({
                     type: 'tool.use',
-                    sessionId,
+                    sessionId: sessionState.id,
                     timestamp: Date.now(),
                     toolName: block.name,
                     toolInput: block.input as Record<string, unknown>,
@@ -101,7 +103,7 @@ export async function* executeClaudeQuery(
                     : JSON.stringify(block.content);
                   emitEvent({
                     type: 'tool.result',
-                    sessionId,
+                    sessionId: sessionState.id,
                     timestamp: Date.now(),
                     toolUseId: block.tool_use_id,
                     success: !block.is_error,
@@ -119,7 +121,7 @@ export async function* executeClaudeQuery(
                 costUsd = message.total_cost_usd;
                 emitEvent({
                   type: 'session.complete',
-                  sessionId,
+                  sessionId: sessionState.id,
                   timestamp: Date.now(),
                   success: true,
                   result: message.result,
@@ -135,7 +137,7 @@ export async function* executeClaudeQuery(
               } else {
                 emitEvent({
                   type: 'session.complete',
-                  sessionId,
+                  sessionId: sessionState.id,
                   timestamp: Date.now(),
                   success: false,
                   usage: {
@@ -154,7 +156,7 @@ export async function* executeClaudeQuery(
         if (!sessionCompleted) {
           emitEvent({
             type: 'session.complete',
-            sessionId,
+            sessionId: sessionState.id,
             timestamp: Date.now(),
             success: true,
             usage: { inputTokens: totalInputTokens, outputTokens: totalOutputTokens },
@@ -163,9 +165,9 @@ export async function* executeClaudeQuery(
           });
         }
 
-        const existingSession = store.get(sessionId);
+        const existingSession = store.get(sessionState.id);
         store.upsert({
-          id: sessionId,
+          id: sessionState.id,
           type: 'claude',
           createdAt: existingSession?.createdAt || startTime,
           lastActiveAt: Date.now(),
@@ -177,19 +179,19 @@ export async function* executeClaudeQuery(
       } catch (error) {
         emitEvent({
           type: 'error',
-          sessionId,
+          sessionId: sessionState.id,
           timestamp: Date.now(),
           message: error instanceof Error ? error.message : String(error),
         });
         emitEvent({
           type: 'session.complete',
-          sessionId,
+          sessionId: sessionState.id,
           timestamp: Date.now(),
           success: false,
           durationMs: Date.now() - startTime,
         });
       } finally {
-        activeQueries.delete(sessionId);
+        activeQueries.delete(sessionState.id);
         currentEventEmitter = null;
       }
     };
@@ -232,13 +234,13 @@ export async function* executeClaudeQuery(
   } catch (error) {
     yield {
       type: 'error',
-      sessionId,
+      sessionId: sessionState.id,
       timestamp: Date.now(),
       message: error instanceof Error ? error.message : String(error),
     };
     yield {
       type: 'session.complete',
-      sessionId,
+      sessionId: sessionState.id,
       timestamp: Date.now(),
       success: false,
       durationMs: Date.now() - startTime,

@@ -19,11 +19,12 @@ export type CanUseToolCallback = (
 ) => Promise<PermissionResult>;
 
 export function createCanUseToolCallback(
-  sessionId: string,
+  getSessionId: () => string,
   emitEvent: EventEmitter,
 ): CanUseToolCallback {
   return async (toolName, toolInput, callbackOptions) => {
     const requestId = uuidv4();
+    const sessionId = getSessionId();
 
     if (callbackOptions?.signal?.aborted) {
       return { behavior: 'deny' as const, message: 'Session aborted' };

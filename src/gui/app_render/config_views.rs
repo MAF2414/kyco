@@ -60,13 +60,6 @@ impl KycoApp {
                 voice_config_changed: &mut self.voice_config_changed,
                 // Shared max concurrent jobs (for runtime updates to executor)
                 max_concurrent_jobs_shared: &self.max_concurrent_jobs,
-                // Workspace config import
-                workspace_registry: Some(&self.workspace_registry),
-                import_workspace_selected: &mut self.import_workspace_selected,
-                import_modes: &mut self.import_modes,
-                import_agents: &mut self.import_agents,
-                import_chains: &mut self.import_chains,
-                import_settings: &mut self.import_settings,
                 orchestrator_cli_agent: &mut self.orchestrator_cli_agent,
                 orchestrator_cli_command: &mut self.orchestrator_cli_command,
                 orchestrator_system_prompt: &mut self.orchestrator_system_prompt,
