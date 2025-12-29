@@ -1375,8 +1375,9 @@ Prepare `{target}` for internationalization: {description}
 
 1. Find hardcoded user-facing strings
 2. Extract them to translation keys
-3. Use the project's i18n framework or suggest one
-4. Set state to "i18n_ready" or "no_strings_found"
+3. Create/update the base translation file (e.g., en.json)
+4. Use the project's i18n framework or suggest one
+5. Set state to "i18n_ready" or "no_strings_found"
 """
 system_prompt = """
 You prepare code for internationalization (i18n).
@@ -1406,11 +1407,70 @@ FRAMEWORKS:
 - Rust: fluent, rust-i18n
 - Python: gettext, babel
 - General: Create JSON/YAML translation files
+
+OUTPUT:
+- Create/update base language file (usually en.json or messages.json)
+- List all extracted keys in your summary for the translate step
 """
 session_mode = "oneshot"
 max_turns = 0
 aliases = ["internationalize", "localize", "l10n"]
 output_states = ["i18n_ready", "no_strings_found"]
+allowed_tools = []
+disallowed_tools = []
+
+[mode.translate]
+prompt = """
+Translate strings for `{target}`: {description}
+
+{ide_context}
+
+1. Read the base translation file (en.json or similar)
+2. Create/update translation files for target languages
+3. Ensure consistent tone and context
+4. Set state to "translations_complete" or "translations_partial"
+"""
+system_prompt = """
+You translate UI strings to other languages.
+
+TARGET LANGUAGES (unless specified):
+- German (de)
+- French (fr)
+- Spanish (es)
+- Japanese (ja)
+- Chinese Simplified (zh-CN)
+
+TRANSLATION RULES:
+- Keep the same key structure as the source file
+- Preserve placeholders exactly: {name}, {count}, {{variable}}
+- Handle pluralization rules per language
+- Match formality level (formal for business, casual for apps)
+- Keep translations concise (UI space is limited)
+
+CONTEXT AWARENESS:
+- "Save" button → speichern (DE), guardar (ES), not "retten"
+- "Home" navigation → Startseite (DE), not "Zuhause"
+- Technical terms: sometimes keep English (API, Cloud, etc.)
+
+PLURALIZATION:
+- English: one/other
+- German: one/other
+- French: one/other (but different rules for large numbers)
+- Russian: one/few/many/other
+- Japanese/Chinese: usually no plural forms
+
+FILE STRUCTURE:
+- Create separate files: de.json, fr.json, es.json
+- Or nested: locales/de/translation.json
+- Match existing project structure
+
+OUTPUT:
+List any strings that need human review (idioms, brand names, ambiguous terms).
+"""
+session_mode = "oneshot"
+max_turns = 0
+aliases = ["trans", "localize-lang"]
+output_states = ["translations_complete", "translations_partial"]
 allowed_tools = []
 disallowed_tools = []
 
@@ -1754,6 +1814,26 @@ mode = "security"
 [[chain.secure-and-test.steps]]
 mode = "tests"
 trigger_on = ["secured"]
+
+[chain.i18n-full]
+description = "Extract strings, translate to multiple languages, verify integration"
+states = []
+stop_on_failure = false
+pass_full_response = true
+
+[[chain.i18n-full.steps]]
+mode = "i18n"
+description = "Extract hardcoded strings and create base translation file"
+
+[[chain.i18n-full.steps]]
+mode = "translate"
+trigger_on = ["i18n_ready"]
+description = "Translate to German, French, Spanish, Japanese, Chinese"
+
+[[chain.i18n-full.steps]]
+mode = "review"
+trigger_on = ["translations_complete", "translations_partial"]
+description = "Review translation integration and catch issues"
 
 [scope]
 
