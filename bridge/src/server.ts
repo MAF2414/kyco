@@ -11,6 +11,15 @@ import { SessionStore } from './store.js';
 import { listCodexThreads } from './codex.js';
 import { createClaudeRoutes, createCodexRoutes, createSessionRoutes } from './routes/index.js';
 
+// Claude Agent SDK closes stdin after a short inactivity timeout (default: 5s).
+// That breaks GUI-based tool approvals (user may take longer than a few seconds),
+// resulting in "Tool permission request failed: Error: Stream closed".
+// Prefer a long default unless the user explicitly overrides it.
+if (!process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT) {
+  process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT =
+    process.env.KYCO_CLAUDE_STREAM_CLOSE_TIMEOUT ?? String(60 * 60 * 1000);
+}
+
 // Load config from environment or use defaults
 const config: BridgeConfig = {
   port: parseInt(process.env.KYCO_BRIDGE_PORT || String(DEFAULT_CONFIG.port), 10),
