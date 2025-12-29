@@ -109,6 +109,19 @@ pub fn render_steps(
                             .hint_text("(mode default)")
                             .desired_width(100.0),
                     );
+                    ui.add_space(16.0);
+                    ui.label(RichText::new("Loop to:").small().color(TEXT_MUTED));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut step.loop_to)
+                            .font(egui::TextStyle::Monospace)
+                            .text_color(TEXT_PRIMARY)
+                            .hint_text("(mode name)")
+                            .desired_width(100.0),
+                    )
+                    .on_hover_text(
+                        "If triggered, restart chain from this step's mode.\n\
+                         Useful for review → fix loops. Limited by max_loops.",
+                    );
                 });
 
                 ui.add_space(4.0);

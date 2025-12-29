@@ -16,6 +16,7 @@ pub fn load_chain_for_editing(state: &mut ChainEditorState<'_>, chain_name: &str
         *state.chain_edit_steps = chain.steps.iter().map(ChainStepEdit::from).collect();
         *state.chain_edit_stop_on_failure = chain.stop_on_failure;
         *state.chain_edit_pass_full_response = chain.pass_full_response;
+        *state.chain_edit_max_loops = chain.max_loops;
         *state.chain_edit_use_worktree = chain.use_worktree;
     }
 }
@@ -199,6 +200,7 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
             .collect(),
         stop_on_failure: *state.chain_edit_stop_on_failure,
         pass_full_response: *state.chain_edit_pass_full_response,
+        max_loops: *state.chain_edit_max_loops,
         use_worktree: *state.chain_edit_use_worktree,
     };
 
@@ -252,6 +254,7 @@ pub fn delete_chain_from_config(state: &mut ChainEditorState<'_>) {
     state.chain_edit_steps.clear();
     *state.chain_edit_stop_on_failure = true;
     *state.chain_edit_pass_full_response = true;
+    *state.chain_edit_max_loops = 1;
     *state.chain_edit_use_worktree = None;
 }
 

@@ -157,6 +157,7 @@ impl KycoApp {
                 chain_edit_steps: &mut self.chain_edit_steps,
                 chain_edit_stop_on_failure: &mut self.chain_edit_stop_on_failure,
                 chain_edit_pass_full_response: &mut self.chain_edit_pass_full_response,
+                chain_edit_max_loops: &mut self.chain_edit_max_loops,
                 chain_edit_use_worktree: &mut self.chain_edit_use_worktree,
                 chain_edit_status: &mut self.chain_edit_status,
                 pending_confirmation: &mut self.chain_pending_confirmation,

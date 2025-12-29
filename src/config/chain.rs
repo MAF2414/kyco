@@ -47,6 +47,10 @@ pub struct ChainStep {
     /// Additional context to inject into the prompt
     #[serde(default)]
     pub inject_context: Option<String>,
+    /// Loop back to a previous step's mode name when this step's trigger_on matches
+    /// The chain will restart from that step. Use with max_loops to prevent infinite loops.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_to: Option<String>,
 }
 
 /// A chain of modes to execute sequentially
@@ -70,6 +74,10 @@ pub struct ModeChain {
     /// When true, the complete output is passed; when false, only the summary
     #[serde(default = "default_pass_full_response")]
     pub pass_full_response: bool,
+    /// Maximum number of loop iterations (default: 1)
+    /// Prevents infinite loops when using loop_to in steps
+    #[serde(default = "default_max_loops")]
+    pub max_loops: u32,
 
     /// Force running in a git worktree for this chain
     /// - None: Use global settings (default)
@@ -85,6 +93,10 @@ fn default_stop_on_failure() -> bool {
 
 fn default_pass_full_response() -> bool {
     true
+}
+
+fn default_max_loops() -> u32 {
+    1
 }
 
 /// Either a single mode or a chain of modes

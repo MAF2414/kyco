@@ -45,6 +45,8 @@ impl<'a> ChainRunner<'a> {
     /// Iterates through each step in the chain, evaluating trigger conditions
     /// and executing the appropriate agent. Context (summaries) from each step
     /// is accumulated and passed to subsequent steps.
+    ///
+    /// Supports `loop_to` for restarting from a previous step (limited by `max_loops`).
     pub async fn run_chain(
         &self,
         chain_name: &str,
@@ -60,6 +62,7 @@ impl<'a> ChainRunner<'a> {
         let mut accumulated_summaries = Vec::new();
         let mut chain_success = true;
         let mut last_mode: Option<String> = None;
+        let mut loop_count: u32 = 0;
 
         let _ = event_tx
             .send(LogEvent::system(format!(
@@ -69,7 +72,10 @@ impl<'a> ChainRunner<'a> {
             )))
             .await;
 
-        for (step_index, step) in chain.steps.iter().enumerate() {
+        let mut step_index: usize = 0;
+        while step_index < chain.steps.len() {
+            let step = &chain.steps[step_index];
+
             // Detect states from previous output
             let detected_states = if !chain.states.is_empty() {
                 state::detect_states(&chain.states, &last_output)
@@ -80,7 +86,43 @@ impl<'a> ChainRunner<'a> {
             };
 
             // Check if this step should run based on trigger conditions
-            if !state::should_step_run(step, &detected_states) {
+            let should_run = state::should_step_run(step, &detected_states);
+
+            // Handle loop_to: if step has loop_to and would run, jump back instead
+            if should_run {
+                if let Some(ref loop_target) = step.loop_to {
+                    if loop_count < chain.max_loops {
+                        // Find the target step index by mode name
+                        if let Some(target_idx) = chain.steps.iter().position(|s| &s.mode == loop_target) {
+                            loop_count += 1;
+                            let _ = event_tx
+                                .send(LogEvent::system(format!(
+                                    "Loop triggered: jumping back to '{}' (loop {}/{})",
+                                    loop_target, loop_count, chain.max_loops
+                                )))
+                                .await;
+                            step_index = target_idx;
+                            continue;
+                        } else {
+                            let _ = event_tx
+                                .send(LogEvent::error(format!(
+                                    "loop_to target '{}' not found in chain",
+                                    loop_target
+                                )))
+                                .await;
+                        }
+                    } else {
+                        let _ = event_tx
+                            .send(LogEvent::system(format!(
+                                "Max loops ({}) reached, continuing without loop",
+                                chain.max_loops
+                            )))
+                            .await;
+                    }
+                }
+            }
+
+            if !should_run {
                 let _ = event_tx
                     .send(LogEvent::system(format!(
                         "Skipping step {} ({}) - trigger condition not met",
@@ -97,6 +139,7 @@ impl<'a> ChainRunner<'a> {
                     agent_result: None,
                     full_response: None,
                 });
+                step_index += 1;
                 continue;
             }
 
@@ -111,10 +154,11 @@ impl<'a> ChainRunner<'a> {
 
             let _ = event_tx
                 .send(LogEvent::system(format!(
-                    "Executing chain step {} of {}: mode '{}'",
+                    "Executing chain step {} of {}: mode '{}'{}",
                     step_index + 1,
                     chain.steps.len(),
-                    step.mode
+                    step.mode,
+                    if loop_count > 0 { format!(" (loop {})", loop_count) } else { String::new() }
                 )))
                 .await;
 
@@ -180,6 +224,7 @@ impl<'a> ChainRunner<'a> {
                         chain_success = false;
                         break;
                     }
+                    step_index += 1;
                     continue;
                 }
             };
@@ -275,13 +320,16 @@ impl<'a> ChainRunner<'a> {
                     }
                 }
             }
+
+            step_index += 1;
         }
 
         let _ = event_tx
             .send(LogEvent::system(format!(
-                "Chain '{}' completed: {} steps executed, success: {}",
+                "Chain '{}' completed: {} steps executed, {} loops, success: {}",
                 chain_name,
                 step_results.iter().filter(|r| !r.skipped).count(),
+                loop_count,
                 chain_success
             )))
             .await;

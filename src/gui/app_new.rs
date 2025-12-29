@@ -218,6 +218,7 @@ impl KycoApp {
             chain_edit_steps: Vec::new(),
             chain_edit_stop_on_failure: true,
             chain_edit_pass_full_response: true,
+            chain_edit_max_loops: 1,
             chain_edit_use_worktree: None,
             chain_edit_status: None,
             chain_pending_confirmation: super::chains::PendingConfirmation::None,

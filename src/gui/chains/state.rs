@@ -53,6 +53,7 @@ pub struct ChainEditorState<'a> {
     pub chain_edit_steps: &'a mut Vec<ChainStepEdit>,
     pub chain_edit_stop_on_failure: &'a mut bool,
     pub chain_edit_pass_full_response: &'a mut bool,
+    pub chain_edit_max_loops: &'a mut u32,
     pub chain_edit_use_worktree: &'a mut Option<bool>,
     pub chain_edit_status: &'a mut Option<(String, bool)>,
     pub pending_confirmation: &'a mut PendingConfirmation,
@@ -107,6 +108,7 @@ pub struct ChainStepEdit {
     pub skip_on: String,    // Comma-separated
     pub agent: String,      // Optional override
     pub inject_context: String,
+    pub loop_to: String,    // Mode name to loop back to
 }
 
 impl From<&ChainStep> for ChainStepEdit {
@@ -125,6 +127,7 @@ impl From<&ChainStep> for ChainStepEdit {
                 .unwrap_or_default(),
             agent: step.agent.clone().unwrap_or_default(),
             inject_context: step.inject_context.clone().unwrap_or_default(),
+            loop_to: step.loop_to.clone().unwrap_or_default(),
         }
     }
 }
@@ -144,6 +147,11 @@ impl ChainStepEdit {
                 None
             } else {
                 Some(self.inject_context.trim().to_string())
+            },
+            loop_to: if self.loop_to.trim().is_empty() {
+                None
+            } else {
+                Some(self.loop_to.trim().to_string())
             },
         }
     }

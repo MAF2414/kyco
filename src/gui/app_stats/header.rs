@@ -19,7 +19,19 @@ impl KycoApp {
             egui::ComboBox::from_id_salt("stats_time_range")
                 .selected_text(self.stats_time_range.label())
                 .show_ui(ui, |ui| {
-                    for range in [TimeRange::Last7Days, TimeRange::Last30Days, TimeRange::Last90Days, TimeRange::AllTime] {
+                    for range in [
+                        TimeRange::Last15Minutes,
+                        TimeRange::Last30Minutes,
+                        TimeRange::Last1Hour,
+                        TimeRange::Last3Hours,
+                        TimeRange::Last8Hours,
+                        TimeRange::Last1Day,
+                        TimeRange::Last3Days,
+                        TimeRange::Last7Days,
+                        TimeRange::Last30Days,
+                        TimeRange::Last90Days,
+                        TimeRange::AllTime,
+                    ] {
                         if ui.selectable_label(self.stats_time_range == range, range.label()).clicked() {
                             self.stats_time_range = range;
                             self.refresh_dashboard();

@@ -85,7 +85,7 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     ui.add_space(8.0);
                     if ui
                         .add(
-                            egui::Label::new(RichText::new("♥").small().color(ACCENT_RED))
+                            egui::Label::new(RichText::new("♥").size(16.0).color(ACCENT_RED))
                                 .sense(egui::Sense::click()),
                         )
                         .on_hover_text("Support KYCo on GitHub Sponsors")

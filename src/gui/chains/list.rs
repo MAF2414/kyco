@@ -144,6 +144,7 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                 state.chain_edit_steps.clear();
                 *state.chain_edit_stop_on_failure = true;
                 *state.chain_edit_pass_full_response = true;
+                *state.chain_edit_max_loops = 1;
                 *state.chain_edit_status = None;
             }
         });
@@ -173,6 +174,7 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
                 .collect();
             *state.chain_edit_stop_on_failure = source_chain.stop_on_failure;
             *state.chain_edit_pass_full_response = source_chain.pass_full_response;
+            *state.chain_edit_max_loops = source_chain.max_loops;
             *state.chain_edit_status =
                 Some(("Duplicated chain - edit name and save".to_string(), false));
         }

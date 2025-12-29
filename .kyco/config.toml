@@ -1518,6 +1518,55 @@ output_states = ["a11y_issues_fixed", "a11y_compliant"]
 allowed_tools = []
 disallowed_tools = []
 
+[mode.i18n-review]
+prompt = """
+Review translations for `{target}`: {description}
+
+{ide_context}
+
+1. Read the base translation file and all target language files
+2. Check for issues: missing keys, broken placeholders, inconsistent translations
+3. Output findings with SEVERITY, FILE, KEY, ISSUE, SUGGESTION
+4. Set state to "translation_issues_found" or "translations_verified"
+"""
+system_prompt = """
+You review translation files. READ-ONLY - no edits.
+
+CHECK FOR:
+- Missing translation keys (present in base but not in target)
+- Extra keys (present in target but not in base)
+- Broken placeholders: {name} in source but {nombre} in translation
+- Inconsistent terminology: same term translated differently
+- Truncation risk: translation much longer than source (UI may overflow)
+- Untranslated strings: same text as source (forgot to translate)
+- Machine translation artifacts: unnatural phrasing, wrong context
+
+SEVERITY LEVELS:
+- Critical: Missing keys, broken placeholders (app will crash/show raw keys)
+- High: Wrong context/meaning, inconsistent terminology
+- Medium: Unnatural phrasing, minor inconsistencies
+- Low: Style preferences, length concerns
+
+OUTPUT FORMAT (per issue):
+- SEVERITY: Critical / High / Medium / Low
+- FILE: translation file (de.json, fr.json, etc.)
+- KEY: the translation key
+- ISSUE: what's wrong
+- SUGGESTION: how to fix
+
+PASS CRITERIA:
+- Set "translations_verified" if no Critical or High issues found
+- Set "translation_issues_found" if any Critical or High issues exist
+
+Include a summary at the end listing which languages passed and which need fixes.
+"""
+session_mode = "oneshot"
+max_turns = 0
+disallowed_tools = ["Write", "Edit"]
+aliases = ["i18n-rev", "trans-review", "translation-review"]
+output_states = ["translation_issues_found", "translations_verified"]
+allowed_tools = []
+
 [mode.errorhandling]
 prompt = """
 Improve error handling in `{target}`: {description}
@@ -1816,10 +1865,11 @@ mode = "tests"
 trigger_on = ["secured"]
 
 [chain.i18n-full]
-description = "Extract strings, translate to multiple languages, verify integration"
+description = "Extract strings, translate, review, and loop back to fix issues"
 states = []
 stop_on_failure = false
 pass_full_response = true
+max_loops = 2
 
 [[chain.i18n-full.steps]]
 mode = "i18n"
@@ -1827,13 +1877,14 @@ description = "Extract hardcoded strings and create base translation file"
 
 [[chain.i18n-full.steps]]
 mode = "translate"
-trigger_on = ["i18n_ready"]
+trigger_on = ["i18n_ready", "translation_issues_found"]
 description = "Translate to German, French, Spanish, Japanese, Chinese"
 
 [[chain.i18n-full.steps]]
-mode = "review"
+mode = "i18n-review"
 trigger_on = ["translations_complete", "translations_partial"]
-description = "Review translation integration and catch issues"
+loop_to = "translate"
+description = "Review translations; loop back to translate step if issues found"
 
 [scope]
 

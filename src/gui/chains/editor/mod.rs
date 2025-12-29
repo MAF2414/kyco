@@ -112,6 +112,21 @@ pub fn render_chain_editor(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>, 
                             .on_hover_text("Never run in a worktree (even if global is enabled)");
                     });
             });
+            ui.add_space(8.0);
+
+            // Max loops option (for loop_to feature)
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Max Loops:").color(TEXT_MUTED));
+                ui.add(
+                    egui::DragValue::new(state.chain_edit_max_loops)
+                        .range(1..=10)
+                        .speed(0.1),
+                )
+                .on_hover_text(
+                    "Maximum number of times a step with loop_to can restart the chain.\n\
+                     Prevents infinite loops when issues keep recurring.",
+                );
+            });
             ui.add_space(16.0);
 
             // Flow preview

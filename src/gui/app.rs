@@ -247,6 +247,8 @@ pub struct KycoApp {
     pub(crate) chain_edit_stop_on_failure: bool,
     /// Chain editor: pass full response to next step
     pub(crate) chain_edit_pass_full_response: bool,
+    /// Chain editor: maximum loop iterations
+    pub(crate) chain_edit_max_loops: u32,
     /// Chain editor: use worktree (None = global, Some(true) = always, Some(false) = never)
     pub(crate) chain_edit_use_worktree: Option<bool>,
     /// Chain editor: status message
