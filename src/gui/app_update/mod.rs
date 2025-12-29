@@ -5,13 +5,13 @@
 mod permission;
 mod stats;
 mod voice;
+mod self_update;
 
 use super::app::KycoApp;
 use super::app_popup::ApplyTarget;
 use super::app_types::ViewMode;
 use super::executor::ExecutorEvent;
 use super::groups::{ComparisonAction, render_comparison_popup};
-use super::update::{UpdateInfo, UpdateStatus};
 use crate::LogEvent;
 use eframe::egui;
 
@@ -220,10 +220,10 @@ impl KycoApp {
     }
 
     /// Render the comparison popup for multi-agent results
-    pub(crate) fn render_comparison_popup(&mut self, ctx: &egui::Context) {
-        if let Some(action) = render_comparison_popup(ctx, &mut self.comparison_state) {
-            match action {
-                ComparisonAction::SelectJob(job_id) => {
+	    pub(crate) fn render_comparison_popup(&mut self, ctx: &egui::Context) {
+	        if let Some(action) = render_comparison_popup(ctx, &mut self.comparison_state) {
+	            match action {
+	                ComparisonAction::SelectJob(job_id) => {
                     // Update the selection in the group manager
                     if let Some(group_id) = self.comparison_state.group_id() {
                         if let Ok(mut gm) = self.group_manager.lock() {
@@ -255,51 +255,7 @@ impl KycoApp {
                     self.comparison_state.close();
                     self.view_mode = ViewMode::JobList;
                 }
-            }
-        }
-    }
-
-    /// Poll the update checker and return update info if available.
-    pub(crate) fn poll_update_checker(&mut self) -> Option<UpdateInfo> {
-        match self.update_checker.poll() {
-            UpdateStatus::UpdateAvailable(info) => Some(info.clone()),
-            _ => None,
-        }
-    }
-
-    /// Handle update install request if pending, and poll for install results.
-    /// Returns true if an install was started or is in progress.
-    pub(crate) fn handle_update_install(&mut self, update_info: Option<&UpdateInfo>) {
-        // Handle install request
-        if matches!(
-            self.update_install_status,
-            super::status_bar::InstallStatus::InstallRequested
-        ) {
-            if let Some(info) = update_info {
-                self.update_install_status = super::status_bar::InstallStatus::Installing;
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.update_install_rx = Some(rx);
-                let info_clone = info.clone();
-                std::thread::spawn(move || {
-                    let result = super::update::install_update(&info_clone);
-                    let _ = tx.send(result);
-                });
-            }
-        }
-
-        // Poll install result if we're installing
-        if let Some(rx) = &self.update_install_rx {
-            if let Ok(result) = rx.try_recv() {
-                match result {
-                    Ok(msg) => {
-                        self.update_install_status = super::status_bar::InstallStatus::Success(msg)
-                    }
-                    Err(err) => {
-                        self.update_install_status = super::status_bar::InstallStatus::Error(err)
-                    }
-                }
-                self.update_install_rx = None;
-            }
-        }
-    }
-}
+	            }
+	        }
+	    }
+	}
