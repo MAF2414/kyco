@@ -77,25 +77,27 @@ impl KycoApp {
             tracing::warn!("Failed to record tool call stats: {}", e);
         }
 
-        // Also record file access if we can find a file path in the tool args
-        if let Some(file_path) = extract_file_path_from_args(event.tool_args.as_ref()) {
+        // Record file access for all paths found in tool args
+        let file_paths = extract_file_paths_from_args(event.tool_args.as_ref());
+
+        let access_type = match tool_name.as_str() {
+            "Write" | "NotebookEdit" => FileAccessType::Write,
+            "Edit" => FileAccessType::Edit,
+            _ => FileAccessType::Read, // Default to read for Glob, Grep, Read, LSP, Bash, etc.
+        };
+
+        for file_path in file_paths {
             // Normalize worktree paths back to original paths
             let normalized_path = normalize_worktree_path(&file_path);
 
             // Skip if path is empty (e.g., worktree directory without file)
             if normalized_path.is_empty() {
-                return;
+                continue;
             }
-
-            let access_type = match tool_name.as_str() {
-                "Write" | "NotebookEdit" => FileAccessType::Write,
-                "Edit" => FileAccessType::Edit,
-                _ => FileAccessType::Read, // Default to read for Glob, Grep, Read, LSP, etc.
-            };
 
             let file_record = FileStatsRecord {
                 job_id,
-                session_id,
+                session_id: session_id.clone(),
                 file_path: normalized_path,
                 access_type,
                 timestamp,
@@ -108,28 +110,113 @@ impl KycoApp {
     }
 }
 
-/// Extract file path from any tool arguments by checking common parameter names
-fn extract_file_path_from_args(args: Option<&serde_json::Value>) -> Option<String> {
-    let args = args?;
+/// Extract file paths from any tool arguments
+/// Returns all file paths found (from explicit params and parsed from command strings)
+fn extract_file_paths_from_args(args: Option<&serde_json::Value>) -> Vec<String> {
+    let Some(args) = args else {
+        return Vec::new();
+    };
 
-    // Common parameter names for file paths across different tools
+    let mut paths = Vec::new();
+
+    // 1. Check explicit path parameters
     const PATH_PARAMS: &[&str] = &[
-        "file_path",    // Read, Write, Edit
-        "filePath",     // LSP
-        "path",         // Glob, Grep
+        "file_path",     // Read, Write, Edit
+        "filePath",      // LSP
+        "path",          // Glob, Grep
         "notebook_path", // NotebookEdit
     ];
 
     for param in PATH_PARAMS {
         if let Some(path) = args.get(*param).and_then(|v| v.as_str()) {
-            // Skip if it's just a directory or pattern
-            if !path.is_empty() && !path.ends_with('/') && !path.contains('*') {
-                return Some(path.to_string());
+            if is_valid_file_path(path) {
+                paths.push(path.to_string());
             }
         }
     }
 
-    None
+    // 2. Parse command strings (Bash tool)
+    if let Some(command) = args.get("command").and_then(|v| v.as_str()) {
+        paths.extend(extract_paths_from_command(command));
+    }
+
+    // 3. Scan all string values for path-like patterns
+    if let Some(obj) = args.as_object() {
+        for (key, value) in obj {
+            // Skip already checked params and non-path fields
+            if PATH_PARAMS.contains(&key.as_str()) || key == "command" || key == "tool_use_id" {
+                continue;
+            }
+            if let Some(s) = value.as_str() {
+                if looks_like_file_path(s) && is_valid_file_path(s) {
+                    paths.push(s.to_string());
+                }
+            }
+        }
+    }
+
+    paths
+}
+
+/// Check if a string looks like a file path (heuristic)
+fn looks_like_file_path(s: &str) -> bool {
+    // Must have reasonable length
+    if s.len() < 3 || s.len() > 500 {
+        return false;
+    }
+
+    // Common file extensions
+    const EXTENSIONS: &[&str] = &[
+        ".rs", ".ts", ".js", ".tsx", ".jsx", ".py", ".go", ".java", ".c", ".cpp", ".h",
+        ".toml", ".json", ".yaml", ".yml", ".md", ".txt", ".sh", ".bash",
+        ".html", ".css", ".scss", ".vue", ".svelte",
+    ];
+
+    // Check for file extension
+    let has_extension = EXTENSIONS.iter().any(|ext| s.ends_with(ext));
+
+    // Check for path-like structure
+    let has_path_structure = s.contains('/') || s.starts_with("./") || s.starts_with("src/");
+
+    has_extension || (has_path_structure && !s.contains(' ') && !s.starts_with("http"))
+}
+
+/// Extract file paths from a shell command string
+fn extract_paths_from_command(command: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+
+    // Split by common shell separators
+    for token in command.split(|c: char| c.is_whitespace() || c == ';' || c == '|' || c == '&') {
+        let token = token.trim_matches(|c: char| c == '\'' || c == '"' || c == '`');
+
+        if token.is_empty() {
+            continue;
+        }
+
+        // Skip shell builtins and common commands
+        const SKIP_TOKENS: &[&str] = &[
+            "cd", "ls", "cat", "echo", "grep", "sed", "awk", "wc", "head", "tail",
+            "git", "cargo", "npm", "node", "python", "rustc", "gcc", "make",
+            "-l", "-n", "-q", "-v", "-r", "-f", "-p", "-a", "-e", "-i", "-c",
+            "--offline", "--quiet", "--verbose", "--porcelain", "--oneline",
+        ];
+
+        if SKIP_TOKENS.contains(&token) || token.starts_with('-') {
+            continue;
+        }
+
+        // Check if it looks like a file path
+        if looks_like_file_path(token) && is_valid_file_path(token) {
+            paths.push(token.to_string());
+        }
+    }
+
+    paths
+}
+
+/// Validate that a path is a real file path (not a glob pattern or directory)
+fn is_valid_file_path(path: &str) -> bool {
+    !path.is_empty() && !path.ends_with('/') && !path.contains('*') && !path.contains('?')
 }
 
 /// Normalize worktree paths back to original repository paths
@@ -316,34 +403,69 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_file_path_from_args() {
+    fn test_extract_file_paths_from_args() {
         // file_path parameter
         let args = serde_json::json!({"file_path": "/path/to/file.rs"});
         assert_eq!(
-            extract_file_path_from_args(Some(&args)),
-            Some("/path/to/file.rs".to_string())
+            extract_file_paths_from_args(Some(&args)),
+            vec!["/path/to/file.rs".to_string()]
         );
 
         // path parameter (Glob, Grep)
         let args = serde_json::json!({"path": "src/main.rs", "pattern": "*.rs"});
         assert_eq!(
-            extract_file_path_from_args(Some(&args)),
-            Some("src/main.rs".to_string())
+            extract_file_paths_from_args(Some(&args)),
+            vec!["src/main.rs".to_string()]
         );
 
         // Skip glob patterns
         let args = serde_json::json!({"path": "src/**/*.rs"});
-        assert_eq!(extract_file_path_from_args(Some(&args)), None);
+        assert!(extract_file_paths_from_args(Some(&args)).is_empty());
 
         // Skip directories
         let args = serde_json::json!({"path": "src/"});
-        assert_eq!(extract_file_path_from_args(Some(&args)), None);
+        assert!(extract_file_paths_from_args(Some(&args)).is_empty());
 
         // filePath for LSP
         let args = serde_json::json!({"filePath": "src/lib.rs", "line": 42});
         assert_eq!(
-            extract_file_path_from_args(Some(&args)),
-            Some("src/lib.rs".to_string())
+            extract_file_paths_from_args(Some(&args)),
+            vec!["src/lib.rs".to_string()]
         );
+
+        // Bash command with file path
+        let args = serde_json::json!({"command": "wc -l src/lib.rs"});
+        assert_eq!(
+            extract_file_paths_from_args(Some(&args)),
+            vec!["src/lib.rs".to_string()]
+        );
+
+        // Bash command with multiple file paths
+        let args = serde_json::json!({"command": "sed -n '1,200p' src/lib.rs && cat Cargo.toml"});
+        let paths = extract_file_paths_from_args(Some(&args));
+        assert!(paths.contains(&"src/lib.rs".to_string()));
+        assert!(paths.contains(&"Cargo.toml".to_string()));
+
+        // Any string value that looks like a path
+        let args = serde_json::json!({"some_field": "src/config/mod.rs", "other": "not a path"});
+        assert_eq!(
+            extract_file_paths_from_args(Some(&args)),
+            vec!["src/config/mod.rs".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_looks_like_file_path() {
+        // Valid file paths
+        assert!(looks_like_file_path("src/lib.rs"));
+        assert!(looks_like_file_path("Cargo.toml"));
+        assert!(looks_like_file_path("./foo/bar.ts"));
+        assert!(looks_like_file_path("/abs/path/file.py"));
+
+        // Not file paths
+        assert!(!looks_like_file_path("git"));
+        assert!(!looks_like_file_path("-l"));
+        assert!(!looks_like_file_path("https://example.com/foo"));
+        assert!(!looks_like_file_path("some random text"));
     }
 }
