@@ -379,14 +379,16 @@ fn estimate_cost(
     };
 
     // Calculate cost (prices are per 1M tokens)
-    // - `input`: uncached input tokens
+    // - `input`: uncached input tokens (charged at input rate)
+    // - `cache_write`: tokens written to cache (charged at 1.25x input rate)
     // - `cache_read`: cached input tokens (discounted)
-    // - `cache_write`: tokens written to cache (charged at input rate)
-    let input_cost = (input + cache_write) as f64 * price_input / 1_000_000.0;
-    let cache_cost = cache_read as f64 * price_cached / 1_000_000.0;
+    // - `output`: output tokens
+    let input_cost = input as f64 * price_input / 1_000_000.0;
+    let cache_write_cost = cache_write as f64 * price_input * 1.25 / 1_000_000.0;
+    let cache_read_cost = cache_read as f64 * price_cached / 1_000_000.0;
     let output_cost = output as f64 * price_output / 1_000_000.0;
 
-    input_cost + cache_cost + output_cost
+    input_cost + cache_write_cost + cache_read_cost + output_cost
 }
 
 #[cfg(test)]
