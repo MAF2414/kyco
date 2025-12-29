@@ -144,6 +144,7 @@ impl KycoApp {
             commonmark_cache: egui_commonmark::CommonMarkCache::default(),
             comparison_state: ComparisonState::default(),
             permission_state: PermissionPopupState::default(),
+            last_permission_poll: std::time::Instant::now(),
             bridge_client: BridgeClient::new(),
             permission_mode_overrides: HashMap::new(),
             auto_run: settings_auto_run,

@@ -42,6 +42,8 @@ impl eframe::App for KycoApp {
 
         // Check for executor events (job status updates, logs)
         self.handle_executor_events(ctx);
+        // Fallback: poll pending tool approvals in case we missed the stream event
+        self.poll_pending_tool_approvals();
 
         // Process global voice hotkey events (Cmd+Shift+V / Ctrl+Shift+V)
         if self.global_hotkey_manager.is_some() {

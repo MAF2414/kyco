@@ -91,11 +91,13 @@ export function resolveToolApproval(response: ToolApprovalResponse): boolean {
  */
 export function getPendingApprovals(): Array<{
   requestId: string;
+  sessionId: string;
   toolName: string;
   toolInput: Record<string, unknown>;
 }> {
   return Array.from(pendingApprovals.entries()).map(([requestId, data]) => ({
     requestId,
+    sessionId: data.sessionId,
     toolName: data.toolName,
     toolInput: data.toolInput,
   }));

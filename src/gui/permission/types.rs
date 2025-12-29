@@ -85,4 +85,17 @@ impl PermissionPopupState {
         let current = if self.current_request.is_some() { 1 } else { 0 };
         current + self.pending_requests.len()
     }
+
+    /// Check whether a request ID is already queued (current or pending).
+    pub fn contains_request_id(&self, request_id: &str) -> bool {
+        if let Some(current) = &self.current_request {
+            if current.request_id == request_id {
+                return true;
+            }
+        }
+
+        self.pending_requests
+            .iter()
+            .any(|req| req.request_id == request_id)
+    }
 }

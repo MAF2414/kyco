@@ -219,6 +219,16 @@ pub struct ToolApprovalResponse {
     pub modified_input: Option<serde_json::Value>,
 }
 
+/// Tool approval request from the bridge (pending user decision).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolApprovalRequest {
+    pub request_id: String,
+    pub session_id: String,
+    pub tool_name: String,
+    pub tool_input: serde_json::Value,
+}
+
 /// Tool approval decision
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

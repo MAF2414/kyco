@@ -97,6 +97,8 @@ pub struct KycoApp {
     pub(crate) comparison_state: ComparisonState,
     /// Permission popup state for tool approval requests
     pub(crate) permission_state: PermissionPopupState,
+    /// Last time we polled the bridge for pending tool approvals
+    pub(crate) last_permission_poll: std::time::Instant,
     /// Bridge client for sending tool approval responses
     pub(crate) bridge_client: BridgeClient,
     /// Current Claude permission mode overrides per job (UI state)

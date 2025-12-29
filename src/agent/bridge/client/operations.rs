@@ -157,4 +157,24 @@ impl BridgeClient {
 
         Ok(resp.success)
     }
+
+    /// Get pending tool approval requests from the bridge (Claude).
+    pub fn get_pending_tool_approvals(&self) -> Result<Vec<ToolApprovalRequest>> {
+        let url = format!("{}/claude/pending-approvals", self.base_url);
+
+        #[derive(serde::Deserialize)]
+        struct ResponseBody {
+            pending: Vec<ToolApprovalRequest>,
+        }
+
+        let resp: ResponseBody = self
+            .client
+            .get(&url)
+            .call()
+            .context("Failed to get pending tool approvals")?
+            .into_json()
+            .context("Failed to parse pending tool approvals response")?;
+
+        Ok(resp.pending)
+    }
 }

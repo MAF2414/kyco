@@ -106,28 +106,30 @@ impl KycoApp {
                     tool_input,
                 } => {
                     tracing::info!("⚠️ GUI received PermissionNeeded: tool={}, job_id={}, request_id={}", tool_name, job_id, request_id);
-                    // Convert to PermissionRequest and add to popup queue
-                    let request = super::permission::PermissionRequest {
-                        request_id,
-                        session_id,
-                        tool_name: tool_name.clone(),
-                        tool_input,
-                        received_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0),
-                    };
-                    self.permission_state.add_request(request);
-                    self.logs.push(
-                        LogEvent::permission(format!(
-                            "Permission request: {} (waiting)",
-                            tool_name
-                        ))
-                        .for_job(job_id),
-                    );
+                    // Convert to PermissionRequest and add to popup queue (de-dupe by request_id).
+                    if !self.permission_state.contains_request_id(&request_id) {
+                        let request = super::permission::PermissionRequest {
+                            request_id,
+                            session_id,
+                            tool_name: tool_name.clone(),
+                            tool_input,
+                            received_at: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0),
+                        };
+                        self.permission_state.add_request(request);
+                        self.logs.push(
+                            LogEvent::permission(format!(
+                                "Permission request: {} (waiting)",
+                                tool_name
+                            ))
+                            .for_job(job_id),
+                        );
 
-                    // Bring window to front so user notices the permission request
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                        // Bring window to front so user notices the permission request
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    }
                 }
             }
         }

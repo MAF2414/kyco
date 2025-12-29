@@ -5,8 +5,52 @@ use crate::agent::bridge::{ToolApprovalResponse, ToolDecision};
 use crate::gui::app::KycoApp;
 use crate::gui::permission::{PermissionAction, render_permission_popup};
 use eframe::egui;
+use std::time::Duration;
 
 impl KycoApp {
+    /// Poll the Bridge for pending tool approvals (fallback in case the streaming event was missed).
+    pub(crate) fn poll_pending_tool_approvals(&mut self) {
+        // Avoid spamming localhost with requests every frame.
+        if self.last_permission_poll.elapsed() < Duration::from_millis(500) {
+            return;
+        }
+        self.last_permission_poll = std::time::Instant::now();
+
+        let pending = match self.bridge_client.get_pending_tool_approvals() {
+            Ok(pending) => pending,
+            Err(_) => return,
+        };
+
+        for approval in pending {
+            if self.permission_state.contains_request_id(&approval.request_id) {
+                continue;
+            }
+
+            let tool_input = approval
+                .tool_input
+                .as_object()
+                .map(|obj| {
+                    obj.iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect::<std::collections::HashMap<String, serde_json::Value>>()
+                })
+                .unwrap_or_default();
+
+            let request = crate::gui::permission::PermissionRequest {
+                request_id: approval.request_id,
+                session_id: approval.session_id,
+                tool_name: approval.tool_name,
+                tool_input,
+                received_at: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+            };
+
+            self.permission_state.add_request(request);
+        }
+    }
+
     /// Render the permission popup modal (on top of everything)
     pub(crate) fn render_permission_popup_modal(&mut self, ctx: &egui::Context) {
         if let Some(action) = render_permission_popup(ctx, &mut self.permission_state) {
