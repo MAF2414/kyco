@@ -1,6 +1,6 @@
 //! Tests for Config chain integration
 
-use kyco::config::{ChainStep, Config, ModeChain};
+use kyco::config::{ChainStep, Config, ModeChain, ModeOrChainRef};
 
 #[test]
 fn test_config_get_chain() {
@@ -32,7 +32,7 @@ fn test_config_get_mode_or_chain_returns_chain() {
     let result = config.get_mode_or_chain("review+fix");
     assert!(result.is_some());
 
-    if let Some(kyco::config::ModeOrChain::Chain(chain)) = result {
+    if let Some(ModeOrChainRef::Chain(chain)) = result {
         assert_eq!(chain.steps.len(), 2);
     } else {
         panic!("Expected Chain variant");
@@ -46,7 +46,7 @@ fn test_config_get_mode_or_chain_returns_mode() {
     let result = config.get_mode_or_chain("review");
     assert!(result.is_some());
 
-    if let Some(kyco::config::ModeOrChain::Mode(mode)) = result {
+    if let Some(ModeOrChainRef::Mode(mode)) = result {
         assert!(mode.prompt.is_some());
     } else {
         panic!("Expected Mode variant");
@@ -74,10 +74,12 @@ fn test_config_chain_insertion_and_retrieval() {
             skip_on: None,
             agent: None,
             inject_context: None,
+            loop_to: None,
         }],
         stop_on_failure: true,
         states: vec![],
         pass_full_response: true,
+        max_loops: 1,
         use_worktree: None,
     };
 
@@ -114,10 +116,12 @@ fn test_chain_with_nonexistent_mode_reference() {
                 skip_on: None,
                 agent: None,
                 inject_context: None,
+                loop_to: None,
             }],
             stop_on_failure: true,
             states: vec![],
             pass_full_response: true,
+            max_loops: 1,
             use_worktree: None,
         },
     );

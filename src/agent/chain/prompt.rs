@@ -97,7 +97,7 @@ pub fn create_step_job(config: &Config, initial_job: &Job, step: &ChainStep, pro
     if let Some(agent) = &step.agent {
         step_job.agent_id = agent.clone();
     } else {
-        step_job.agent_id = config.get_agent_for_mode(&step.mode);
+        step_job.agent_id = config.get_agent_for_mode(&step.mode).into_owned();
     }
     step_job
 }

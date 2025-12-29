@@ -99,9 +99,18 @@ fn default_max_loops() -> u32 {
     1
 }
 
-/// Either a single mode or a chain of modes
+/// Either a single mode or a chain of modes (owned)
 #[derive(Debug, Clone)]
 pub enum ModeOrChain {
     Mode(ModeConfig),
     Chain(ModeChain),
+}
+
+/// Either a single mode or a chain of modes (borrowed)
+///
+/// Use this variant for read-only access to avoid cloning.
+#[derive(Debug, Clone, Copy)]
+pub enum ModeOrChainRef<'a> {
+    Mode(&'a ModeConfig),
+    Chain(&'a ModeChain),
 }

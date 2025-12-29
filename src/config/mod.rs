@@ -14,7 +14,7 @@ mod token;
 
 pub use agent::AgentConfigToml;
 pub use alias::AliasConfig;
-pub use chain::{ChainStep, ModeChain, ModeOrChain, StateDefinition};
+pub use chain::{ChainStep, ModeChain, ModeOrChain, ModeOrChainRef, StateDefinition};
 pub use internal::{InternalDefaults, INTERNAL_DEFAULTS_TOML};
 pub use mode::{ClaudeModeOptions, CodexModeOptions, ModeConfig, ModeSessionType};
 pub use scope::ScopeConfig;

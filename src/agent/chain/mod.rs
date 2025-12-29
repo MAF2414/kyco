@@ -191,7 +191,7 @@ impl<'a> ChainRunner<'a> {
 
             // Get the agent config and adapter
             let default_agent = self.config.get_agent_for_mode(&step.mode);
-            let agent_id = step.agent.as_ref().unwrap_or(&default_agent);
+            let agent_id: &str = step.agent.as_deref().unwrap_or(&default_agent);
             let agent_config = self
                 .config
                 .get_agent_for_job(agent_id, &step.mode)

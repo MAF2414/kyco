@@ -1,8 +1,9 @@
 //! Configuration lookup and accessor methods
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
-use super::chain::{ModeChain, ModeOrChain};
+use super::chain::{ModeChain, ModeOrChainRef};
 use super::mode::{ModeConfig, ModeSessionType};
 use super::scope::ScopeConfig;
 use super::target::TargetConfig;
@@ -86,11 +87,14 @@ impl Config {
     }
 
     /// Get the agent ID for a given mode
-    pub fn get_agent_for_mode(&self, mode: &str) -> String {
+    ///
+    /// Returns a `Cow<str>` to avoid allocation when the mode has an agent configured.
+    pub fn get_agent_for_mode(&self, mode: &str) -> Cow<'_, str> {
         self.mode
             .get(mode)
-            .and_then(|m| m.agent.clone())
-            .unwrap_or_else(|| "claude".to_string())
+            .and_then(|m| m.agent.as_deref())
+            .map(Cow::Borrowed)
+            .unwrap_or(Cow::Borrowed("claude"))
     }
 
     /// Get agent configuration with mode-specific tool overrides applied
@@ -122,10 +126,15 @@ impl Config {
 
         if let Some(mode_config) = self.mode.get(mode) {
             if !mode_config.allowed_tools.is_empty() {
-                agent_config.allowed_tools = mode_config.allowed_tools.clone();
+                // Use clone_from for potential capacity reuse
+                agent_config.allowed_tools.clone_from(&mode_config.allowed_tools);
             }
 
             if !mode_config.disallowed_tools.is_empty() {
+                // Reserve capacity upfront to avoid reallocations
+                agent_config
+                    .disallowed_tools
+                    .reserve(mode_config.disallowed_tools.len());
                 for tool in &mode_config.disallowed_tools {
                     if !agent_config.disallowed_tools.contains(tool) {
                         agent_config.disallowed_tools.push(tool.clone());
@@ -197,12 +206,12 @@ impl Config {
         self.chain.contains_key(name)
     }
 
-    /// Get mode or chain - returns ModeOrChain enum
-    pub fn get_mode_or_chain(&self, name: &str) -> Option<ModeOrChain> {
+    /// Get mode or chain - returns a reference to avoid cloning
+    pub fn get_mode_or_chain(&self, name: &str) -> Option<ModeOrChainRef<'_>> {
         if let Some(chain) = self.chain.get(name) {
-            Some(ModeOrChain::Chain(chain.clone()))
+            Some(ModeOrChainRef::Chain(chain))
         } else if let Some(mode) = self.mode.get(name) {
-            Some(ModeOrChain::Mode(mode.clone()))
+            Some(ModeOrChainRef::Mode(mode))
         } else {
             None
         }
