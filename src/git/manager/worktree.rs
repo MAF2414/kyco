@@ -5,8 +5,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use super::types::WorktreeInfo;
-use super::GitManager;
+use super::{types::WorktreeInfo, GitManager};
 use crate::JobId;
 
 impl GitManager {
