@@ -1,5 +1,7 @@
 //! Mode editor form rendering
 
+mod combos;
+
 use eframe::egui::{self, RichText, ScrollArea};
 
 use super::persistence::{delete_mode_from_config, save_mode_to_config};
@@ -67,20 +69,7 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
 
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Session Mode:").color(TEXT_MUTED));
-                egui::ComboBox::from_id_salt("mode_session_mode")
-                    .selected_text(&**state.mode_edit_session_mode)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            state.mode_edit_session_mode,
-                            "oneshot".to_string(),
-                            "oneshot",
-                        );
-                        ui.selectable_value(
-                            state.mode_edit_session_mode,
-                            "session".to_string(),
-                            "session",
-                        );
-                    });
+                combos::render_session_mode_combo(ui, state.mode_edit_session_mode);
             });
             ui.add_space(8.0);
 
@@ -110,21 +99,7 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
 
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Use Worktree:").color(TEXT_MUTED));
-                let display_text = match state.mode_edit_use_worktree {
-                    None => "global",
-                    Some(true) => "always",
-                    Some(false) => "never",
-                };
-                egui::ComboBox::from_id_salt("mode_use_worktree")
-                    .selected_text(display_text)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(state.mode_edit_use_worktree, None, "global")
-                            .on_hover_text("Use the global worktree setting");
-                        ui.selectable_value(state.mode_edit_use_worktree, Some(true), "always")
-                            .on_hover_text("Always run in a git worktree");
-                        ui.selectable_value(state.mode_edit_use_worktree, Some(false), "never")
-                            .on_hover_text("Never run in a worktree (even if global is enabled)");
-                    });
+                combos::render_use_worktree_combo(ui, state.mode_edit_use_worktree);
             });
             ui.add_space(16.0);
 
@@ -135,64 +110,13 @@ pub fn render_mode_editor(ui: &mut egui::Ui, state: &mut ModeEditorState<'_>, mo
 
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Claude Permissions:").color(TEXT_MUTED));
-                egui::ComboBox::from_id_salt("mode_claude_permission")
-                    .selected_text(&**state.mode_edit_claude_permission)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            state.mode_edit_claude_permission,
-                            "auto".to_string(),
-                            "auto",
-                        );
-                        ui.selectable_value(
-                            state.mode_edit_claude_permission,
-                            "default".to_string(),
-                            "default",
-                        );
-                        ui.selectable_value(
-                            state.mode_edit_claude_permission,
-                            "acceptEdits".to_string(),
-                            "acceptEdits",
-                        );
-                        ui.selectable_value(
-                            state.mode_edit_claude_permission,
-                            "bypassPermissions".to_string(),
-                            "bypassPermissions",
-                        );
-                        ui.selectable_value(
-                            state.mode_edit_claude_permission,
-                            "plan".to_string(),
-                            "plan",
-                        );
-                    });
+                combos::render_claude_permission_combo(ui, state.mode_edit_claude_permission);
             });
             ui.add_space(8.0);
 
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Codex Sandbox:").color(TEXT_MUTED));
-                egui::ComboBox::from_id_salt("mode_codex_sandbox")
-                    .selected_text(&**state.mode_edit_codex_sandbox)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            state.mode_edit_codex_sandbox,
-                            "auto".to_string(),
-                            "auto",
-                        );
-                        ui.selectable_value(
-                            state.mode_edit_codex_sandbox,
-                            "read-only".to_string(),
-                            "read-only",
-                        );
-                        ui.selectable_value(
-                            state.mode_edit_codex_sandbox,
-                            "workspace-write".to_string(),
-                            "workspace-write",
-                        );
-                        ui.selectable_value(
-                            state.mode_edit_codex_sandbox,
-                            "danger-full-access".to_string(),
-                            "danger-full-access",
-                        );
-                    });
+                combos::render_codex_sandbox_combo(ui, state.mode_edit_codex_sandbox);
             });
             ui.add_space(16.0);
 
