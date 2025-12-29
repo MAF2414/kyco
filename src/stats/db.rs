@@ -48,7 +48,13 @@ impl StatsDb {
     }
 
     /// Get a reference to the connection (for queries)
+    ///
+    /// # Panics
+    /// Panics if the mutex is poisoned (another thread panicked while holding the lock).
+    /// This is intentional - a poisoned lock indicates unrecoverable state.
     pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
+        // Mutex::lock only fails if poisoned, which indicates a previous panic
+        // and likely inconsistent DB state - panicking is appropriate here
         self.conn.lock().expect("Stats DB lock poisoned")
     }
 
