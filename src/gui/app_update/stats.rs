@@ -315,7 +315,7 @@ fn job_to_stats_record(job: &Job, agent_config: Option<&AgentConfigToml>) -> Job
         created_at: job.created_at.timestamp_millis(),
         started_at: job.started_at.map(|t| t.timestamp_millis()),
         finished_at: job.finished_at.map(|t| t.timestamp_millis()).or(Some(now)),
-        workspace_id: job.workspace_id.map(|id| id.to_string()),
+        workspace_path: job.workspace_path.as_ref().map(|p| p.to_string_lossy().to_string()),
     }
 }
 

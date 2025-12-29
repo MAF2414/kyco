@@ -34,7 +34,7 @@ pub struct JobStatsRecord {
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
 
-    pub workspace_id: Option<String>,
+    pub workspace_path: Option<String>,
 }
 
 /// Record for a tool call

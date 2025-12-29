@@ -33,14 +33,14 @@ impl StatsRecorder {
                (job_id, session_id, mode, agent_id, agent_type, status,
                 input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
                 cost_usd, duration_ms, files_changed, lines_added, lines_removed,
-                created_at, started_at, finished_at, day_bucket, interval_bucket, workspace_id)
+                created_at, started_at, finished_at, day_bucket, interval_bucket, workspace_path)
                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)"#,
             rusqlite::params![
                 record.job_id, record.session_id, record.mode, record.agent_id, record.agent_type,
                 record.status, record.input_tokens, record.output_tokens, record.cache_read_tokens,
                 record.cache_write_tokens, record.cost_usd, record.duration_ms, record.files_changed,
                 record.lines_added, record.lines_removed, record.created_at, record.started_at,
-                record.finished_at, day, interval, record.workspace_id,
+                record.finished_at, day, interval, record.workspace_path,
             ],
         )?;
 
