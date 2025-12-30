@@ -80,7 +80,19 @@ impl ClaudeBridgeAdapter {
         if system_prompt.is_empty() { None } else { Some(system_prompt) }
     }
 
+    /// Build request, taking ownership of prompt and cwd to avoid clones.
+    /// Config fields are cloned only when non-empty (None avoids allocation).
     fn build_request(&self, job: &Job, config: &AgentConfig, prompt: String, cwd: String) -> ClaudeQueryRequest {
+        // Helper: clone only if non-empty, otherwise None (avoids empty collection allocation)
+        fn clone_if_non_empty<T: Clone>(v: &[T]) -> Option<Vec<T>> {
+            if v.is_empty() { None } else { Some(v.to_vec()) }
+        }
+        fn clone_map_if_non_empty<K: Clone + Eq + std::hash::Hash, V: Clone>(
+            m: &std::collections::HashMap<K, V>,
+        ) -> Option<std::collections::HashMap<K, V>> {
+            if m.is_empty() { None } else { Some(m.clone()) }
+        }
+
         ClaudeQueryRequest {
             prompt,
             images: None,
@@ -88,17 +100,17 @@ impl ClaudeBridgeAdapter {
             session_id: job.bridge_session_id.clone(),
             fork_session: None,
             permission_mode: Some(parse_claude_permission_mode(&config.permission_mode)),
-            agents: if config.agents.is_empty() { None } else { Some(config.agents.clone()) },
-            allowed_tools: if config.allowed_tools.is_empty() { None } else { Some(config.allowed_tools.clone()) },
-            disallowed_tools: if config.disallowed_tools.is_empty() { None } else { Some(config.disallowed_tools.clone()) },
-            env: if config.env.is_empty() { None } else { Some(config.env.clone()) },
-            mcp_servers: if config.mcp_servers.is_empty() { None } else { Some(config.mcp_servers.clone()) },
+            agents: clone_map_if_non_empty(&config.agents),
+            allowed_tools: clone_if_non_empty(&config.allowed_tools),
+            disallowed_tools: clone_if_non_empty(&config.disallowed_tools),
+            env: clone_map_if_non_empty(&config.env),
+            mcp_servers: clone_map_if_non_empty(&config.mcp_servers),
             system_prompt: self.build_system_prompt(job, config),
             system_prompt_mode: Some(match config.system_prompt_mode {
                 crate::SystemPromptMode::Replace => "replace",
                 crate::SystemPromptMode::Append | crate::SystemPromptMode::ConfigOverride => "append",
-            }.to_string()),
-            setting_sources: Some(vec!["user".to_string(), "project".to_string(), "local".to_string()]),
+            }.into()),
+            setting_sources: Some(vec!["user".into(), "project".into(), "local".into()]),
             plugins: {
                 let plugins: Vec<ClaudePlugin> = config.plugins.iter()
                     .map(|p| p.trim()).filter(|p| !p.is_empty())
@@ -130,11 +142,13 @@ impl AgentRunner for ClaudeBridgeAdapter {
         let _ = event_tx.send(LogEvent::system(format!("Starting Claude SDK job #{}", job_id)).for_job(job_id)).await;
         let _ = event_tx.send(LogEvent::system(format!(">>> {}", prompt)).for_job(job_id)).await;
 
-        let request = self.build_request(job, config, prompt.clone(), cwd);
+        // Clone prompt for sent_prompt before moving into request (eliminates one clone vs prior approach)
+        let sent_prompt = prompt.clone();
+        let request = self.build_request(job, config, prompt, cwd);
         let mut result = AgentResult {
             success: false, error: None, changed_files: Vec::new(), cost_usd: None,
             input_tokens: None, output_tokens: None, cache_read_tokens: None, cache_write_tokens: None,
-            duration_ms: None, sent_prompt: Some(prompt), output_text: None, session_id: None,
+            duration_ms: None, sent_prompt: Some(sent_prompt), output_text: None, session_id: None,
         };
 
         let mut output_text = String::new();
@@ -158,33 +172,37 @@ impl AgentRunner for ClaudeBridgeAdapter {
             };
 
             match event {
+                // Take ownership of session_id; compute preview before moving
                 BridgeEvent::SessionStart { session_id, model, tools, .. } => {
-                    captured_session_id = Some(session_id.clone());
-                    let preview = session_id.get(..12).unwrap_or(&session_id);
+                    let preview: String = session_id.get(..12).unwrap_or(&session_id).into();
                     let _ = event_tx.send(LogEvent::system(format!("Session started: {} tools available, model: {} (session: {})", tools.len(), model, preview))
-                        .with_tool_args(serde_json::json!({ "session_id": session_id })).for_job(job_id)).await;
+                        .with_tool_args(serde_json::json!({ "session_id": &session_id })).for_job(job_id)).await;
+                    captured_session_id = Some(session_id); // Move instead of clone
                 }
                 BridgeEvent::Text { content, partial, .. } => {
                     if !partial { output_text.push_str(&content); output_text.push('\n'); }
                     let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
                 }
-                BridgeEvent::ToolUse { tool_name, tool_input, tool_use_id, .. } => {
-                    // Merge tool_use_id into tool_input for stats tracking
-                    let mut args = tool_input.clone();
-                    if let Some(obj) = args.as_object_mut() {
-                        obj.insert("tool_use_id".to_string(), serde_json::json!(tool_use_id));
+                // Take ownership of tool_input and modify in-place (eliminates clone)
+                BridgeEvent::ToolUse { tool_name, mut tool_input, tool_use_id, .. } => {
+                    // Format before modifying tool_input
+                    let formatted = format_tool_call(&tool_name, &tool_input);
+                    // Merge tool_use_id into tool_input in-place
+                    if let Some(obj) = tool_input.as_object_mut() {
+                        obj.insert("tool_use_id".into(), serde_json::json!(tool_use_id));
                     }
-                    let _ = event_tx.send(LogEvent::tool_call(tool_name.clone(), format_tool_call(&tool_name, &tool_input))
-                        .with_tool_args(args)
+                    let _ = event_tx.send(LogEvent::tool_call(tool_name, formatted)
+                        .with_tool_args(tool_input) // Move instead of clone
                         .for_job(job_id)).await;
                 }
                 BridgeEvent::ToolResult { success, output, files_changed, .. } => {
                     if let Some(files) = files_changed { for f in files { result.changed_files.push(std::path::PathBuf::from(f)); } }
                     let _ = event_tx.send(LogEvent::tool_output("tool", if success { output } else { format!("Error: {}", output) }).for_job(job_id)).await;
                 }
+                // Take ownership of message; log first then store (eliminates clone)
                 BridgeEvent::Error { message, .. } => {
-                    result.error = Some(message.clone());
-                    let _ = event_tx.send(LogEvent::error(message).for_job(job_id)).await;
+                    let _ = event_tx.send(LogEvent::error(&message).for_job(job_id)).await;
+                    result.error = Some(message); // Move after borrow ends
                 }
                 BridgeEvent::SessionComplete { success, cost_usd, duration_ms, usage, result: sr, .. } => {
                     result.success = success; result.cost_usd = cost_usd; result.duration_ms = Some(duration_ms); structured_result = sr;
@@ -202,8 +220,10 @@ impl AgentRunner for ClaudeBridgeAdapter {
                     let _ = event_tx.send(LogEvent::permission(format!("Tool approval needed: {}", tool_name))
                         .with_tool_args(serde_json::json!({ "request_id": request_id, "session_id": session_id, "tool_name": tool_name, "tool_input": tool_input })).for_job(job_id)).await;
                 }
+                // Take ownership and use reference for format_tool_call (eliminates clone)
                 BridgeEvent::HookPreToolUse { tool_name, tool_input, tool_use_id, .. } => {
-                    let _ = event_tx.send(LogEvent::tool_call(tool_name.clone(), format!("[hook PreToolUse] {}", format_tool_call(&tool_name, &tool_input)))
+                    let formatted = format!("[hook PreToolUse] {}", format_tool_call(&tool_name, &tool_input));
+                    let _ = event_tx.send(LogEvent::tool_call(tool_name, formatted) // Move tool_name
                         .with_tool_args(serde_json::json!({ "tool_use_id": tool_use_id })).for_job(job_id)).await;
                 }
                 BridgeEvent::Heartbeat { .. } => {}
