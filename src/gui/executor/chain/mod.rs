@@ -21,7 +21,7 @@ use worktree::setup_chain_worktree;
 fn step_result_to_summary(step_result: &ChainStepResult) -> ChainStepSummary {
     ChainStepSummary {
         step_index: step_result.step_index,
-        mode: step_result.mode.clone(),
+        mode: step_result.mode.to_string(),
         skipped: step_result.skipped,
         success: step_result
             .agent_result

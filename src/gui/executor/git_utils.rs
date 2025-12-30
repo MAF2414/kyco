@@ -51,10 +51,14 @@ pub async fn calculate_git_numstat_async(
     if let Some(base_branch) = base_branch {
         let range = format!("{}...HEAD", base_branch);
 
+        // Store args in variables to extend their lifetime beyond the join!
+        let committed_args = ["diff", "--numstat", "--no-color", &range];
+        let uncommitted_args = ["diff", "--numstat", "--no-color"];
+
         // Spawn both git operations concurrently
         let (committed_result, uncommitted_result) = tokio::join!(
-            run_git_numstat_async(worktree, &["diff", "--numstat", "--no-color", &range]),
-            run_git_numstat_async(worktree, &["diff", "--numstat", "--no-color"])
+            run_git_numstat_async(worktree, &committed_args),
+            run_git_numstat_async(worktree, &uncommitted_args)
         );
 
         if let Some((added, removed)) = committed_result {
