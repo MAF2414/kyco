@@ -60,7 +60,7 @@ async fn executor_loop(
             .map(|cfg| cfg.settings.use_worktree)
             .unwrap_or(false);
 
-        let (running_count, next_queued) = {
+        let (_, queued_jobs) = {
             let Ok(mut manager) = job_manager.lock() else {
                 // Lock poisoned - log and continue to next iteration
                 let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
@@ -101,17 +101,26 @@ async fn executor_loop(
                 }
             }
 
-            let next: Option<Job> = manager
+            // Calculate available slots and collect multiple queued jobs at once
+            let max_jobs = max_concurrent_jobs.load(Ordering::Relaxed);
+            let available = max_jobs.saturating_sub(running);
+
+            let queued_jobs: Vec<Job> = manager
                 .jobs()
                 .iter()
-                .find(|j| j.status == JobStatus::Queued)
-                .map(|j| (*j).clone());
+                .filter(|j| j.status == JobStatus::Queued)
+                .take(available)
+                .map(|j| (*j).clone())
+                .collect();
 
-            (running, next)
+            (running, queued_jobs)
         };
 
-        if running_count < max_concurrent_jobs.load(Ordering::Relaxed) {
-            if let Some(job) = next_queued {
+        if !queued_jobs.is_empty() {
+            // Spawn all eligible jobs in parallel
+            let mut spawn_handles = Vec::with_capacity(queued_jobs.len());
+
+            for job in queued_jobs {
                 let is_multi_agent = job.group_id.is_some();
                 let needs_lock_check =
                     !should_use_worktree && !is_multi_agent && !job.force_worktree;
@@ -121,7 +130,6 @@ async fn executor_loop(
                         let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
                             "Job manager lock poisoned, skipping job start".to_string(),
                         )));
-                        tokio::time::sleep(Duration::from_millis(100)).await;
                         continue;
                     };
 
@@ -142,7 +150,6 @@ async fn executor_loop(
                                 .map(|f| f.to_string_lossy().to_string())
                                 .unwrap_or_else(|| job.source_file.display().to_string())
                         ))));
-                        tokio::time::sleep(Duration::from_millis(100)).await;
                         continue;
                     }
 
@@ -156,7 +163,7 @@ async fn executor_loop(
                 let git_manager = git_manager.clone();
                 let event_tx = event_tx.clone();
 
-                tokio::spawn(async move {
+                spawn_handles.push(tokio::spawn(async move {
                     run_job::run_job(
                         &work_dir,
                         &config_snapshot,
@@ -167,8 +174,12 @@ async fn executor_loop(
                         job,
                     )
                     .await;
-                });
+                }));
             }
+
+            // All jobs spawned in parallel - handles are fire-and-forget
+            // (they complete independently and update job status via job_manager)
+            drop(spawn_handles);
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
