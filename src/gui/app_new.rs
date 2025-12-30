@@ -36,84 +36,140 @@ impl KycoApp {
         executor_rx: Receiver<ExecutorEvent>,
         max_concurrent_jobs: Arc<AtomicUsize>,
     ) -> Self {
-        let config_snapshot = config
+        // Extract all values within read lock scope to avoid cloning entire Config.
+        // This reduces memory allocation from O(config_size) to O(extracted_fields).
+        let (
+            settings_max_concurrent,
+            settings_auto_run,
+            settings_use_worktree,
+            voice_config,
+            voice_settings_mode,
+            voice_settings_keywords,
+            voice_settings_model,
+            voice_settings_language,
+            voice_settings_silence_threshold,
+            voice_settings_silence_duration,
+            voice_settings_max_duration,
+            voice_settings_global_hotkey,
+            voice_settings_popup_hotkey,
+            settings_output_schema,
+            settings_structured_output_schema,
+            orchestrator_cli_agent,
+            orchestrator_cli_command,
+            orchestrator_system_prompt,
+        ) = config
             .read()
-            .map(|cfg| cfg.clone())
-            .unwrap_or_else(|_| Config::with_defaults());
+            .map(|cfg| {
+                let voice_settings = &cfg.settings.gui.voice;
 
-        // Extract settings before moving config
-        let settings_max_concurrent = config_snapshot.settings.max_concurrent_jobs.to_string();
-        let settings_auto_run = config_snapshot.settings.auto_run;
-        let settings_use_worktree = config_snapshot.settings.use_worktree;
+                // Build voice action registry from modes and chains
+                let action_registry = super::voice::VoiceActionRegistry::from_config(
+                    &cfg.mode,
+                    &cfg.chain,
+                    &cfg.agent,
+                );
 
-        // Extract voice settings
-        let voice_settings = &config_snapshot.settings.gui.voice;
-        // Build voice action registry from modes and chains
-        let action_registry = super::voice::VoiceActionRegistry::from_config(
-            &config_snapshot.mode,
-            &config_snapshot.chain,
-            &config_snapshot.agent,
-        );
-        let voice_config = VoiceConfig {
-            mode: match voice_settings.mode.as_str() {
-                "manual" => VoiceInputMode::Manual,
-                "hotkey_hold" => VoiceInputMode::HotkeyHold,
-                "continuous" => VoiceInputMode::Continuous,
-                _ => VoiceInputMode::Disabled,
-            },
-            keywords: voice_settings.keywords.clone(),
-            action_registry,
-            whisper_model: voice_settings.whisper_model.clone(),
-            language: voice_settings.language.clone(),
-            silence_threshold: voice_settings.silence_threshold,
-            silence_duration: voice_settings.silence_duration,
-            max_duration: voice_settings.max_duration,
-            vad_config: super::voice::VadConfig::default(),
-            use_vad: true,
-        };
-        let voice_settings_mode = voice_settings.mode.clone();
-        let voice_settings_keywords = voice_settings.keywords.join(", ");
-        let voice_settings_model = voice_settings.whisper_model.clone();
-        let voice_settings_language = voice_settings.language.clone();
-        let voice_settings_silence_threshold = voice_settings.silence_threshold.to_string();
-        let voice_settings_silence_duration = voice_settings.silence_duration.to_string();
-        let voice_settings_max_duration = voice_settings.max_duration.to_string();
-        let voice_settings_global_hotkey = voice_settings.global_hotkey.clone();
-        let voice_settings_popup_hotkey = voice_settings.popup_hotkey.clone();
+                // Clone voice settings for UI editor fields first, then reuse for VoiceConfig
+                let voice_settings_mode = voice_settings.mode.clone();
+                let voice_settings_model = voice_settings.whisper_model.clone();
+                let voice_settings_language = voice_settings.language.clone();
+                let voice_settings_global_hotkey = voice_settings.global_hotkey.clone();
+                let voice_settings_popup_hotkey = voice_settings.popup_hotkey.clone();
 
-        // Extract output schema
-        let settings_output_schema = config_snapshot.settings.gui.output_schema.clone();
-        let settings_structured_output_schema = config_snapshot
-            .settings
-            .gui
-            .structured_output_schema
-            .clone();
+                let voice_config = VoiceConfig {
+                    mode: match voice_settings_mode.as_str() {
+                        "manual" => VoiceInputMode::Manual,
+                        "hotkey_hold" => VoiceInputMode::HotkeyHold,
+                        "continuous" => VoiceInputMode::Continuous,
+                        _ => VoiceInputMode::Disabled,
+                    },
+                    keywords: voice_settings.keywords.clone(),
+                    action_registry,
+                    // Clone from already-cloned strings to avoid double-borrowing issues
+                    whisper_model: voice_settings_model.clone(),
+                    language: voice_settings_language.clone(),
+                    silence_threshold: voice_settings.silence_threshold,
+                    silence_duration: voice_settings.silence_duration,
+                    max_duration: voice_settings.max_duration,
+                    vad_config: super::voice::VadConfig::default(),
+                    use_vad: true,
+                };
 
-        // Extract orchestrator settings
-        let orchestrator_cli_agent = config_snapshot
-            .settings
-            .gui
-            .orchestrator
-            .cli_agent
-            .clone();
-        let orchestrator_cli_command = config_snapshot
-            .settings
-            .gui
-            .orchestrator
-            .cli_command
-            .clone();
-        let orchestrator_system_prompt = config_snapshot
-            .settings
-            .gui
-            .orchestrator
-            .system_prompt
-            .clone();
+                (
+                    cfg.settings.max_concurrent_jobs.to_string(),
+                    cfg.settings.auto_run,
+                    cfg.settings.use_worktree,
+                    voice_config,
+                    voice_settings_mode,
+                    voice_settings.keywords.join(", "),
+                    voice_settings_model,
+                    voice_settings_language,
+                    voice_settings.silence_threshold.to_string(),
+                    voice_settings.silence_duration.to_string(),
+                    voice_settings.max_duration.to_string(),
+                    voice_settings_global_hotkey,
+                    voice_settings_popup_hotkey,
+                    cfg.settings.gui.output_schema.clone(),
+                    cfg.settings.gui.structured_output_schema.clone(),
+                    cfg.settings.gui.orchestrator.cli_agent.clone(),
+                    cfg.settings.gui.orchestrator.cli_command.clone(),
+                    cfg.settings.gui.orchestrator.system_prompt.clone(),
+                )
+            })
+            .unwrap_or_else(|_| {
+                // Fallback to defaults if lock is poisoned
+                let defaults = Config::with_defaults();
+                let voice_settings = &defaults.settings.gui.voice;
+                let action_registry = super::voice::VoiceActionRegistry::from_config(
+                    &defaults.mode,
+                    &defaults.chain,
+                    &defaults.agent,
+                );
+                let voice_settings_mode = voice_settings.mode.clone();
+                let voice_settings_model = voice_settings.whisper_model.clone();
+                let voice_settings_language = voice_settings.language.clone();
+                let voice_config = VoiceConfig {
+                    mode: VoiceInputMode::Disabled,
+                    keywords: voice_settings.keywords.clone(),
+                    action_registry,
+                    whisper_model: voice_settings_model.clone(),
+                    language: voice_settings_language.clone(),
+                    silence_threshold: voice_settings.silence_threshold,
+                    silence_duration: voice_settings.silence_duration,
+                    max_duration: voice_settings.max_duration,
+                    vad_config: super::voice::VadConfig::default(),
+                    use_vad: true,
+                };
+                (
+                    defaults.settings.max_concurrent_jobs.to_string(),
+                    defaults.settings.auto_run,
+                    defaults.settings.use_worktree,
+                    voice_config,
+                    voice_settings_mode,
+                    voice_settings.keywords.join(", "),
+                    voice_settings_model,
+                    voice_settings_language,
+                    voice_settings.silence_threshold.to_string(),
+                    voice_settings.silence_duration.to_string(),
+                    voice_settings.max_duration.to_string(),
+                    voice_settings.global_hotkey.clone(),
+                    voice_settings.popup_hotkey.clone(),
+                    defaults.settings.gui.output_schema.clone(),
+                    defaults.settings.gui.structured_output_schema.clone(),
+                    defaults.settings.gui.orchestrator.cli_agent.clone(),
+                    defaults.settings.gui.orchestrator.cli_command.clone(),
+                    defaults.settings.gui.orchestrator.system_prompt.clone(),
+                )
+            });
 
         // Initialize global hotkey manager with configured hotkey (before struct init)
         let global_hotkey_manager = Self::init_global_hotkey_manager(&voice_settings_global_hotkey);
 
+        // Clone work_dir once for struct field; move original to voice_manager
+        let work_dir_owned = work_dir.clone();
+
         Self {
-            work_dir: work_dir.clone(),
+            work_dir: work_dir_owned,
             config,
             config_exists,
             job_manager,
@@ -191,7 +247,7 @@ impl KycoApp {
             settings_status: None,
             voice_manager: {
                 let mut vm = VoiceManager::new(voice_config);
-                vm.set_work_dir(work_dir.clone());
+                vm.set_work_dir(work_dir); // Move original, no clone needed
                 vm
             },
             voice_settings_mode,
