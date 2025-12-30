@@ -75,51 +75,51 @@ pub async fn run_job(
         None => config.settings.use_worktree || is_multi_agent_job || job.force_worktree,
     };
 
-    let job_work_dir = job
-        .workspace_path
-        .clone()
-        .unwrap_or_else(|| work_dir.clone());
+    // Check if we have a custom workspace different from work_dir (before taking ownership)
+    let has_custom_workspace = job.workspace_path.as_ref().is_some_and(|p| p != work_dir);
+    // Take ownership of workspace_path or clone work_dir
+    let job_work_dir = job.workspace_path.take().unwrap_or_else(|| work_dir.clone());
 
-    let job_git_manager =
-        if job.workspace_path.is_some() && job.workspace_path.as_ref() != Some(work_dir) {
-            GitManager::new(&job_work_dir).ok()
-        } else {
-            None
-        };
+    let job_git_manager = if has_custom_workspace {
+        GitManager::new(&job_work_dir).ok()
+    } else {
+        None
+    };
     let effective_git_manager = job_git_manager.as_ref().or(git_manager);
 
-    let (worktree_path, _is_isolated) = if let Some(existing_worktree) =
-        job.git_worktree_path.as_ref().filter(|p| p.exists())
-    {
-        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
-            "Reusing worktree: {}",
-            existing_worktree.display()
-        ))));
-        (existing_worktree.clone(), true)
-    } else if should_use_worktree {
-        match setup_worktree(
-            effective_git_manager,
-            job_id,
-            is_multi_agent_job,
-            job.force_worktree,
-            &job_work_dir,
-            event_tx,
-            job_manager,
-            &mut job,
-        ) {
-            Some(result) => result,
-            None => return, // Early return on required worktree failure
-        }
-    } else {
-        (job_work_dir.clone(), false)
-    };
+    // Take existing worktree path if it exists and is valid (avoid clone by taking ownership)
+    let (worktree_path, is_in_worktree) =
+        if let Some(existing_worktree) = job.git_worktree_path.take().filter(|p| p.exists()) {
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+                "Reusing worktree: {}",
+                existing_worktree.display()
+            ))));
+            (existing_worktree, true)
+        } else if should_use_worktree {
+            match setup_worktree(
+                effective_git_manager,
+                job_id,
+                is_multi_agent_job,
+                job.force_worktree,
+                &job_work_dir,
+                event_tx,
+                job_manager,
+                &mut job,
+            ) {
+                Some(result) => result,
+                None => return, // Early return on required worktree failure
+            }
+        } else {
+            // No worktree needed - move job_work_dir instead of cloning
+            (job_work_dir, false)
+        };
 
     let mut agent_config = config
         .get_agent_for_job(&job.agent_id, &job.mode)
         .unwrap_or_default();
 
     // When using a worktree, automatically allow git commands for committing
-    if job.git_worktree_path.is_some() {
+    if is_in_worktree {
         let git_tools = [
             "git",
             "Bash(git:*)",
@@ -167,7 +167,7 @@ pub async fn run_job(
         .run(&job, &worktree_path, &agent_config, log_tx)
         .await
     {
-        Ok(result) => {
+        Ok(mut result) => {
             let Ok(mut manager) = job_manager.lock() else {
                 let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(format!(
                     "Job #{} completed but lock poisoned",
@@ -177,23 +177,24 @@ pub async fn run_job(
             };
             if let Some(j) = manager.get_mut(job_id) {
                 let was_cancel_requested = j.cancel_requested;
-                j.sent_prompt = result.sent_prompt.clone();
+                // Use take() to move values instead of cloning
+                j.sent_prompt = result.sent_prompt.take();
 
-                // Copy token usage from agent result
+                // Copy token usage from agent result (primitives, no allocation)
                 j.input_tokens = result.input_tokens;
                 j.output_tokens = result.output_tokens;
                 j.cache_read_tokens = result.cache_read_tokens;
                 j.cache_write_tokens = result.cache_write_tokens;
                 j.cost_usd = result.cost_usd;
 
-                if let Some(output) = &result.output_text {
-                    j.full_response = Some(output.clone());
-                    j.parse_result(output);
+                // Take output_text to avoid clone; parse_result only needs a reference
+                if let Some(output) = result.output_text.take() {
+                    j.parse_result(&output);
+                    j.full_response = Some(output);
                 }
 
-                if result.session_id.is_some() {
-                    j.bridge_session_id = result.session_id.clone();
-                }
+                // Move session_id instead of cloning
+                j.bridge_session_id = result.session_id.take();
 
                 let files_changed = result.changed_files.len();
                 if files_changed > 0 {
