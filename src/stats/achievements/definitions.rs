@@ -2,6 +2,9 @@
 //!
 //! All 100 achievements are defined here with their unlock conditions and rewards.
 
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 /// Unique identifier for each achievement
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AchievementId {
@@ -2473,12 +2476,24 @@ pub static ACHIEVEMENTS: &[Achievement] = &[
     },
 ];
 
-impl Achievement {
-    /// Get achievement definition by ID
-    pub fn get(id: AchievementId) -> &'static Achievement {
+/// Global cache for O(1) achievement lookups by ID
+static ACHIEVEMENT_CACHE: OnceLock<HashMap<AchievementId, &'static Achievement>> = OnceLock::new();
+
+/// Initialize the achievement lookup cache
+fn get_achievement_cache() -> &'static HashMap<AchievementId, &'static Achievement> {
+    ACHIEVEMENT_CACHE.get_or_init(|| {
         ACHIEVEMENTS
             .iter()
-            .find(|a| a.id == id)
+            .map(|a| (a.id, a))
+            .collect()
+    })
+}
+
+impl Achievement {
+    /// Get achievement definition by ID (O(1) cached lookup)
+    pub fn get(id: AchievementId) -> &'static Achievement {
+        get_achievement_cache()
+            .get(&id)
             .expect("All achievements should be defined")
     }
 

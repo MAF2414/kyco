@@ -210,14 +210,15 @@ impl AchievementManager {
     }
 
     /// Update daily streak (call when a job is completed)
-    fn update_daily_streak(&self) -> Result<Option<u32>> {
-        let streaks = self.get_streaks()?;
+    /// Takes cached streaks to avoid redundant DB fetch.
+    /// Returns (updated_daily_count, was_extended) tuple.
+    fn update_daily_streak_with(&self, streaks: &Streaks) -> Result<(u32, bool)> {
         let today = today_string();
         let now = Self::now_ms();
 
         // Check if we already counted today
         if streaks.daily.last_activity_day.as_ref() == Some(&today) {
-            return Ok(None); // Already counted
+            return Ok((streaks.daily.current, false)); // Already counted
         }
 
         // Check if streak continues or resets
@@ -239,12 +240,12 @@ impl AchievementManager {
             (new_count, new_best, &today, now),
         )?;
 
-        Ok(Some(new_count))
+        Ok((new_count, true))
     }
 
     /// Update success streak (call after job completion)
-    fn update_success_streak(&self, job_succeeded: bool) -> Result<u32> {
-        let streaks = self.get_streaks()?;
+    /// Takes cached streaks to avoid redundant DB fetch.
+    fn update_success_streak_with(&self, streaks: &Streaks, job_succeeded: bool) -> Result<u32> {
         let now = Self::now_ms();
 
         let new_count = if job_succeeded {
@@ -281,14 +282,32 @@ impl AchievementManager {
         // Get current state
         let unlocked = self.get_unlocked_ids()?;
 
-        // Update streaks
-        if let Some(daily_count) = self.update_daily_streak()? {
+        // Fetch streaks ONCE at start, then compute updates from it
+        let initial_streaks = self.get_streaks()?;
+
+        // Update streaks using cached initial values
+        let (daily_count, daily_extended) = self.update_daily_streak_with(&initial_streaks)?;
+        if daily_extended {
             events.push(GamificationEvent::StreakExtended {
                 streak_type: StreakType::Daily,
                 count: daily_count,
             });
         }
-        let success_streak = self.update_success_streak(job_succeeded)?;
+        let success_streak = self.update_success_streak_with(&initial_streaks, job_succeeded)?;
+
+        // Build updated streaks struct without refetching from DB
+        let streaks = Streaks {
+            daily: StreakInfo {
+                current: daily_count,
+                best: daily_count.max(initial_streaks.daily.best),
+                last_activity_day: Some(today_string()),
+            },
+            success: StreakInfo {
+                current: success_streak,
+                best: success_streak.max(initial_streaks.success.best),
+                last_activity_day: initial_streaks.success.last_activity_day.clone(),
+            },
+        };
 
         // Query all stats for achievement checks
         let stats = self.query_all_stats()?;
@@ -308,8 +327,7 @@ impl AchievementManager {
         // Time-based achievements
         newly_unlocked.extend(check_time_achievements(&unlocked));
 
-        // Get updated daily streak for streak achievements
-        let streaks = self.get_streaks()?;
+        // Use cached streaks for streak achievements (no redundant fetch)
         newly_unlocked.extend(check_streak_achievements(streaks.daily.current, &unlocked));
         newly_unlocked.extend(check_success_streak_achievements(success_streak, &unlocked));
 
@@ -400,167 +418,102 @@ impl AchievementManager {
         Ok(events)
     }
 
-    /// Query all aggregate stats for achievement checks
+    /// Query all aggregate stats for achievement checks.
+    /// Uses consolidated SQL queries for better performance.
     fn query_all_stats(&self) -> Result<AchievementStats> {
         let conn = self.conn.lock().expect("lock");
         let mut stats = AchievementStats::default();
-
-        // Total successful jobs
-        stats.total_jobs = conn
-            .query_row(
-                "SELECT COUNT(*) FROM job_stats WHERE status IN ('done', 'merged')",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        // Total chains
-        stats.total_chains = conn
-            .query_row(
-                "SELECT COUNT(*) FROM job_stats WHERE mode LIKE '%chain%' OR mode LIKE '%+%'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        // Unique modes
-        stats.unique_modes = conn
-            .query_row("SELECT COUNT(DISTINCT mode) FROM job_stats", [], |r| {
-                r.get(0)
-            })
-            .unwrap_or(0);
-
-        // Unique agents
-        stats.unique_agents = conn
-            .query_row(
-                "SELECT COUNT(DISTINCT agent_type) FROM job_stats",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        // Total tokens (input + output)
-        stats.total_tokens = conn
-            .query_row(
-                "SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM job_stats",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        // Total file accesses
-        stats.total_file_accesses = conn
-            .query_row("SELECT COUNT(*) FROM file_stats", [], |r| r.get(0))
-            .unwrap_or(0);
-
-        // Unique files accessed
-        stats.unique_files = conn
-            .query_row(
-                "SELECT COUNT(DISTINCT file_path) FROM file_stats",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        // Total tool calls
-        stats.total_tool_calls = conn
-            .query_row("SELECT COUNT(*) FROM tool_stats", [], |r| r.get(0))
-            .unwrap_or(0);
-
-        // Unique tools used
-        stats.unique_tools = conn
-            .query_row(
-                "SELECT COUNT(DISTINCT tool_name) FROM tool_stats",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        // Total cost
-        stats.total_cost_usd = conn
-            .query_row(
-                "SELECT COALESCE(SUM(cost_usd), 0.0) FROM job_stats",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0.0);
-
-        // Total lines changed (added + removed)
-        stats.total_lines_changed = conn
-            .query_row(
-                "SELECT COALESCE(SUM(lines_added + lines_removed), 0) FROM job_stats",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        // Total duration in hours
-        let total_duration_ms: i64 = conn
-            .query_row(
-                "SELECT COALESCE(SUM(duration_ms), 0) FROM job_stats",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-        stats.total_duration_hours = total_duration_ms as f64 / 3_600_000.0;
-
-        // Jobs today
         let today = today_string();
-        stats.jobs_today = conn
-            .query_row(
-                "SELECT COUNT(*) FROM job_stats WHERE date(created_at/1000, 'unixepoch', 'localtime') = ?1",
-                [&today],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
 
-        // Unique days with activity
-        stats.unique_days = conn
-            .query_row(
-                "SELECT COUNT(DISTINCT date(created_at/1000, 'unixepoch', 'localtime')) FROM job_stats",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
+        // Consolidated query 1: All job_stats aggregates in a single query
+        // This replaces ~10 separate queries with one
+        // Uses CASE WHEN pattern for SQLite 3.x compatibility (FILTER requires 3.30+)
+        if let Ok(row) = conn.query_row(
+            r#"
+            SELECT
+                COALESCE(SUM(CASE WHEN status IN ('done', 'merged') THEN 1 ELSE 0 END), 0) as total_jobs,
+                COALESCE(SUM(CASE WHEN mode LIKE '%chain%' OR mode LIKE '%+%' THEN 1 ELSE 0 END), 0) as total_chains,
+                COUNT(DISTINCT mode) as unique_modes,
+                COUNT(DISTINCT agent_type) as unique_agents,
+                COALESCE(SUM(input_tokens + output_tokens), 0) as total_tokens,
+                COALESCE(SUM(cost_usd), 0.0) as total_cost,
+                COALESCE(SUM(lines_added + lines_removed), 0) as total_lines,
+                COALESCE(SUM(duration_ms), 0) as total_duration_ms,
+                COUNT(DISTINCT date(created_at/1000, 'unixepoch', 'localtime')) as unique_days,
+                COALESCE(SUM(CASE WHEN agent_type LIKE '%claude%' AND status IN ('done', 'merged') THEN 1 ELSE 0 END), 0) as claude_jobs,
+                COALESCE(SUM(CASE WHEN agent_type LIKE '%codex%' AND status IN ('done', 'merged') THEN 1 ELSE 0 END), 0) as codex_jobs
+            FROM job_stats
+            "#,
+            [],
+            |r| {
+                Ok((
+                    r.get::<_, u64>(0)?,
+                    r.get::<_, u64>(1)?,
+                    r.get::<_, u64>(2)?,
+                    r.get::<_, u64>(3)?,
+                    r.get::<_, u64>(4)?,
+                    r.get::<_, f64>(5)?,
+                    r.get::<_, u64>(6)?,
+                    r.get::<_, i64>(7)?,
+                    r.get::<_, u32>(8)?,
+                    r.get::<_, u64>(9)?,
+                    r.get::<_, u64>(10)?,
+                ))
+            },
+        ) {
+            stats.total_jobs = row.0;
+            stats.total_chains = row.1;
+            stats.unique_modes = row.2;
+            stats.unique_agents = row.3;
+            stats.total_tokens = row.4;
+            stats.total_cost_usd = row.5;
+            stats.total_lines_changed = row.6;
+            stats.total_duration_hours = row.7 as f64 / 3_600_000.0;
+            stats.unique_days = row.8;
+            stats.claude_jobs = row.9;
+            stats.codex_jobs = row.10;
+        }
 
-        // Agents used today
-        let agents_today: Vec<String> = {
-            let mut stmt = conn
-                .prepare("SELECT DISTINCT agent_type FROM job_stats WHERE date(created_at/1000, 'unixepoch', 'localtime') = ?1")
-                .ok();
-            if let Some(ref mut s) = stmt {
-                s.query_map([&today], |r| r.get(0))
-                    .ok()
-                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            }
-        };
-        stats.used_claude_today = agents_today.iter().any(|a| a.contains("claude"));
-        stats.used_codex_today = agents_today.iter().any(|a| a.contains("codex"));
+        // Consolidated query 2: File stats aggregates
+        if let Ok(row) = conn.query_row(
+            "SELECT COUNT(*), COUNT(DISTINCT file_path) FROM file_stats",
+            [],
+            |r| Ok((r.get::<_, u64>(0)?, r.get::<_, u64>(1)?)),
+        ) {
+            stats.total_file_accesses = row.0;
+            stats.unique_files = row.1;
+        }
 
-        // First of day count (count days where user was first job)
-        // This is simplified - in a real implementation you'd track this per-day
+        // Consolidated query 3: Tool stats aggregates
+        if let Ok(row) = conn.query_row(
+            "SELECT COUNT(*), COUNT(DISTINCT tool_name) FROM tool_stats",
+            [],
+            |r| Ok((r.get::<_, u64>(0)?, r.get::<_, u64>(1)?)),
+        ) {
+            stats.total_tool_calls = row.0;
+            stats.unique_tools = row.1;
+        }
+
+        // Query 4: Today-specific stats (jobs and agents used today)
+        if let Ok(row) = conn.query_row(
+            r#"
+            SELECT
+                COUNT(*) as jobs_today,
+                MAX(CASE WHEN agent_type LIKE '%claude%' THEN 1 ELSE 0 END) as used_claude,
+                MAX(CASE WHEN agent_type LIKE '%codex%' THEN 1 ELSE 0 END) as used_codex
+            FROM job_stats
+            WHERE date(created_at/1000, 'unixepoch', 'localtime') = ?1
+            "#,
+            [&today],
+            |r| Ok((r.get::<_, u32>(0)?, r.get::<_, i32>(1)?, r.get::<_, i32>(2)?)),
+        ) {
+            stats.jobs_today = row.0;
+            stats.used_claude_today = row.1 == 1;
+            stats.used_codex_today = row.2 == 1;
+        }
+
+        // First of day count (simplified - counts unique days)
         stats.first_of_day_count = stats.unique_days;
-
-        // Count Claude jobs (agent_type contains "claude")
-        stats.claude_jobs = conn
-            .query_row(
-                "SELECT COUNT(*) FROM job_stats WHERE agent_type LIKE '%claude%' AND status IN ('done', 'merged')",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
-
-        // Count Codex jobs (agent_type contains "codex")
-        stats.codex_jobs = conn
-            .query_row(
-                "SELECT COUNT(*) FROM job_stats WHERE agent_type LIKE '%codex%' AND status IN ('done', 'merged')",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap_or(0);
 
         Ok(stats)
     }
