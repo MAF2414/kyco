@@ -114,8 +114,8 @@ impl Job {
     }
 
     /// Set the error message and mark as failed
-    pub fn fail(&mut self, message: String) {
-        self.error_message = Some(message);
+    pub fn fail(&mut self, message: impl Into<String>) {
+        self.error_message = Some(message.into());
         self.set_status(JobStatus::Failed);
     }
 

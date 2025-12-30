@@ -7,7 +7,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::agent::{AgentRegistry, ChainProgressEvent, ChainRunner};
+use crate::agent::{AgentRegistry, ChainProgressEvent, ChainRunner, ChainStepResult};
 use crate::config::Config;
 use crate::git::GitManager;
 use crate::job::JobManager;
@@ -16,6 +16,38 @@ use crate::{ChainStepSummary, Job, JobResult, JobStatus, LogEvent};
 use super::log_forwarder::spawn_log_forwarder;
 use super::ExecutorEvent;
 use worktree::setup_chain_worktree;
+
+/// Convert a ChainStepResult to a ChainStepSummary (clones string fields)
+fn step_result_to_summary(step_result: &ChainStepResult) -> ChainStepSummary {
+    ChainStepSummary {
+        step_index: step_result.step_index,
+        mode: step_result.mode.clone(),
+        skipped: step_result.skipped,
+        success: step_result
+            .agent_result
+            .as_ref()
+            .map(|ar| ar.success)
+            .unwrap_or(false),
+        title: step_result
+            .job_result
+            .as_ref()
+            .and_then(|jr| jr.title.clone()),
+        summary: step_result
+            .job_result
+            .as_ref()
+            .and_then(|jr| jr.summary.clone()),
+        full_response: step_result.full_response.clone(),
+        error: step_result
+            .agent_result
+            .as_ref()
+            .and_then(|ar| ar.error.clone()),
+        files_changed: step_result
+            .agent_result
+            .as_ref()
+            .map(|ar| ar.files_changed)
+            .unwrap_or(0),
+    }
+}
 
 /// Run a job that is actually a chain of modes
 pub async fn run_chain_job(
@@ -34,10 +66,10 @@ pub async fn run_chain_job(
         Some(c) => c.clone(),
         None => {
             let error = format!("Chain '{}' not found", chain_name);
-            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(error.clone())));
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(&error)));
             if let Ok(mut manager) = job_manager.lock() {
                 if let Some(j) = manager.get_mut(job_id) {
-                    j.fail(error.clone());
+                    j.fail(&error);
                 }
                 manager.touch();
             }
@@ -134,47 +166,28 @@ pub async fn run_chain_job(
                     } else {
                         j.chain_current_step = Some(progress.step_index + 1);
                         if let Some(step_result) = &progress.step_result {
-                            let summary = ChainStepSummary {
-                                step_index: step_result.step_index,
-                                mode: step_result.mode.clone(),
-                                skipped: step_result.skipped,
-                                success: step_result
-                                    .agent_result
-                                    .as_ref()
-                                    .map(|ar| ar.success)
-                                    .unwrap_or(false),
-                                title: step_result
-                                    .job_result
-                                    .as_ref()
-                                    .and_then(|jr| jr.title.clone()),
-                                summary: step_result
-                                    .job_result
-                                    .as_ref()
-                                    .and_then(|jr| jr.summary.clone()),
-                                full_response: step_result.full_response.clone(),
-                                error: step_result
-                                    .agent_result
-                                    .as_ref()
-                                    .and_then(|ar| ar.error.clone()),
-                                files_changed: step_result
-                                    .agent_result
-                                    .as_ref()
-                                    .map(|ar| ar.files_changed)
-                                    .unwrap_or(0),
+                            let summary = step_result_to_summary(step_result);
+                            let state = step_result
+                                .job_result
+                                .as_ref()
+                                .and_then(|jr| jr.state.clone());
+                            // Clone mode before potentially cloning summary
+                            let mode = summary.mode.clone();
+                            // Only clone summary if we need it for history
+                            let step_summary = if j.chain_step_history.len() <= step_result.step_index {
+                                let clone = summary.clone();
+                                j.chain_step_history.push(summary);
+                                clone
+                            } else {
+                                summary
                             };
-                            if j.chain_step_history.len() <= step_result.step_index {
-                                j.chain_step_history.push(summary.clone());
-                            }
                             let _ = event_tx_progress.send(ExecutorEvent::ChainStepCompleted {
                                 job_id: progress_job_id,
                                 step_index: step_result.step_index,
                                 total_steps: total_steps_for_progress,
-                                mode: step_result.mode.clone(),
-                                state: step_result
-                                    .job_result
-                                    .as_ref()
-                                    .and_then(|jr| jr.state.clone()),
-                                step_summary: summary,
+                                mode,
+                                state,
+                                step_summary,
                             });
                         }
                     }
@@ -199,46 +212,18 @@ pub async fn run_chain_job(
             let mut step_history = Vec::new();
 
             for step_result in &chain_result.step_results {
-                let summary = ChainStepSummary {
-                    step_index: step_result.step_index,
-                    mode: step_result.mode.clone(),
-                    skipped: step_result.skipped,
-                    success: step_result
-                        .agent_result
-                        .as_ref()
-                        .map(|ar| ar.success)
-                        .unwrap_or(false),
-                    title: step_result
-                        .job_result
-                        .as_ref()
-                        .and_then(|jr| jr.title.clone()),
-                    summary: step_result
-                        .job_result
-                        .as_ref()
-                        .and_then(|jr| jr.summary.clone()),
-                    full_response: step_result.full_response.clone(),
-                    error: step_result
-                        .agent_result
-                        .as_ref()
-                        .and_then(|ar| ar.error.clone()),
-                    files_changed: step_result
-                        .agent_result
-                        .as_ref()
-                        .map(|ar| ar.files_changed)
-                        .unwrap_or(0),
-                };
-                step_history.push(summary);
+                let summary = step_result_to_summary(step_result);
 
                 if step_result.skipped {
-                    combined_details.push(format!("[{}] skipped", step_result.mode));
-                } else if let Some(jr) = &step_result.job_result {
-                    if let Some(title) = &jr.title {
-                        combined_details.push(format!("[{}] {}", step_result.mode, title));
+                    combined_details.push(format!("[{}] skipped", summary.mode));
+                } else {
+                    if let Some(title) = &summary.title {
+                        combined_details.push(format!("[{}] {}", summary.mode, title));
                     }
-                    if let Some(ar) = &step_result.agent_result {
-                        total_files_changed += ar.files_changed;
-                    }
+                    total_files_changed += summary.files_changed;
                 }
+
+                step_history.push(summary);
             }
 
             j.chain_step_history = step_history;
@@ -282,7 +267,7 @@ pub async fn run_chain_job(
 
     let _ = event_tx.send(ExecutorEvent::ChainCompleted {
         job_id,
-        chain_name: chain_name.clone(),
+        chain_name,
         steps_executed: chain_result
             .step_results
             .iter()
