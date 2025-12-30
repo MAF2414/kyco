@@ -396,6 +396,10 @@ pub struct Challenge {
     pub requirement: ChallengeRequirement,
 }
 
+/// Precomputed total XP from all challenges (avoids repeated iteration)
+/// Sum: 215 (T1) + 350 (T2) + 525 (T3) + 745 (T4) + 1045 (T5) = 2880
+pub const TOTAL_CHALLENGE_XP: u32 = 2880;
+
 /// All 50 challenge definitions
 pub static CHALLENGES: &[Challenge] = &[
     // ============================================================
@@ -870,12 +874,10 @@ pub static CHALLENGES: &[Challenge] = &[
 ];
 
 impl Challenge {
-    /// Get challenge definition by ID
+    /// Get challenge definition by ID (O(1) direct indexing)
     pub fn get(id: ChallengeId) -> &'static Challenge {
-        CHALLENGES
-            .iter()
-            .find(|c| c.id == id)
-            .expect("All challenges should be defined")
+        // Challenge numbers are 1-indexed and map directly to array indices
+        &CHALLENGES[(id.number() - 1) as usize]
     }
 
     /// Get challenge by number (1-50)
@@ -891,9 +893,9 @@ impl Challenge {
         CHALLENGES.len()
     }
 
-    /// Get total possible XP from all challenges
+    /// Get total possible XP from all challenges (precomputed constant)
     pub fn total_xp() -> u32 {
-        CHALLENGES.iter().map(|c| c.xp_reward).sum()
+        TOTAL_CHALLENGE_XP
     }
 
     /// Get challenges by tier
@@ -966,5 +968,25 @@ mod tests {
         let total = Challenge::total_xp();
         println!("Total possible XP from challenges: {}", total);
         assert!(total > 2000, "Total challenge XP should be substantial");
+    }
+
+    #[test]
+    fn test_precomputed_xp_matches_actual() {
+        // Verify precomputed constant matches actual sum (safety check for future changes)
+        let computed: u32 = CHALLENGES.iter().map(|c| c.xp_reward).sum();
+        assert_eq!(
+            computed, TOTAL_CHALLENGE_XP,
+            "TOTAL_CHALLENGE_XP constant ({}) doesn't match computed sum ({}). Update the constant!",
+            TOTAL_CHALLENGE_XP, computed
+        );
+    }
+
+    #[test]
+    fn test_get_uses_correct_indexing() {
+        // Verify that Challenge::get() returns the correct challenge for each ID
+        for challenge in CHALLENGES.iter() {
+            let retrieved = Challenge::get(challenge.id);
+            assert_eq!(retrieved.id, challenge.id, "Challenge::get() returned wrong challenge");
+        }
     }
 }
