@@ -10,6 +10,7 @@ mod state;
 mod types;
 
 use std::path::Path;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::config::{Config, ModeChain};
@@ -75,6 +76,8 @@ impl<'a> ChainRunner<'a> {
         let mut step_index: usize = 0;
         while step_index < chain.steps.len() {
             let step = &chain.steps[step_index];
+            // Clone mode once per iteration into Arc<str> for cheap reuse
+            let mode: Arc<str> = Arc::from(step.mode.as_str());
 
             // Detect states from previous output
             let detected_states = if !chain.states.is_empty() {
@@ -127,12 +130,12 @@ impl<'a> ChainRunner<'a> {
                     .send(LogEvent::system(format!(
                         "Skipping step {} ({}) - trigger condition not met",
                         step_index + 1,
-                        step.mode
+                        &mode
                     )))
                     .await;
 
                 step_results.push(ChainStepResult {
-                    mode: step.mode.clone(),
+                    mode: Arc::clone(&mode),
                     step_index,
                     skipped: true,
                     job_result: None,
@@ -157,7 +160,7 @@ impl<'a> ChainRunner<'a> {
                     "Executing chain step {} of {}: mode '{}'{}",
                     step_index + 1,
                     chain.steps.len(),
-                    step.mode,
+                    &mode,
                     if loop_count > 0 { format!(" (loop {})", loop_count) } else { String::new() }
                 )))
                 .await;
@@ -166,7 +169,7 @@ impl<'a> ChainRunner<'a> {
                 let _ = tx.send(ChainProgressEvent {
                     step_index,
                     total_steps: chain.steps.len(),
-                    mode: step.mode.clone(),
+                    mode: Arc::clone(&mode),
                     is_starting: true,
                     step_result: None,
                 });
@@ -208,7 +211,7 @@ impl<'a> ChainRunner<'a> {
                         .await;
 
                     step_results.push(ChainStepResult {
-                        mode: step.mode.clone(),
+                        mode: Arc::clone(&mode),
                         step_index,
                         skipped: false,
                         job_result: None,
@@ -235,33 +238,38 @@ impl<'a> ChainRunner<'a> {
 
             match result {
                 Ok(agent_result) => {
-                    last_output = agent_result.output_text.clone();
+                    // Extract Copy fields before moving owned fields
+                    let agent_success = agent_result.success;
+                    let files_changed = agent_result.changed_files.len();
+                    // Move owned fields instead of cloning
+                    let agent_error = agent_result.error;
+                    last_output = agent_result.output_text;
 
-                    let job_result = agent_result
-                        .output_text
+                    let job_result = last_output
                         .as_ref()
                         .and_then(|text| crate::JobResult::parse(text));
 
                     if let Some(ref jr) = job_result {
-                        last_state = jr.state.clone();
+                        // Clone from reference - unavoidable as jr is borrowed
+                        last_state.clone_from(&jr.state);
                         if let Some(ref summary) = jr.summary {
                             last_summary = Some(summary.clone());
-                            accumulated_summaries.push(format!("[{}] {}", step.mode, summary));
+                            accumulated_summaries.push(format!("[{}] {}", &mode, summary));
                         } else if let Some(ref details) = jr.details {
                             last_summary = Some(details.clone());
-                            accumulated_summaries.push(format!("[{}] {}", step.mode, details));
+                            accumulated_summaries.push(format!("[{}] {}", &mode, details));
                         }
                     }
 
                     let step_result = ChainStepResult {
-                        mode: step.mode.clone(),
+                        mode: Arc::clone(&mode),
                         step_index,
                         skipped: false,
                         job_result,
                         agent_result: Some(AgentResultSummary {
-                            success: agent_result.success,
-                            error: agent_result.error.clone(),
-                            files_changed: agent_result.changed_files.len(),
+                            success: agent_success,
+                            error: agent_error,
+                            files_changed,
                         }),
                         full_response: last_output.clone(),
                     };
@@ -270,22 +278,22 @@ impl<'a> ChainRunner<'a> {
                         let _ = tx.send(ChainProgressEvent {
                             step_index,
                             total_steps: chain.steps.len(),
-                            mode: step.mode.clone(),
+                            mode: Arc::clone(&mode),
                             is_starting: false,
                             step_result: Some(step_result.clone()),
                         });
                     }
 
                     step_results.push(step_result);
-                    last_mode = Some(step.mode.clone());
+                    last_mode = Some(mode.to_string());
 
-                    if !agent_result.success && chain.stop_on_failure {
+                    if !agent_success && chain.stop_on_failure {
                         chain_success = false;
                         let _ = event_tx
                             .send(LogEvent::error(format!(
                                 "Chain stopped: step {} ({}) failed",
                                 step_index + 1,
-                                step.mode
+                                &mode
                             )))
                             .await;
                         break;
@@ -296,13 +304,13 @@ impl<'a> ChainRunner<'a> {
                         .send(LogEvent::error(format!(
                             "Step {} ({}) error: {}",
                             step_index + 1,
-                            step.mode,
+                            &mode,
                             e
                         )))
                         .await;
 
                     step_results.push(ChainStepResult {
-                        mode: step.mode.clone(),
+                        mode: Arc::clone(&mode),
                         step_index,
                         skipped: false,
                         job_result: None,

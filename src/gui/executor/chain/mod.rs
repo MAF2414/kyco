@@ -136,7 +136,7 @@ pub async fn run_chain_job(
                         if let Some(step_result) = &progress.step_result {
                             let summary = ChainStepSummary {
                                 step_index: step_result.step_index,
-                                mode: step_result.mode.clone(),
+                                mode: step_result.mode.to_string(),
                                 skipped: step_result.skipped,
                                 success: step_result
                                     .agent_result
@@ -169,7 +169,7 @@ pub async fn run_chain_job(
                                 job_id: progress_job_id,
                                 step_index: step_result.step_index,
                                 total_steps: total_steps_for_progress,
-                                mode: step_result.mode.clone(),
+                                mode: step_result.mode.to_string(),
                                 state: step_result
                                     .job_result
                                     .as_ref()
@@ -201,7 +201,7 @@ pub async fn run_chain_job(
             for step_result in &chain_result.step_results {
                 let summary = ChainStepSummary {
                     step_index: step_result.step_index,
-                    mode: step_result.mode.clone(),
+                    mode: step_result.mode.to_string(),
                     skipped: step_result.skipped,
                     success: step_result
                         .agent_result
