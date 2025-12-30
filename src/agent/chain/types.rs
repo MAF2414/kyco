@@ -1,5 +1,7 @@
 //! Chain result types and data structures.
 
+use std::sync::Arc;
+
 use crate::JobResult;
 
 /// Result of a single step in a chain.
@@ -10,7 +12,8 @@ use crate::JobResult;
 #[derive(Debug, Clone)]
 pub struct ChainStepResult {
     /// The mode that was executed (e.g., "review", "fix").
-    pub mode: String,
+    /// Uses `Arc<str>` for cheap cloning in repeated chain executions.
+    pub mode: Arc<str>,
     /// Zero-based index of this step in the chain.
     pub step_index: usize,
     /// `true` if the step was skipped due to `trigger_on`/`skip_on` conditions.
@@ -71,8 +74,9 @@ pub struct ChainProgressEvent {
     pub step_index: usize,
     /// Total number of steps
     pub total_steps: usize,
-    /// Mode being executed
-    pub mode: String,
+    /// Mode being executed.
+    /// Uses `Arc<str>` for cheap cloning in repeated chain executions.
+    pub mode: Arc<str>,
     /// Whether the step is starting (true) or completed (false)
     pub is_starting: bool,
     /// Step result (only present when is_starting is false)
