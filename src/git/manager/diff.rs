@@ -1,6 +1,7 @@
 //! Diff operations for GitManager
 
 use anyhow::{Context, Result, anyhow, bail};
+use std::borrow::Cow;
 use std::path::Path;
 use std::process::Command;
 
@@ -76,7 +77,7 @@ impl GitManager {
             );
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 
     /// Generate a diff report for a worktree compared to a base branch
@@ -98,7 +99,7 @@ impl GitManager {
                 .context("Failed to run git merge-base")?;
 
             if output.status.success() {
-                Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+                Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
             } else {
                 None
             }
@@ -115,10 +116,9 @@ impl GitManager {
             diff_args.push("-w");
         }
 
-        let range = if let Some(ref base) = base_commit {
-            format!("{}..HEAD", base)
-        } else {
-            "HEAD".to_string()
+        let range: Cow<'_, str> = match base_commit.as_ref() {
+            Some(base) => Cow::Owned(format!("{}..HEAD", base)),
+            None => Cow::Borrowed("HEAD"),
         };
         diff_args.push(&range);
 
@@ -224,49 +224,24 @@ impl GitManager {
         base_commit: Option<&str>,
         settings: &DiffSettings,
     ) -> Result<String> {
-        let mut args = vec!["diff", "--no-color"];
+        // Pre-format context arg if needed (must live long enough for args slice)
+        let context_arg;
+        let base_ref = base_commit.unwrap_or("HEAD");
+
+        let mut args: Vec<&str> = Vec::with_capacity(7);
+        args.push("diff");
+        args.push("--no-color");
 
         if settings.ignore_whitespace {
             args.push("-w");
         }
 
         if settings.context_lines > 0 {
-            // We need to format this as a string that lives long enough
-            let context_arg = format!("-U{}", settings.context_lines);
-            let mut args_with_context = args.clone();
-            args_with_context.push(&context_arg);
-
-            if let Some(base) = base_commit {
-                args_with_context.push(base);
-            } else {
-                args_with_context.push("HEAD");
-            }
-
-            args_with_context.push("--");
-            args_with_context.push(file_path);
-
-            let output = Command::new("git")
-                .args(&args_with_context)
-                .current_dir(worktree)
-                .output()
-                .context("Failed to run git diff for file")?;
-
-            if !output.status.success() {
-                bail!(
-                    "git diff failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-
-            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            context_arg = format!("-U{}", settings.context_lines);
+            args.push(&context_arg);
         }
 
-        if let Some(base) = base_commit {
-            args.push(base);
-        } else {
-            args.push("HEAD");
-        }
-
+        args.push(base_ref);
         args.push("--");
         args.push(file_path);
 
@@ -283,6 +258,6 @@ impl GitManager {
             );
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
 }
