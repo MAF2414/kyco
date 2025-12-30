@@ -163,13 +163,14 @@ impl KycoApp {
             ui.add_space(4.0);
 
             // Achievements in this category - use full width for proper wrapping
-            let available_width = ui.available_width();
+            let available_width = ui.available_width().min(ui.clip_rect().width());
             egui::Frame::NONE
                 .fill(BG_SECONDARY)
                 .corner_radius(4.0)
                 .inner_margin(8.0)
                 .show(ui, |ui| {
-                    ui.set_min_width(available_width - 16.0); // Account for margins
+                    // Constrain the inner UI width so `horizontal_wrapped` actually wraps.
+                    ui.set_width((available_width - 16.0).max(0.0)); // Account for margins
                     ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 
                     ui.horizontal_wrapped(|ui| {
