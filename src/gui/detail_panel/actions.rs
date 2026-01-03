@@ -175,6 +175,15 @@ pub(super) fn render_action_buttons(
             JobStatus::Queued => {
                 ui.label(RichText::new("◎ Queued").color(STATUS_QUEUED));
             }
+            JobStatus::Failed | JobStatus::Rejected => {
+                if ui
+                    .button(RichText::new("↻ Restart").color(ACCENT_CYAN))
+                    .on_hover_text("Create a new job with the same parameters")
+                    .clicked()
+                {
+                    action = Some(DetailPanelAction::Restart(current_job_id));
+                }
+            }
             _ => {}
         }
     });

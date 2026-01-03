@@ -8,7 +8,7 @@ mod session;
 use super::app::KycoApp;
 use super::app_popup::ApplyTarget;
 use super::jobs;
-use crate::{JobId, LogEvent};
+use crate::{CommentTag, JobId, JobStatus, LogEvent, Target};
 
 impl KycoApp {
     /// Queue a job for execution
@@ -159,6 +159,99 @@ impl KycoApp {
         self.permission_mode_overrides.remove(&job_id);
 
         // Refresh to update UI
+        self.refresh_jobs();
+    }
+
+    /// Restart a failed or rejected job with the same parameters
+    pub(crate) fn restart_job(&mut self, job_id: JobId) {
+        let original = match self.job_manager.lock() {
+            Ok(manager) => manager.get(job_id).cloned(),
+            Err(_) => {
+                self.logs
+                    .push(LogEvent::error("Failed to lock job manager"));
+                return;
+            }
+        };
+
+        let Some(original) = original else {
+            self.logs
+                .push(LogEvent::error(format!("Job #{} not found", job_id)));
+            return;
+        };
+
+        // Only allow restart for failed or rejected jobs
+        if !matches!(original.status, JobStatus::Failed | JobStatus::Rejected) {
+            self.logs.push(LogEvent::error(format!(
+                "Job #{} cannot be restarted (status: {})",
+                job_id, original.status
+            )));
+            return;
+        }
+
+        let description = original.description.clone().unwrap_or_default();
+
+        let tag = CommentTag {
+            file_path: original.source_file.clone(),
+            line_number: original.source_line,
+            raw_line: String::new(),
+            agent: original.agent_id.clone(),
+            agents: vec![original.agent_id.clone()],
+            mode: original.mode.clone(),
+            target: Target::Block,
+            status_marker: None,
+            description: if description.is_empty() {
+                None
+            } else {
+                Some(description)
+            },
+            job_id: None,
+        };
+
+        let new_job_id = {
+            let mut manager = match self.job_manager.lock() {
+                Ok(m) => m,
+                Err(_) => {
+                    self.logs
+                        .push(LogEvent::error("Failed to lock job manager"));
+                    return;
+                }
+            };
+
+            match manager.create_job_with_range(&tag, &original.agent_id, None)
+            {
+                Ok(id) => {
+                    // Copy relevant context from original job
+                    if let Some(job) = manager.get_mut(id) {
+                        job.raw_tag_line = None;
+                        job.ide_context = original.ide_context.clone();
+                        job.force_worktree = original.force_worktree;
+                        job.workspace_path = original.workspace_path.clone();
+                        job.scope = original.scope.clone();
+                        job.target = original.target;
+                    }
+                    id
+                }
+                Err(e) => {
+                    self.logs.push(LogEvent::error(format!(
+                        "Failed to create restart job: {}",
+                        e
+                    )));
+                    return;
+                }
+            }
+        };
+
+        // Queue the new job immediately
+        jobs::queue_job(&self.job_manager, new_job_id, &mut self.logs);
+
+        self.logs.push(LogEvent::system(format!(
+            "Restarted job #{} as #{}",
+            job_id, new_job_id
+        )));
+
+        // Select the new job
+        self.selected_job_id = Some(new_job_id);
+
         self.refresh_jobs();
     }
 

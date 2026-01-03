@@ -173,6 +173,9 @@ async fn main() -> Result<()> {
             JobCommands::Reject { job_id } => {
                 cli::job::job_reject_command(&work_dir, config_path.as_ref(), job_id)?;
             }
+            JobCommands::Restart { job_id } => {
+                cli::job::job_restart_command(&work_dir, config_path.as_ref(), job_id)?;
+            }
             JobCommands::Diff { job_id, json } => {
                 cli::job::job_diff_command(&work_dir, config_path.as_ref(), job_id, json)?;
             }

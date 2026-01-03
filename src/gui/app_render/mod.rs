@@ -159,6 +159,7 @@ impl KycoApp {
                 DetailPanelAction::SetPermissionMode(job_id, mode) => {
                     self.set_job_permission_mode(job_id, mode);
                 }
+                DetailPanelAction::Restart(job_id) => self.restart_job(job_id),
             }
         }
     }

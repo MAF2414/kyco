@@ -5,6 +5,7 @@ mod job_continue;
 mod job_create;
 mod job_delete;
 mod job_lifecycle;
+mod job_restart;
 mod job_worktree;
 mod misc;
 
@@ -22,6 +23,7 @@ pub use job_lifecycle::{
     handle_control_job_abort, handle_control_job_get, handle_control_job_queue,
     handle_control_jobs_list,
 };
+pub use job_restart::handle_control_job_restart;
 pub use job_worktree::{
     handle_control_job_diff, handle_control_job_merge, handle_control_job_reject,
 };

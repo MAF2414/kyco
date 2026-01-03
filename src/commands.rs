@@ -165,6 +165,8 @@ pub enum JobCommands {
     },
     /// Reject a job's changes and cleanup its worktree
     Reject { job_id: u64 },
+    /// Restart a failed or rejected job with the same parameters
+    Restart { job_id: u64 },
     /// Show the diff of a job's changes
     Diff {
         job_id: u64,

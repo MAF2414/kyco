@@ -344,6 +344,40 @@ pub fn job_reject_command(
     }
 }
 
+pub fn job_restart_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+) -> Result<()> {
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/restart");
+    let value = http_post_json(&url, token.as_deref(), serde_json::json!({}))?;
+
+    let status = value
+        .get("status")
+        .and_then(|s| s.as_str())
+        .unwrap_or("unknown");
+
+    if status == "ok" {
+        let new_job_id = value
+            .get("new_job_id")
+            .and_then(|id| id.as_u64())
+            .unwrap_or(0);
+        println!("Restarted job #{} as #{}", job_id, new_job_id);
+        Ok(())
+    } else {
+        let error = value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("unknown_error");
+        let message = value
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("Restart failed");
+        anyhow::bail!("{}: {}", error, message)
+    }
+}
+
 pub fn job_diff_command(
     work_dir: &Path,
     config_override: Option<&PathBuf>,

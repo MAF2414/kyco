@@ -23,6 +23,8 @@ pub enum DetailPanelAction {
     Continue(JobId, String), // job_id, prompt
     /// Change permission mode for a running Claude session
     SetPermissionMode(JobId, PermissionMode),
+    /// Restart a failed or rejected job with the same parameters
+    Restart(JobId),
 }
 
 /// UI filters for activity log display.
