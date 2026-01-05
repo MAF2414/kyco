@@ -5,7 +5,78 @@ use crate::gui::animations::{blocked_indicator, pending_indicator, queued_indica
 use crate::gui::detail_panel::status_color;
 use crate::gui::theme::{ACCENT_CYAN, ACCENT_PURPLE, ACCENT_RED, BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 use crate::{Job, JobStatus};
+use chrono::{DateTime, Utc};
 use eframe::egui::{self, Color32, RichText, Stroke};
+
+/// Format a duration in milliseconds to human readable string
+fn format_duration_ms(ms: i64) -> String {
+    if ms < 1000 {
+        format!("{}ms", ms)
+    } else if ms < 60_000 {
+        format!("{:.1}s", ms as f64 / 1000.0)
+    } else if ms < 3_600_000 {
+        let mins = ms / 60_000;
+        let secs = (ms % 60_000) / 1000;
+        if secs > 0 {
+            format!("{}m {}s", mins, secs)
+        } else {
+            format!("{}m", mins)
+        }
+    } else {
+        let hours = ms / 3_600_000;
+        let mins = (ms % 3_600_000) / 60_000;
+        format!("{}h {}m", hours, mins)
+    }
+}
+
+/// Format relative time (e.g., "2m ago", "1h ago")
+fn format_time_ago(time: DateTime<Utc>) -> String {
+    let now = Utc::now();
+    let diff = now.signed_duration_since(time);
+    let secs = diff.num_seconds();
+
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        format!("{}m ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h ago", secs / 3600)
+    } else {
+        format!("{}d ago", secs / 86400)
+    }
+}
+
+/// Generate a color from a string, optimized for dark theme visibility
+fn color_from_string(s: &str) -> Color32 {
+    // Simple hash function
+    let hash: u32 = s.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+
+    // Map hash to hue (0-360)
+    let hue = (hash % 360) as f32;
+    // Fixed saturation and lightness for dark theme readability
+    let saturation: f32 = 0.65;
+    let lightness: f32 = 0.65;
+
+    // HSL to RGB conversion
+    let c = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+    let m = lightness - c / 2.0;
+
+    let (r, g, b) = match (hue as u32) / 60 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+
+    Color32::from_rgb(
+        ((r + m) * 255.0) as u8,
+        ((g + m) * 255.0) as u8,
+        ((b + m) * 255.0) as u8,
+    )
+}
 
 /// Render the status indicator for a job
 pub fn render_status_indicator(ui: &mut egui::Ui, job: &Job) {
@@ -108,11 +179,59 @@ pub fn render_job_row(
                 }
 
                 render_blocked_info(ui, job);
+
+                // Show state if available (for finished jobs)
+                if let Some(ref result) = job.result {
+                    if let Some(ref state) = result.state {
+                        let state_color = color_from_string(state);
+                        ui.label(RichText::new(format!("[{}]", state)).small().color(state_color));
+                    }
+                }
+
+                // Right-align time info
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    render_time_info(ui, job);
+                });
             });
 
             render_target_row(ui, job, available_width, action);
         })
         .response
+}
+
+/// Render time information for a job (started/finished timestamps)
+fn render_time_info(ui: &mut egui::Ui, job: &Job) {
+    match job.status {
+        JobStatus::Running => {
+            // Show how long it's been running
+            if let Some(started) = job.started_at {
+                let elapsed = Utc::now().signed_duration_since(started).num_milliseconds();
+                let text = format_duration_ms(elapsed);
+                ui.label(RichText::new(text).small().color(TEXT_DIM))
+                    .on_hover_text(format!("Started: {}", started.format("%H:%M:%S")));
+            }
+        }
+        JobStatus::Done | JobStatus::Failed | JobStatus::Rejected | JobStatus::Merged => {
+            // Show when finished and duration
+            if let Some(finished) = job.finished_at {
+                let ago = format_time_ago(finished);
+                let duration_text = if let Some(started) = job.started_at {
+                    let duration = finished.signed_duration_since(started).num_milliseconds();
+                    format!("{} ({})", ago, format_duration_ms(duration))
+                } else {
+                    ago
+                };
+                ui.label(RichText::new(duration_text).small().color(TEXT_DIM))
+                    .on_hover_text(format!("Finished: {}", finished.format("%H:%M:%S")));
+            }
+        }
+        JobStatus::Queued | JobStatus::Pending | JobStatus::Blocked => {
+            // Show when created
+            let ago = format_time_ago(job.created_at);
+            ui.label(RichText::new(ago).small().color(TEXT_DIM))
+                .on_hover_text(format!("Created: {}", job.created_at.format("%H:%M:%S")));
+        }
+    }
 }
 
 /// Render the target file row with delete button for finished jobs

@@ -13,9 +13,21 @@ use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
 
 /// Maximum number of retries when connection drops
-const MAX_RETRIES: u32 = 3;
-/// Delay between retries in milliseconds
-const RETRY_DELAY_MS: u64 = 2000;
+const MAX_RETRIES: u32 = 15;
+
+/// Calculate retry delay with exponential backoff (capped at 30s)
+/// Pattern: 1s, 2s, 4s, 8s, 10s, 20s, 30s, 30s, ...
+fn retry_delay_ms(attempt: u32) -> u64 {
+    match attempt {
+        1 => 1_000,
+        2 => 2_000,
+        3 => 4_000,
+        4 => 8_000,
+        5 => 10_000,
+        6 => 20_000,
+        _ => 30_000, // Cap at 30 seconds
+    }
+}
 
 /// Codex adapter using the SDK Bridge
 pub struct CodexBridgeAdapter {
@@ -225,8 +237,9 @@ impl AgentRunner for CodexBridgeAdapter {
             // Retry with thread_id
             retries += 1;
             is_retry = true;
-            let _ = event_tx.send(LogEvent::system(format!("Connection dropped, retrying ({}/{})...", retries, MAX_RETRIES)).for_job(job_id)).await;
-            tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+            let delay = retry_delay_ms(retries);
+            let _ = event_tx.send(LogEvent::system(format!("Connection dropped, retrying in {}s ({}/{})...", delay / 1000, retries, MAX_RETRIES)).for_job(job_id)).await;
+            tokio::time::sleep(Duration::from_millis(delay)).await;
         }
 
         if !output_text.is_empty() { result.output_text = Some(output_text); }
