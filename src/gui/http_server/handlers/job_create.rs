@@ -1,11 +1,38 @@
 //! Job creation handler.
 
+use std::path::{Path, PathBuf};
+
 use super::super::types::{ControlApiState, ControlJobCreateRequest, ControlJobCreateResponse};
 use super::super::respond_json;
 use super::ExecutorEvent;
 use crate::gui::jobs;
 use crate::gui::selection::SelectionContext;
 use crate::LogEvent;
+
+/// Find the workspace root for a file by searching for `.kyco` or `.git` directories
+/// in parent directories. Falls back to the provided default if none found.
+fn find_workspace_root(file_path: &Path, default: &Path) -> PathBuf {
+    let mut current = if file_path.is_file() {
+        file_path.parent()
+    } else {
+        Some(file_path)
+    };
+
+    while let Some(dir) = current {
+        // Check for .kyco directory (kyco project root)
+        if dir.join(".kyco").is_dir() {
+            return dir.to_path_buf();
+        }
+        // Check for .git directory (git repo root)
+        if dir.join(".git").exists() {
+            return dir.to_path_buf();
+        }
+        current = dir.parent();
+    }
+
+    // Fallback to default
+    default.to_path_buf()
+}
 
 pub fn handle_control_job_create(
     control: &ControlApiState,
@@ -61,13 +88,17 @@ pub fn handle_control_job_create(
     };
     let abs_path_str = abs_path.display().to_string();
 
+    // Find the correct workspace root based on the file location
+    // Looks for .kyco or .git directories in parent paths
+    let workspace = find_workspace_root(&abs_path, &control.work_dir);
+
     let selection = SelectionContext {
         app_name: Some("CLI".to_string()),
         file_path: Some(abs_path_str),
         selected_text: req.selected_text,
         line_number: req.line_start,
         line_end: req.line_end,
-        workspace_path: Some(control.work_dir.clone()),
+        workspace_path: Some(workspace),
         ..Default::default()
     };
 
