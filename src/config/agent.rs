@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ClaudeAgentDefinition, McpServerConfig, SdkType, SessionMode, SystemPromptMode};
+use crate::{ClaudeAgentDefinition, McpServerConfig, SdkType, SystemPromptMode};
 
 /// Agent configuration in TOML format
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,11 +24,6 @@ pub struct AgentConfigToml {
     /// Model to use (e.g., "sonnet", "opus", "haiku" for Claude; "o3", "gpt-4o" for Codex)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// Session mode ("oneshot" or "session")
-    ///
-    /// Legacy config key: `mode`
-    #[serde(default, alias = "mode")]
-    pub session_mode: SessionMode,
 
     #[serde(default)]
     pub system_prompt_mode: SystemPromptMode,

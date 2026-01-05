@@ -8,7 +8,7 @@ use crate::agent::AgentRegistry;
 use crate::config::Config;
 use crate::git::GitManager;
 use crate::job::JobManager;
-use crate::{Job, JobStatus, LogEvent, SessionMode};
+use crate::{Job, JobStatus, LogEvent};
 
 use super::chain::run_chain_job;
 use super::git_utils::calculate_git_numstat_async;
@@ -137,7 +137,8 @@ pub async fn run_job(
         }
     }
 
-    let is_repl = matches!(agent_config.session_mode, SessionMode::Repl);
+    // All agents now use persistent sessions (SessionMode removed)
+    let is_repl = true;
     if let Ok(mut manager) = job_manager.lock() {
         if let Some(j) = manager.get_mut(job_id) {
             j.is_repl = is_repl;
@@ -199,9 +200,15 @@ pub async fn run_job(
                 // Move session_id instead of cloning
                 j.bridge_session_id = result.session_id.take();
 
+                // Restore worktree path so continuation jobs can reuse it
+                // (it was taken earlier with .take() to avoid cloning)
+                if is_in_worktree {
+                    j.git_worktree_path = Some(worktree_path.clone());
+                }
+
                 let files_changed = result.changed_files.len();
                 // Store info for async git stats calculation after lock release
-                if files_changed > 0 && j.git_worktree_path.is_some() {
+                if files_changed > 0 && is_in_worktree {
                     git_stats_info = Some((files_changed, j.base_branch.clone()));
                 }
 
@@ -237,6 +244,10 @@ pub async fn run_job(
                         error = "Job aborted by user".to_string();
                     }
                     j.fail(error.clone());
+                    // Restore worktree path for potential retry/continuation
+                    if is_in_worktree {
+                        j.git_worktree_path = Some(worktree_path.clone());
+                    }
                 }
                 manager.touch();
             }

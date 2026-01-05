@@ -125,6 +125,18 @@ pub fn job_abort_command(
     Ok(())
 }
 
+pub fn job_kill_command(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    job_id: JobId,
+) -> Result<()> {
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/kill");
+    let _ = http_post_json(&url, token.as_deref(), serde_json::json!({}))?;
+    println!("Killed job #{}", job_id);
+    Ok(())
+}
+
 pub fn job_delete_command(
     work_dir: &Path,
     config_override: Option<&PathBuf>,

@@ -78,6 +78,9 @@ export async function* executeCodexQuery(
     thread = codex.startThread(threadOptions);
   }
 
+  const MAX_RETRIES = 10;
+  const RETRY_DELAY_MS = 2000;
+
   try {
     if (threadId) {
       yield {
@@ -95,10 +98,14 @@ export async function* executeCodexQuery(
     }
 
     const { input, cleanup } = await buildCodexInput(request);
-    try {
-      const { events } = await thread.runStreamed(input, turnOptions);
+    let retryCount = 0;
+    let runSuccess = false;
 
-      for await (const event of events) {
+    while (!runSuccess && retryCount <= MAX_RETRIES) {
+      try {
+        const { events } = await thread.runStreamed(input, turnOptions);
+
+        for await (const event of events) {
         switch (event.type) {
           case 'thread.started': {
             const startedId = event.thread_id;
@@ -163,10 +170,29 @@ export async function* executeCodexQuery(
             };
             break;
         }
+        }
+        // If we completed the event loop without throwing, mark as success
+        runSuccess = true;
+      } catch (turnError) {
+        // Connection dropped or turn failed - retry if we haven't exceeded max retries
+        retryCount++;
+        if (retryCount > MAX_RETRIES) {
+          throw turnError; // Re-throw to outer catch
+        }
+        const errorMsg = turnError instanceof Error ? turnError.message : String(turnError);
+        yield {
+          type: 'error',
+          sessionId: threadId ?? fallbackThreadId,
+          timestamp: Date.now(),
+          message: `Connection lost, retrying ${retryCount}/${MAX_RETRIES}... (${errorMsg})`,
+        };
+        // Exponential backoff
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * retryCount));
       }
-    } finally {
-      await cleanup();
-    }
+    } // end while retry loop
+
+    // Cleanup after successful completion or max retries
+    await cleanup();
 
     const structuredResult = request.outputSchema && lastAgentMessage
       ? tryParseJsonObject(lastAgentMessage)

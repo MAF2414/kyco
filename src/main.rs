@@ -111,6 +111,9 @@ async fn main() -> Result<()> {
             JobCommands::Abort { job_id } => {
                 cli::job::job_abort_command(&work_dir, config_path.as_ref(), job_id)?;
             }
+            JobCommands::Kill { job_id } => {
+                cli::job::job_kill_command(&work_dir, config_path.as_ref(), job_id)?;
+            }
             JobCommands::Delete {
                 job_id,
                 cleanup_worktree,
@@ -240,6 +243,55 @@ async fn main() -> Result<()> {
             }
             ChainCommands::Get { name, json } => {
                 cli::chain::chain_get_command(&work_dir, config_path.as_ref(), &name, json)?;
+            }
+            ChainCommands::Set {
+                name,
+                description,
+                steps,
+                stop_on_failure,
+                no_stop_on_failure,
+                pass_full_response,
+                no_pass_full_response,
+                max_loops,
+                use_worktree,
+                no_use_worktree,
+                json,
+            } => {
+                cli::chain::chain_set_command(
+                    &work_dir,
+                    config_path.as_ref(),
+                    cli::chain::ChainSetArgs {
+                        name,
+                        description,
+                        steps,
+                        stop_on_failure: if stop_on_failure {
+                            Some(true)
+                        } else if no_stop_on_failure {
+                            Some(false)
+                        } else {
+                            None
+                        },
+                        pass_full_response: if pass_full_response {
+                            Some(true)
+                        } else if no_pass_full_response {
+                            Some(false)
+                        } else {
+                            None
+                        },
+                        max_loops,
+                        use_worktree: if use_worktree {
+                            Some(true)
+                        } else if no_use_worktree {
+                            Some(false)
+                        } else {
+                            None
+                        },
+                        json,
+                    },
+                )?;
+            }
+            ChainCommands::Delete { name } => {
+                cli::chain::chain_delete_command(&work_dir, config_path.as_ref(), &name)?;
             }
         },
         None => {

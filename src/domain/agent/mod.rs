@@ -6,7 +6,7 @@
 mod templates;
 mod types;
 
-pub use types::{AgentMode, CliType, SdkType, SessionMode, SystemPromptMode};
+pub use types::{CliType, SdkType, SystemPromptMode};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -76,10 +76,6 @@ pub struct ModeTemplate {
     /// Default agent for this mode (if not specified in command)
     pub default_agent: Option<String>,
 
-    /// Session mode for this mode (oneshot or session)
-    #[serde(default)]
-    pub session_mode: SessionMode,
-
     /// Tools to disallow for this mode
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
@@ -107,10 +103,6 @@ pub struct AgentConfig {
     /// The SDK type (Claude or Codex)
     #[serde(default)]
     pub sdk_type: SdkType,
-
-    /// Session mode (oneshot or session) - default for this agent
-    #[serde(default)]
-    pub session_mode: SessionMode,
 
     /// Permission mode (e.g., "bypassPermissions" for Claude, "full-auto" for Codex)
     #[serde(default)]
@@ -187,7 +179,6 @@ impl AgentConfig {
         Self {
             id: "claude".to_string(),
             sdk_type,
-            session_mode: SessionMode::Oneshot,
             permission_mode: sdk_type.default_permission_mode().to_string(),
             model: None,
             sandbox: None,
@@ -211,7 +202,6 @@ impl AgentConfig {
         Self {
             id: "codex".to_string(),
             sdk_type,
-            session_mode: SessionMode::Oneshot,
             permission_mode: sdk_type.default_permission_mode().to_string(),
             model: None,
             sandbox: None,
@@ -244,20 +234,11 @@ impl AgentConfig {
                     mode = mode
                 )),
                 default_agent: None,
-                session_mode: self.session_mode,
                 disallowed_tools: vec![],
                 allowed_tools: vec![],
                 output_states: vec![],
                 state_prompt: None,
             })
-    }
-
-    /// Get the effective session mode for a given mode
-    pub fn get_session_mode(&self, mode: &str) -> SessionMode {
-        self.mode_templates
-            .get(mode)
-            .map(|t| t.session_mode)
-            .unwrap_or(self.session_mode)
     }
 
     /// Get the binary name for CLI-based adapters (fallback to SDK type name)

@@ -9,8 +9,8 @@ mod scope;
 mod target;
 
 pub use agent::{
-    AgentConfig, AgentMode, ClaudeAgentDefinition, CliType, McpServerConfig, ModeTemplate, SdkType,
-    SessionMode, SystemPromptMode,
+    AgentConfig, ClaudeAgentDefinition, CliType, McpServerConfig, ModeTemplate, SdkType,
+    SystemPromptMode,
 };
 pub use agent_group::{AgentGroupId, AgentRunGroup, GroupStatus};
 pub use comment::{CommentTag, StatusMarker};

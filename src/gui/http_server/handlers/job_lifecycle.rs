@@ -244,3 +244,94 @@ pub fn handle_control_job_abort(control: &ControlApiState, path: &str, request: 
         serde_json::json!({ "error": "not_abortable", "job_id": job_id, "status": status }),
     );
 }
+
+/// Kill a job immediately (interrupt + fail without waiting for agent).
+pub fn handle_control_job_kill(control: &ControlApiState, path: &str, request: tiny_http::Request) {
+    let job_id = match parse_job_id_from_path(path, Some("kill")) {
+        Ok(id) => id,
+        Err(err) => {
+            respond_json(request, 400, serde_json::json!({ "error": err }));
+            return;
+        }
+    };
+
+    let (agent_id, session_id, status) = match control.job_manager.lock() {
+        Ok(mut manager) => match manager.get_mut(job_id) {
+            Some(job) => {
+                let status = job.status;
+                let agent_id = job.agent_id.clone();
+                let session_id = job.bridge_session_id.clone();
+
+                // Kill: immediately fail the job regardless of current state
+                if matches!(
+                    status,
+                    JobStatus::Running | JobStatus::Queued | JobStatus::Pending | JobStatus::Blocked
+                ) {
+                    job.cancel_requested = true;
+                    job.cancel_sent = true;
+                    job.fail("Job killed by user".to_string());
+                }
+
+                manager.release_job_locks(job_id);
+                manager.touch();
+
+                (agent_id, session_id, status)
+            }
+            None => {
+                respond_json(request, 404, serde_json::json!({ "error": "not_found" }));
+                return;
+            }
+        },
+        Err(_) => {
+            respond_json(
+                request,
+                500,
+                serde_json::json!({ "error": "job_manager_lock" }),
+            );
+            return;
+        }
+    };
+
+    // Best-effort: send interrupt signal to the agent (fire-and-forget)
+    if let Some(session_id) = session_id.as_deref() {
+        let client = BridgeClient::new();
+        let agent_id_lower = agent_id.to_ascii_lowercase();
+        let likely_codex = agent_id_lower == "codex" || agent_id_lower.contains("codex");
+
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if likely_codex {
+                let _ = client.interrupt_codex(session_id);
+            } else {
+                let _ = client.interrupt_claude(session_id);
+            }
+        }));
+    }
+
+    if matches!(
+        status,
+        JobStatus::Running | JobStatus::Queued | JobStatus::Pending | JobStatus::Blocked
+    ) {
+        let _ = control
+            .executor_tx
+            .send(ExecutorEvent::Log(LogEvent::system(format!(
+                "Killed job #{} (agent: {})",
+                job_id, agent_id
+            ))));
+        let _ = control
+            .executor_tx
+            .send(ExecutorEvent::JobFailed(job_id, "Job killed by user".to_string()));
+
+        respond_json(
+            request,
+            200,
+            serde_json::json!({ "status": "ok", "job_id": job_id }),
+        );
+        return;
+    }
+
+    respond_json(
+        request,
+        400,
+        serde_json::json!({ "error": "not_killable", "job_id": job_id, "status": status }),
+    );
+}

@@ -20,8 +20,8 @@ pub use job_continue::handle_control_job_continue;
 pub use job_create::handle_control_job_create;
 pub use job_delete::handle_control_job_delete;
 pub use job_lifecycle::{
-    handle_control_job_abort, handle_control_job_get, handle_control_job_queue,
-    handle_control_jobs_list,
+    handle_control_job_abort, handle_control_job_get, handle_control_job_kill,
+    handle_control_job_queue, handle_control_jobs_list,
 };
 pub use job_restart::handle_control_job_restart;
 pub use job_worktree::{

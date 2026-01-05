@@ -108,8 +108,10 @@ pub enum JobCommands {
     },
     /// Queue a job (set status=queued)
     Queue { job_id: u64 },
-    /// Abort/stop a job
+    /// Abort/stop a job (graceful, waits for agent)
     Abort { job_id: u64 },
+    /// Kill a job immediately (forceful, does not wait)
+    Kill { job_id: u64 },
     /// Delete a job from the GUI list
     Delete {
         job_id: u64,
@@ -267,4 +269,40 @@ pub enum ChainCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Create or update a chain
+    Set {
+        name: String,
+        /// Description of what this chain does
+        #[arg(long)]
+        description: Option<String>,
+        /// Steps (comma-separated mode names, e.g., "review,fix,test")
+        #[arg(long, value_delimiter = ',')]
+        steps: Vec<String>,
+        /// Stop the chain on first failure
+        #[arg(long)]
+        stop_on_failure: bool,
+        /// Continue chain even if a step fails
+        #[arg(long)]
+        no_stop_on_failure: bool,
+        /// Pass full response to next step
+        #[arg(long)]
+        pass_full_response: bool,
+        /// Pass only summary to next step
+        #[arg(long)]
+        no_pass_full_response: bool,
+        /// Maximum loop iterations (for chains with loop_to)
+        #[arg(long)]
+        max_loops: Option<u32>,
+        /// Force running in a git worktree
+        #[arg(long)]
+        use_worktree: bool,
+        /// Disable git worktree for this chain
+        #[arg(long)]
+        no_use_worktree: bool,
+        /// Print JSON for the saved chain
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete a chain
+    Delete { name: String },
 }

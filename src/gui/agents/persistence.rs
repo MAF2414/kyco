@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use super::state::AgentEditorState;
 use crate::config::{AgentConfigToml, Config};
-use crate::{SdkType, SessionMode, SystemPromptMode};
+use crate::{SdkType, SystemPromptMode};
 
 /// Load agent data for editing
 pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
@@ -16,10 +16,8 @@ pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
             _ => "claude".to_string(),
         };
         *state.agent_edit_model = agent.model.clone().unwrap_or_default();
-        *state.agent_edit_mode = match agent.session_mode {
-            SessionMode::Session | SessionMode::Repl => "session".to_string(),
-            _ => "oneshot".to_string(),
-        };
+        // SessionMode removed - all agents use sessions now
+        *state.agent_edit_mode = "session".to_string();
         *state.agent_edit_system_prompt_mode =
             format!("{:?}", agent.system_prompt_mode).to_lowercase();
         *state.agent_edit_disallowed_tools = agent.disallowed_tools.join(", ");
@@ -83,11 +81,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         _ => SdkType::Claude,
     };
 
-    let session_mode = match state.agent_edit_mode.as_str() {
-        "session" => SessionMode::Session,
-        _ => SessionMode::Oneshot,
-    };
-
     let system_prompt_mode = match state.agent_edit_system_prompt_mode.as_str() {
         "replace" => SystemPromptMode::Replace,
         "configoverride" => SystemPromptMode::ConfigOverride,
@@ -118,7 +111,6 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         aliases,
         sdk,
         model,
-        session_mode,
         system_prompt_mode,
         disallowed_tools,
         allowed_tools,

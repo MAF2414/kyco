@@ -3,6 +3,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use std::path::Path;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 use super::super::client::BridgeClient;
@@ -10,6 +11,11 @@ use super::super::types::*;
 use super::util::{bridge_cwd, extract_output_from_result, format_tool_call, parse_json_schema, resolve_prompt_paths};
 use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
+
+/// Maximum number of retries when connection drops
+const MAX_RETRIES: u32 = 3;
+/// Delay between retries in milliseconds
+const RETRY_DELAY_MS: u64 = 2000;
 
 /// Codex adapter using the SDK Bridge
 pub struct CodexBridgeAdapter {
@@ -78,6 +84,23 @@ impl CodexBridgeAdapter {
 
         prompt
     }
+
+    /// Build a continuation request for retrying a dropped connection.
+    fn build_continue_request(&self, thread_id: String, cwd: String, config: &AgentConfig) -> CodexQueryRequest {
+        CodexQueryRequest {
+            prompt: "continue".to_string(),
+            images: None,
+            cwd,
+            thread_id: Some(thread_id),
+            sandbox: config.sandbox.clone().or_else(|| Some("workspace-write".to_string())),
+            env: None,
+            output_schema: None,
+            model: config.model.clone(),
+            effort: None,
+            approval_policy: None,
+            skip_git_repo_check: None,
+        }
+    }
 }
 
 impl Default for CodexBridgeAdapter {
@@ -93,10 +116,10 @@ impl AgentRunner for CodexBridgeAdapter {
 
         let _ = event_tx.send(LogEvent::system(format!("Starting Codex SDK job #{}", job_id)).for_job(job_id)).await;
 
-        let request = CodexQueryRequest {
+        let initial_request = CodexQueryRequest {
             prompt: prompt.clone(),
             images: None,
-            cwd,
+            cwd: cwd.clone(),
             thread_id: job.bridge_session_id.clone(),
             sandbox: config.sandbox.clone().or_else(|| Some("workspace-write".to_string())),
             env: if config.env.is_empty() { None } else { Some(config.env.clone()) },
@@ -111,64 +134,99 @@ impl AgentRunner for CodexBridgeAdapter {
         };
 
         let mut output_text = String::new();
-        let mut captured_session_id: Option<String> = None;
+        let mut captured_session_id: Option<String> = job.bridge_session_id.clone();
         let mut structured_result: Option<serde_json::Value> = None;
+        let mut retries = 0u32;
+        let mut is_retry = false;
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<BridgeEvent, String>>(100);
-        let client = self.client.clone();
+        loop {
+            let mut received_session_complete = false;
+            let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<BridgeEvent, String>>(100);
+            let client = self.client.clone();
 
-        tokio::task::spawn_blocking(move || match client.codex_query(&request) {
-            Ok(events) => { for ev in events { if tx.blocking_send(ev.map_err(|e| e.to_string())).is_err() { break; } } }
-            Err(e) => { let _ = tx.blocking_send(Err(e.to_string())); }
-        });
-
-        while let Some(event_result) = rx.recv().await {
-            let event = match event_result {
-                Ok(e) => e,
-                Err(e) => { let _ = event_tx.send(LogEvent::error(format!("Event error: {}", e)).for_job(job_id)).await; continue; }
+            // Build request: initial or continuation
+            let request = if is_retry {
+                if let Some(ref tid) = captured_session_id {
+                    self.build_continue_request(tid.clone(), cwd.clone(), config)
+                } else {
+                    break;
+                }
+            } else {
+                initial_request.clone()
             };
 
-            match event {
-                BridgeEvent::SessionStart { session_id, .. } => {
-                    captured_session_id = Some(session_id.clone());
-                    let _ = event_tx.send(LogEvent::system("Codex thread started").with_tool_args(serde_json::json!({ "session_id": session_id })).for_job(job_id)).await;
-                }
-                BridgeEvent::Text { content, partial, .. } => {
-                    if !partial { output_text.push_str(&content); output_text.push('\n'); }
-                    let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
-                }
-                BridgeEvent::ToolUse { tool_name, tool_input, tool_use_id, .. } => {
-                    // Merge tool_use_id into tool_input for stats tracking
-                    let mut args = tool_input.clone();
-                    if let Some(obj) = args.as_object_mut() {
-                        obj.insert("tool_use_id".to_string(), serde_json::json!(tool_use_id));
+            tokio::task::spawn_blocking(move || match client.codex_query(&request) {
+                Ok(events) => { for ev in events { if tx.blocking_send(ev.map_err(|e| e.to_string())).is_err() { break; } } }
+                Err(e) => { let _ = tx.blocking_send(Err(e.to_string())); }
+            });
+
+            while let Some(event_result) = rx.recv().await {
+                let event = match event_result {
+                    Ok(e) => e,
+                    Err(e) => { let _ = event_tx.send(LogEvent::error(format!("Event error: {}", e)).for_job(job_id)).await; continue; }
+                };
+
+                match event {
+                    BridgeEvent::SessionStart { session_id, .. } => {
+                        captured_session_id = Some(session_id.clone());
+                        let _ = event_tx.send(LogEvent::system("Codex thread started").with_tool_args(serde_json::json!({ "session_id": session_id })).for_job(job_id)).await;
                     }
-                    let _ = event_tx.send(LogEvent::tool_call(tool_name.clone(), format_tool_call(&tool_name, &tool_input))
-                        .with_tool_args(args)
-                        .for_job(job_id)).await;
-                }
-                BridgeEvent::ToolResult { output, files_changed, .. } => {
-                    if let Some(files) = files_changed { for f in files { result.changed_files.push(std::path::PathBuf::from(f)); } }
-                    let _ = event_tx.send(LogEvent::tool_output("tool", output).for_job(job_id)).await;
-                }
-                BridgeEvent::Error { message, .. } => {
-                    result.error = Some(message.clone());
-                    let _ = event_tx.send(LogEvent::error(message).for_job(job_id)).await;
-                }
-                BridgeEvent::SessionComplete { success, duration_ms, usage, result: sr, .. } => {
-                    result.success = success; result.duration_ms = Some(duration_ms); structured_result = sr;
-                    if let Some(ref u) = usage {
-                        result.input_tokens = Some(u.input_tokens);
-                        result.output_tokens = Some(u.output_tokens);
-                        // Codex uses cached_input_tokens instead of cache_read_tokens
-                        result.cache_read_tokens = Some(u.effective_cache_read());
-                        result.cache_write_tokens = u.cache_write_tokens;
+                    BridgeEvent::Text { content, partial, .. } => {
+                        if !partial { output_text.push_str(&content); output_text.push('\n'); }
+                        let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
                     }
-                    let usage_info = usage.map(|u| format!(", {} tokens", u.input_tokens + u.output_tokens)).unwrap_or_default();
-                    let _ = event_tx.send(LogEvent::system(format!("Completed: {} (duration: {}ms{})", if success { "success" } else { "failed" }, duration_ms, usage_info)).for_job(job_id)).await;
+                    BridgeEvent::ToolUse { tool_name, tool_input, tool_use_id, .. } => {
+                        let mut args = tool_input.clone();
+                        if let Some(obj) = args.as_object_mut() {
+                            obj.insert("tool_use_id".to_string(), serde_json::json!(tool_use_id));
+                        }
+                        let _ = event_tx.send(LogEvent::tool_call(tool_name.clone(), format_tool_call(&tool_name, &tool_input))
+                            .with_tool_args(args).for_job(job_id)).await;
+                    }
+                    BridgeEvent::ToolResult { output, files_changed, .. } => {
+                        if let Some(files) = files_changed { for f in files { result.changed_files.push(std::path::PathBuf::from(f)); } }
+                        let _ = event_tx.send(LogEvent::tool_output("tool", output).for_job(job_id)).await;
+                    }
+                    BridgeEvent::Error { message, .. } => {
+                        result.error = Some(message.clone());
+                        let _ = event_tx.send(LogEvent::error(message).for_job(job_id)).await;
+                    }
+                    BridgeEvent::SessionComplete { success, duration_ms, usage, result: sr, .. } => {
+                        received_session_complete = true;
+                        result.success = success; result.duration_ms = Some(duration_ms); structured_result = sr;
+                        if let Some(ref u) = usage {
+                            result.input_tokens = Some(u.input_tokens);
+                            result.output_tokens = Some(u.output_tokens);
+                            result.cache_read_tokens = Some(u.effective_cache_read());
+                            result.cache_write_tokens = u.cache_write_tokens;
+                        }
+                        let usage_info = usage.map(|u| format!(", {} tokens", u.input_tokens + u.output_tokens)).unwrap_or_default();
+                        let _ = event_tx.send(LogEvent::system(format!("Completed: {} (duration: {}ms{})", if success { "success" } else { "failed" }, duration_ms, usage_info)).for_job(job_id)).await;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
+
+            // Stream ended - check if we should retry
+            if received_session_complete {
+                break;
+            }
+
+            if result.error.is_some() {
+                break;
+            }
+
+            if retries >= MAX_RETRIES || captured_session_id.is_none() {
+                result.error = Some("Codex session ended unexpectedly (no completion event received)".to_string());
+                let _ = event_tx.send(LogEvent::error("Codex session ended unexpectedly").for_job(job_id)).await;
+                break;
+            }
+
+            // Retry with thread_id
+            retries += 1;
+            is_retry = true;
+            let _ = event_tx.send(LogEvent::system(format!("Connection dropped, retrying ({}/{})...", retries, MAX_RETRIES)).for_job(job_id)).await;
+            tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
         }
 
         if !output_text.is_empty() { result.output_text = Some(output_text); }

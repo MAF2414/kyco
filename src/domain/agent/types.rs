@@ -69,32 +69,5 @@ pub enum SystemPromptMode {
     ConfigOverride,
 }
 
-/// Agent execution mode - determines if conversation is continued or one-shot
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SessionMode {
-    /// One-shot execution - no session persistence
-    #[default]
-    Oneshot,
-    /// Session mode - conversation can be resumed/continued
-    Session,
-    /// Legacy: Print mode (equivalent to Oneshot)
-    Print,
-    /// Legacy: REPL mode (equivalent to Session)
-    Repl,
-}
-
-impl SessionMode {
-    /// Returns true if this is a session-based mode (Session or Repl)
-    pub fn is_session(&self) -> bool {
-        matches!(self, SessionMode::Session | SessionMode::Repl)
-    }
-
-    /// Returns true if this is a one-shot mode (Oneshot or Print)
-    pub fn is_oneshot(&self) -> bool {
-        matches!(self, SessionMode::Oneshot | SessionMode::Print)
-    }
-}
-
-// Keep AgentMode as alias for backwards compatibility
-pub type AgentMode = SessionMode;
+// SessionMode removed - all agents now use persistent sessions by default.
+// This enables automatic retry/resume when connections drop.

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::{ModeTemplate, SessionMode};
+use super::ModeTemplate;
 
 /// Build the default mode templates
 pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
@@ -20,7 +20,6 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
                     .to_string(),
             ),
             default_agent: None,
-            session_mode: SessionMode::Oneshot,
             disallowed_tools: vec![],
             allowed_tools: vec![],
             output_states: vec![],
@@ -39,7 +38,6 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
                     .to_string(),
             ),
             default_agent: None,
-            session_mode: SessionMode::Oneshot,
             disallowed_tools: vec![],
             allowed_tools: vec![],
             output_states: vec![],
@@ -60,7 +58,6 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
                     .to_string(),
             ),
             default_agent: None,
-            session_mode: SessionMode::Oneshot,
             disallowed_tools: vec![],
             allowed_tools: vec![],
             output_states: vec![],
@@ -81,7 +78,6 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
                     .to_string(),
             ),
             default_agent: None,
-            session_mode: SessionMode::Oneshot,
             disallowed_tools: vec![],
             allowed_tools: vec![],
             output_states: vec![],
@@ -101,7 +97,6 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
                     .to_string(),
             ),
             default_agent: None,
-            session_mode: SessionMode::Oneshot,
             disallowed_tools: vec![],
             allowed_tools: vec![],
             output_states: vec![],
@@ -119,7 +114,6 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
                     .to_string(),
             ),
             default_agent: None,
-            session_mode: SessionMode::Session, // Chat mode uses sessions by default
             disallowed_tools: vec![],
             allowed_tools: vec![],
             output_states: vec![],

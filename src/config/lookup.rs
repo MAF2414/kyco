@@ -4,11 +4,11 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use super::chain::{ModeChain, ModeOrChainRef};
-use super::mode::{ModeConfig, ModeSessionType};
+use super::mode::ModeConfig;
 use super::scope::ScopeConfig;
 use super::target::TargetConfig;
 use super::Config;
-use crate::{AgentConfig, SdkType, SessionMode};
+use crate::{AgentConfig, SdkType};
 
 impl Config {
     /// Get the agent configuration for a given agent ID
@@ -23,10 +23,6 @@ impl Config {
                             prompt_template: prompt.clone(),
                             system_prompt: mode_config.system_prompt.clone(),
                             default_agent: mode_config.agent.clone(),
-                            session_mode: match mode_config.session_mode {
-                                ModeSessionType::Oneshot => SessionMode::Oneshot,
-                                ModeSessionType::Session => SessionMode::Session,
-                            },
                             disallowed_tools: mode_config.disallowed_tools.clone(),
                             allowed_tools: mode_config.allowed_tools.clone(),
                             output_states: mode_config.output_states.clone(),
@@ -50,20 +46,11 @@ impl Config {
                 };
 
             let sdk_type = toml.sdk;
-
-            // Legacy: "print" and "repl" modes map to oneshot/session
-            let session_mode = match toml.session_mode {
-                SessionMode::Print | SessionMode::Oneshot => SessionMode::Oneshot,
-                SessionMode::Session => SessionMode::Session,
-                SessionMode::Repl => SessionMode::Session,
-            };
-
             let permission_mode = sdk_type.default_permission_mode().to_string();
 
             AgentConfig {
                 id: id.to_string(),
                 sdk_type,
-                session_mode,
                 permission_mode,
                 model: toml.model.clone(),
                 sandbox: None,
@@ -142,12 +129,6 @@ impl Config {
                 }
             }
 
-            if !matches!(agent_config.session_mode, SessionMode::Repl) {
-                agent_config.session_mode = match mode_config.session_mode {
-                    ModeSessionType::Oneshot => SessionMode::Oneshot,
-                    ModeSessionType::Session => SessionMode::Session,
-                };
-            }
             agent_config.max_turns = mode_config.max_turns;
             // Mode model overrides agent model only if explicitly set
             if mode_config.model.is_some() {
