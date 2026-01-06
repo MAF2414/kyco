@@ -14,6 +14,19 @@ use crate::{AgentConfig, Job, LogEvent};
 
 /// Maximum number of retries when connection drops
 const MAX_RETRIES: u32 = 15;
+/// Maximum number of retries when rate limited (HTTP 429)
+const MAX_RATE_LIMIT_RETRIES: u32 = 20;
+
+fn is_rate_limited(code: Option<&str>, message: &str) -> bool {
+    if code.is_some_and(|c| c.eq_ignore_ascii_case("429") || c.eq_ignore_ascii_case("rate_limit")) {
+        return true;
+    }
+    if message.contains("429") {
+        return true;
+    }
+    let msg = message.to_ascii_lowercase();
+    msg.contains("rate limit") || msg.contains("too many requests")
+}
 
 /// Calculate retry delay with exponential backoff (capped at 30s)
 /// Pattern: 1s, 2s, 4s, 8s, 10s, 20s, 30s, 30s, ...
@@ -148,21 +161,22 @@ impl AgentRunner for CodexBridgeAdapter {
         let mut output_text = String::new();
         let mut captured_session_id: Option<String> = job.bridge_session_id.clone();
         let mut structured_result: Option<serde_json::Value> = None;
-        let mut retries = 0u32;
-        let mut is_retry = false;
+        let mut connection_retries = 0u32;
+        let mut rate_limit_retries = 0u32;
+        let mut use_continue_request = false;
 
         loop {
             let mut received_session_complete = false;
+            let mut rate_limited_message: Option<String> = None;
             let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<BridgeEvent, String>>(100);
             let client = self.client.clone();
 
             // Build request: initial or continuation
-            let request = if is_retry {
-                if let Some(ref tid) = captured_session_id {
-                    self.build_continue_request(tid.clone(), cwd.clone(), config)
-                } else {
-                    break;
-                }
+            let request = if use_continue_request {
+                captured_session_id
+                    .as_ref()
+                    .map(|tid| self.build_continue_request(tid.clone(), cwd.clone(), config))
+                    .unwrap_or_else(|| initial_request.clone())
             } else {
                 initial_request.clone()
             };
@@ -175,7 +189,16 @@ impl AgentRunner for CodexBridgeAdapter {
             while let Some(event_result) = rx.recv().await {
                 let event = match event_result {
                     Ok(e) => e,
-                    Err(e) => { let _ = event_tx.send(LogEvent::error(format!("Event error: {}", e)).for_job(job_id)).await; continue; }
+                    Err(e) => {
+                        if is_rate_limited(None, &e) {
+                            rate_limited_message = Some(e);
+                        } else {
+                            let message = format!("Bridge event stream error: {}", e);
+                            result.error = Some(message.clone());
+                            let _ = event_tx.send(LogEvent::error(message).for_job(job_id)).await;
+                        }
+                        break;
+                    }
                 };
 
                 match event {
@@ -199,9 +222,14 @@ impl AgentRunner for CodexBridgeAdapter {
                         if let Some(files) = files_changed { for f in files { result.changed_files.push(std::path::PathBuf::from(f)); } }
                         let _ = event_tx.send(LogEvent::tool_output("tool", output).for_job(job_id)).await;
                     }
-                    BridgeEvent::Error { message, .. } => {
-                        result.error = Some(message.clone());
-                        let _ = event_tx.send(LogEvent::error(message).for_job(job_id)).await;
+                    BridgeEvent::Error { message, code, .. } => {
+                        if is_rate_limited(code.as_deref(), &message) {
+                            rate_limited_message = Some(message);
+                        } else {
+                            result.error = Some(message.clone());
+                            let _ = event_tx.send(LogEvent::error(message).for_job(job_id)).await;
+                        }
+                        break;
                     }
                     BridgeEvent::SessionComplete { success, duration_ms, usage, result: sr, .. } => {
                         received_session_complete = true;
@@ -214,6 +242,7 @@ impl AgentRunner for CodexBridgeAdapter {
                         }
                         let usage_info = usage.map(|u| format!(", {} tokens", u.input_tokens + u.output_tokens)).unwrap_or_default();
                         let _ = event_tx.send(LogEvent::system(format!("Completed: {} (duration: {}ms{})", if success { "success" } else { "failed" }, duration_ms, usage_info)).for_job(job_id)).await;
+                        break;
                     }
                     _ => {}
                 }
@@ -224,21 +253,59 @@ impl AgentRunner for CodexBridgeAdapter {
                 break;
             }
 
+            if let Some(message) = rate_limited_message.take() {
+                rate_limit_retries += 1;
+                if rate_limit_retries > MAX_RATE_LIMIT_RETRIES {
+                    let final_message = format!(
+                        "Rate limited (HTTP 429) too many times ({}/{}): {}",
+                        rate_limit_retries, MAX_RATE_LIMIT_RETRIES, message
+                    );
+                    result.error = Some(final_message.clone());
+                    let _ = event_tx.send(LogEvent::error(&final_message).for_job(job_id)).await;
+                    break;
+                }
+
+                let delay = retry_delay_ms(rate_limit_retries);
+                let _ = event_tx
+                    .send(
+                        LogEvent::system(format!(
+                            "Rate limited, retrying in {}s ({}/{})...",
+                            delay / 1000,
+                            rate_limit_retries,
+                            MAX_RATE_LIMIT_RETRIES
+                        ))
+                        .for_job(job_id),
+                    )
+                    .await;
+                use_continue_request = captured_session_id.is_some();
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+                continue;
+            }
+
             if result.error.is_some() {
                 break;
             }
 
-            if retries >= MAX_RETRIES || captured_session_id.is_none() {
+            if connection_retries >= MAX_RETRIES {
                 result.error = Some("Codex session ended unexpectedly (no completion event received)".to_string());
                 let _ = event_tx.send(LogEvent::error("Codex session ended unexpectedly").for_job(job_id)).await;
                 break;
             }
 
-            // Retry with thread_id
-            retries += 1;
-            is_retry = true;
-            let delay = retry_delay_ms(retries);
-            let _ = event_tx.send(LogEvent::system(format!("Connection dropped, retrying in {}s ({}/{})...", delay / 1000, retries, MAX_RETRIES)).for_job(job_id)).await;
+            connection_retries += 1;
+            use_continue_request = captured_session_id.is_some();
+            let delay = retry_delay_ms(connection_retries);
+            let _ = event_tx
+                .send(
+                    LogEvent::system(format!(
+                        "Connection dropped, retrying in {}s ({}/{})...",
+                        delay / 1000,
+                        connection_retries,
+                        MAX_RETRIES
+                    ))
+                    .for_job(job_id),
+                )
+                .await;
             tokio::time::sleep(Duration::from_millis(delay)).await;
         }
 
@@ -255,7 +322,7 @@ impl AgentRunner for CodexBridgeAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::CodexBridgeAdapter;
+    use super::{is_rate_limited, CodexBridgeAdapter};
     use crate::{AgentConfig, Job, ScopeDefinition};
     use std::path::{Path, PathBuf};
 
@@ -273,5 +340,12 @@ mod tests {
 
         assert!(prompt.starts_with("You are running in KYCo 'refactor' mode."), "Expected mode system prompt prefix, got: {}", prompt);
         assert!(prompt.contains("Refactor the file"), "Expected user prompt to follow system prompt, got: {}", prompt);
+    }
+
+    #[test]
+    fn detects_rate_limit_code() {
+        assert!(is_rate_limited(Some("429"), "anything"));
+        assert!(is_rate_limited(Some("rate_limit"), "anything"));
+        assert!(is_rate_limited(Some("RATE_LIMIT"), "anything"));
     }
 }

@@ -15,6 +15,7 @@ use crate::{ChainStepSummary, Job, JobResult, JobStatus, LogEvent};
 
 use super::log_forwarder::spawn_log_forwarder;
 use super::ExecutorEvent;
+use super::JobLockGuard;
 use worktree::setup_chain_worktree;
 
 /// Convert a ChainStepResult to a ChainStepSummary (clones string fields)
@@ -61,6 +62,64 @@ pub async fn run_chain_job(
 ) {
     let job_id = job.id;
     let chain_name = job.mode.clone();
+    let _job_locks = JobLockGuard::new(Arc::clone(job_manager), job_id);
+
+    // Validate job inputs before marking as running.
+    if job.source_line == 0 {
+        let error = "Invalid job input: source_line must be >= 1".to_string();
+        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(&error)));
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.fail(&error);
+            }
+            manager.touch();
+        }
+        let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+        return;
+    }
+
+    let workspace_root = job.workspace_path.as_ref().unwrap_or(work_dir);
+    let resolved_source_file = if job.source_file.is_absolute() {
+        job.source_file.clone()
+    } else {
+        workspace_root.join(&job.source_file)
+    };
+    if !resolved_source_file.exists() {
+        let error = format!("Source file not found: {}", resolved_source_file.display());
+        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(&error)));
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.fail(&error);
+            }
+            manager.touch();
+        }
+        let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+        return;
+    }
+    if !resolved_source_file.is_file() {
+        let error = format!(
+            "Invalid job input: source file is not a file: {}",
+            resolved_source_file.display()
+        );
+        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(&error)));
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.fail(&error);
+            }
+            manager.touch();
+        }
+        let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+        return;
+    }
+    if !job.source_file.is_absolute() {
+        job.source_file = resolved_source_file;
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.source_file = job.source_file.clone();
+            }
+            manager.touch();
+        }
+    }
 
     let chain = match config.get_chain(&chain_name) {
         Some(c) => c.clone(),
@@ -277,8 +336,4 @@ pub async fn run_chain_job(
     });
 
     let _ = log_forwarder.await;
-
-    if let Ok(mut manager) = job_manager.lock() {
-        manager.release_job_locks(job_id);
-    }
 }

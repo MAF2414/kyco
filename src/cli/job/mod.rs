@@ -17,6 +17,30 @@ use types::{JobContinueResponse, JobCreateResponse, JobGetResponse};
 pub use list::job_list_command;
 pub use types::JobStartArgs;
 
+fn expand_tilde(path: &str) -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    if path == "~" {
+        return Some(home);
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        return Some(home.join(rest));
+    }
+    #[cfg(windows)]
+    if let Some(rest) = path.strip_prefix("~\\") {
+        return Some(home.join(rest));
+    }
+    None
+}
+
+fn resolve_file_path(work_dir: &Path, raw: &str) -> PathBuf {
+    let path = expand_tilde(raw).unwrap_or_else(|| PathBuf::from(raw));
+    if path.is_absolute() {
+        path
+    } else {
+        work_dir.join(path)
+    }
+}
+
 pub fn job_get_command(
     work_dir: &Path,
     config_override: Option<&PathBuf>,
@@ -55,6 +79,36 @@ pub fn job_start_command(
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs");
 
+    let file_path_raw = args.file_path.trim();
+    if file_path_raw.is_empty() {
+        anyhow::bail!("Missing --file");
+    }
+
+    if let Some(start) = args.line_start {
+        if start == 0 {
+            anyhow::bail!("--line-start must be >= 1");
+        }
+    }
+    if let Some(end) = args.line_end {
+        if end == 0 {
+            anyhow::bail!("--line-end must be >= 1");
+        }
+    }
+    if let (Some(start), Some(end)) = (args.line_start, args.line_end) {
+        if end < start {
+            anyhow::bail!("--line-end must be >= --line-start");
+        }
+    }
+
+    let resolved_path = resolve_file_path(work_dir, file_path_raw);
+    if !resolved_path.exists() {
+        anyhow::bail!("File not found: {}", resolved_path.display());
+    }
+    if !resolved_path.is_file() {
+        anyhow::bail!("Path is not a file: {}", resolved_path.display());
+    }
+    let file_path = resolved_path.display().to_string();
+
     let agents = args
         .agents
         .iter()
@@ -63,7 +117,7 @@ pub fn job_start_command(
         .collect::<Vec<_>>();
 
     let payload = serde_json::json!({
-        "file_path": args.file_path,
+        "file_path": file_path,
         "line_start": args.line_start,
         "line_end": args.line_end,
         "selected_text": args.selected_text,

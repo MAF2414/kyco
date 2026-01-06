@@ -15,6 +15,7 @@ use super::git_utils::calculate_git_numstat_async;
 use super::log_forwarder::spawn_log_forwarder;
 use super::worktree_setup::setup_worktree;
 use super::ExecutorEvent;
+use super::JobLockGuard;
 
 /// Run a single job (non-chain)
 pub async fn run_job(
@@ -27,6 +28,7 @@ pub async fn run_job(
     mut job: Job,
 ) {
     let job_id = job.id;
+    let _job_locks = JobLockGuard::new(Arc::clone(job_manager), job_id);
 
     if config.is_chain(&job.mode) {
         run_chain_job(
@@ -40,6 +42,63 @@ pub async fn run_job(
         )
         .await;
         return;
+    }
+
+    // Validate job inputs before marking as running.
+    if job.source_line == 0 {
+        let error = "Invalid job input: source_line must be >= 1".to_string();
+        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(error.clone())));
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.fail(error.clone());
+            }
+            manager.touch();
+        }
+        let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+        return;
+    }
+
+    let workspace_root = job.workspace_path.as_ref().unwrap_or(work_dir);
+    let resolved_source_file = if job.source_file.is_absolute() {
+        job.source_file.clone()
+    } else {
+        workspace_root.join(&job.source_file)
+    };
+    if !resolved_source_file.exists() {
+        let error = format!("Source file not found: {}", resolved_source_file.display());
+        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(error.clone())));
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.fail(error.clone());
+            }
+            manager.touch();
+        }
+        let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+        return;
+    }
+    if !resolved_source_file.is_file() {
+        let error = format!(
+            "Invalid job input: source file is not a file: {}",
+            resolved_source_file.display()
+        );
+        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(error.clone())));
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.fail(error.clone());
+            }
+            manager.touch();
+        }
+        let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+        return;
+    }
+    if !job.source_file.is_absolute() {
+        job.source_file = resolved_source_file;
+        if let Ok(mut manager) = job_manager.lock() {
+            if let Some(j) = manager.get_mut(job_id) {
+                j.source_file = job.source_file.clone();
+            }
+            manager.touch();
+        }
     }
 
     {
@@ -275,8 +334,4 @@ pub async fn run_job(
     }
 
     let _ = log_forwarder.await;
-
-    if let Ok(mut manager) = job_manager.lock() {
-        manager.release_job_locks(job_id);
-    }
 }

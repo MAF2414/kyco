@@ -2,6 +2,8 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use std::path::Path;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -13,9 +15,68 @@ use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
 
 /// Maximum number of retries when connection drops
-const MAX_RETRIES: u32 = 3;
-/// Delay between retries in milliseconds
-const RETRY_DELAY_MS: u64 = 2000;
+const MAX_CONNECTION_RETRIES: u32 = 3;
+/// Maximum number of retries when rate limited (HTTP 429)
+const MAX_RATE_LIMIT_RETRIES: u32 = 20;
+/// Delay between connection-drop retries in milliseconds
+const CONNECTION_RETRY_DELAY_MS: u64 = 2000;
+
+static RETRY_AFTER_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)retry[- ]after\s*[:=]?\s*(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes)?")
+        .expect("valid retry-after regex")
+});
+
+fn is_rate_limited(code: Option<&str>, message: &str) -> bool {
+    if code.is_some_and(|c| c.eq_ignore_ascii_case("429") || c.eq_ignore_ascii_case("rate_limit")) {
+        return true;
+    }
+    if message.contains("429") {
+        return true;
+    }
+    let msg = message.to_ascii_lowercase();
+    msg.contains("rate limit") || msg.contains("too many requests")
+}
+
+fn parse_retry_after_ms(message: &str) -> Option<u64> {
+    let caps = RETRY_AFTER_RE.captures(message)?;
+    let value: u64 = caps.get(1)?.as_str().parse().ok()?;
+    let unit = caps.get(2).map(|m| m.as_str().to_ascii_lowercase());
+    match unit.as_deref() {
+        None | Some("s") | Some("sec") | Some("secs") | Some("second") | Some("seconds") => Some(value.saturating_mul(1000)),
+        Some("m") | Some("min") | Some("mins") | Some("minute") | Some("minutes") => Some(value.saturating_mul(60_000)),
+        Some(_) => None,
+    }
+}
+
+/// Calculate retry delay for rate limit errors with exponential backoff.
+/// Pattern (seconds): 2, 4, 8, 16, 30, 60, 60, ...
+fn rate_limit_delay_ms(attempt: u32, retry_after_ms: Option<u64>) -> u64 {
+    if let Some(ms) = retry_after_ms {
+        return ms.clamp(1_000, 60_000);
+    }
+    match attempt {
+        1 => 2_000,
+        2 => 4_000,
+        3 => 8_000,
+        4 => 16_000,
+        5 => 30_000,
+        _ => 60_000,
+    }
+}
+
+fn add_jitter_ms(delay_ms: u64) -> u64 {
+    let max_jitter = (delay_ms / 10).min(1_000);
+    if max_jitter == 0 {
+        return delay_ms;
+    }
+    let mut buf = [0u8; 8];
+    if getrandom::getrandom(&mut buf).is_ok() {
+        let r = u64::from_le_bytes(buf);
+        delay_ms.saturating_add(r % (max_jitter + 1))
+    } else {
+        delay_ms
+    }
+}
 
 /// Claude adapter using the SDK Bridge
 ///
@@ -187,22 +248,23 @@ impl AgentRunner for ClaudeBridgeAdapter {
         let mut output_text = String::new();
         let mut captured_session_id: Option<String> = job.bridge_session_id.clone();
         let mut structured_result: Option<serde_json::Value> = None;
-        let mut retries = 0u32;
-        let mut is_retry = false;
+        let mut connection_retries = 0u32;
+        let mut rate_limit_retries = 0u32;
+        let mut use_continue_request = false;
 
         loop {
             let mut received_session_complete = false;
+            let mut rate_limited_message: Option<String> = None;
+            let mut rate_limited_retry_after_ms: Option<u64> = None;
             let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<BridgeEvent, String>>(100);
             let client = self.client.clone();
 
             // Build request: initial or continuation
-            let request = if is_retry {
-                if let Some(ref sid) = captured_session_id {
-                    self.build_continue_request(sid.clone(), cwd.clone(), config)
-                } else {
-                    // No session_id, can't retry
-                    break;
-                }
+            let request = if use_continue_request {
+                captured_session_id
+                    .as_ref()
+                    .map(|sid| self.build_continue_request(sid.clone(), cwd.clone(), config))
+                    .unwrap_or_else(|| initial_request.clone())
             } else {
                 initial_request.clone()
             };
@@ -217,7 +279,17 @@ impl AgentRunner for ClaudeBridgeAdapter {
             while let Some(event_result) = rx.recv().await {
                 let event = match event_result {
                     Ok(e) => e,
-                    Err(e) => { let _ = event_tx.send(LogEvent::error(format!("Event parse error: {}", e)).for_job(job_id)).await; continue; }
+                    Err(e) => {
+                        if is_rate_limited(None, &e) {
+                            rate_limited_retry_after_ms = parse_retry_after_ms(&e);
+                            rate_limited_message = Some(e);
+                        } else {
+                            let message = format!("Bridge event stream error: {}", e);
+                            result.error = Some(message.clone());
+                            let _ = event_tx.send(LogEvent::error(message).for_job(job_id)).await;
+                        }
+                        break;
+                    }
                 };
 
                 match event {
@@ -243,9 +315,15 @@ impl AgentRunner for ClaudeBridgeAdapter {
                         if let Some(files) = files_changed { for f in files { result.changed_files.push(std::path::PathBuf::from(f)); } }
                         let _ = event_tx.send(LogEvent::tool_output("tool", if success { output } else { format!("Error: {}", output) }).for_job(job_id)).await;
                     }
-                    BridgeEvent::Error { message, .. } => {
-                        let _ = event_tx.send(LogEvent::error(&message).for_job(job_id)).await;
-                        result.error = Some(message);
+                    BridgeEvent::Error { message, code, .. } => {
+                        if is_rate_limited(code.as_deref(), &message) {
+                            rate_limited_retry_after_ms = parse_retry_after_ms(&message);
+                            rate_limited_message = Some(message);
+                        } else {
+                            let _ = event_tx.send(LogEvent::error(&message).for_job(job_id)).await;
+                            result.error = Some(message);
+                        }
+                        break;
                     }
                     BridgeEvent::SessionComplete { success, cost_usd, duration_ms, usage, result: sr, .. } => {
                         received_session_complete = true;
@@ -258,6 +336,7 @@ impl AgentRunner for ClaudeBridgeAdapter {
                         }
                         let usage_info = usage.map(|u| format!(", {} input + {} output tokens", u.input_tokens, u.output_tokens)).unwrap_or_default();
                         let _ = event_tx.send(LogEvent::system(format!("Completed: {} (cost: ${:.4}, duration: {}ms{})", if success { "success" } else { "failed" }, cost_usd.unwrap_or(0.0), duration_ms, usage_info)).for_job(job_id)).await;
+                        break;
                     }
                     BridgeEvent::ToolApprovalNeeded { request_id, session_id, tool_name, tool_input, .. } => {
                         tracing::info!("⚠️ Received ToolApprovalNeeded from Bridge: tool={}, request_id={}, job_id={}", tool_name, request_id, job_id);
@@ -275,28 +354,61 @@ impl AgentRunner for ClaudeBridgeAdapter {
 
             // Stream ended - check if we should retry
             if received_session_complete {
-                // Normal completion, exit loop
                 break;
             }
 
-            // Connection dropped without SessionComplete
+            if let Some(message) = rate_limited_message.take() {
+                rate_limit_retries += 1;
+                if rate_limit_retries > MAX_RATE_LIMIT_RETRIES {
+                    let final_message = format!(
+                        "Rate limited (HTTP 429) too many times ({}/{}): {}",
+                        rate_limit_retries, MAX_RATE_LIMIT_RETRIES, message
+                    );
+                    result.error = Some(final_message.clone());
+                    let _ = event_tx.send(LogEvent::error(&final_message).for_job(job_id)).await;
+                    break;
+                }
+
+                let base_delay_ms = rate_limit_delay_ms(rate_limit_retries, rate_limited_retry_after_ms);
+                let delay_ms = add_jitter_ms(base_delay_ms);
+                let delay_s = (delay_ms + 999) / 1000;
+                let _ = event_tx
+                    .send(
+                        LogEvent::system(format!(
+                            "Rate limited, retrying in {}s ({}/{})...",
+                            delay_s, rate_limit_retries, MAX_RATE_LIMIT_RETRIES
+                        ))
+                        .for_job(job_id),
+                    )
+                    .await;
+                use_continue_request = captured_session_id.is_some();
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                continue;
+            }
+
             if result.error.is_some() {
-                // Explicit error received, don't retry
                 break;
             }
 
             // Check if we can retry
-            if retries >= MAX_RETRIES || captured_session_id.is_none() {
+            if connection_retries >= MAX_CONNECTION_RETRIES {
                 result.error = Some("Claude session ended unexpectedly (no completion event received)".to_string());
                 let _ = event_tx.send(LogEvent::error("Claude session ended unexpectedly").for_job(job_id)).await;
                 break;
             }
 
-            // Retry with session_id
-            retries += 1;
-            is_retry = true;
-            let _ = event_tx.send(LogEvent::system(format!("Connection dropped, retrying ({}/{})...", retries, MAX_RETRIES)).for_job(job_id)).await;
-            tokio::time::sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+            connection_retries += 1;
+            use_continue_request = captured_session_id.is_some();
+            let _ = event_tx
+                .send(
+                    LogEvent::system(format!(
+                        "Connection dropped, retrying ({}/{})...",
+                        connection_retries, MAX_CONNECTION_RETRIES
+                    ))
+                    .for_job(job_id),
+                )
+                .await;
+            tokio::time::sleep(Duration::from_millis(CONNECTION_RETRY_DELAY_MS)).await;
         }
 
         if !output_text.is_empty() { result.output_text = Some(output_text); }
@@ -308,4 +420,37 @@ impl AgentRunner for ClaudeBridgeAdapter {
 
     fn id(&self) -> &str { "claude" }
     fn is_available(&self) -> bool { self.client.health_check().is_ok() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_rate_limited, parse_retry_after_ms, rate_limit_delay_ms};
+
+    #[test]
+    fn detects_rate_limit_by_code() {
+        assert!(is_rate_limited(Some("429"), "anything"));
+        assert!(is_rate_limited(Some("rate_limit"), "anything"));
+        assert!(is_rate_limited(Some("RATE_LIMIT"), "anything"));
+    }
+
+    #[test]
+    fn detects_rate_limit_by_message() {
+        assert!(is_rate_limited(None, "HTTP 429 Too Many Requests"));
+        assert!(is_rate_limited(None, "Rate limit exceeded"));
+        assert!(is_rate_limited(None, "Too many requests"));
+    }
+
+    #[test]
+    fn parses_retry_after_ms() {
+        assert_eq!(parse_retry_after_ms("Retry-After: 5"), Some(5_000));
+        assert_eq!(parse_retry_after_ms("retry after 2s"), Some(2_000));
+        assert_eq!(parse_retry_after_ms("retry-after=3 mins"), Some(180_000));
+        assert_eq!(parse_retry_after_ms("no hint here"), None);
+    }
+
+    #[test]
+    fn rate_limit_delay_clamps_retry_after() {
+        assert_eq!(rate_limit_delay_ms(1, Some(500)), 1_000);
+        assert_eq!(rate_limit_delay_ms(1, Some(90_000)), 60_000);
+    }
 }

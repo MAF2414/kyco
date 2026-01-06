@@ -7,6 +7,33 @@ use crate::config::Config;
 
 pub(super) const AUTH_HEADER: &str = "X-KYCO-Token";
 
+fn format_http_error(code: u16, body: &str) -> String {
+    let body = body.trim();
+    if body.is_empty() {
+        return format!("HTTP {code}");
+    }
+
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
+        return format!("HTTP {code}: {body}");
+    };
+
+    let error = value
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or("http_error");
+    let details = value
+        .get("message")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| value.get("details").map(|v| v.to_string()));
+
+    if let Some(details) = details {
+        format!("HTTP {code} {error}: {details}")
+    } else {
+        format!("HTTP {code} {error}: {body}")
+    }
+}
+
 /// Resolve the config path - uses global config (~/.kyco/config.toml) as default,
 /// but allows override via --config flag for project-local configs.
 fn resolve_config_path(work_dir: &Path, config_override: Option<&PathBuf>) -> PathBuf {
@@ -51,7 +78,7 @@ pub(super) fn http_get_json(url: &str, token: Option<&str>) -> Result<serde_json
     let resp = req.call().map_err(|e| match e {
         ureq::Error::Status(code, resp) => {
             let body = resp.into_string().unwrap_or_default();
-            anyhow::anyhow!("HTTP {code}: {body}")
+            anyhow::anyhow!(format_http_error(code, &body))
         }
         other => anyhow::anyhow!(other),
     })?;
@@ -73,7 +100,7 @@ pub(super) fn http_post_json(
         .map_err(|e| match e {
             ureq::Error::Status(code, resp) => {
                 let body = resp.into_string().unwrap_or_default();
-                anyhow::anyhow!("HTTP {code}: {body}")
+                anyhow::anyhow!(format_http_error(code, &body))
             }
             other => anyhow::anyhow!(other),
         })?;

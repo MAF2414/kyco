@@ -24,6 +24,26 @@ use crate::{Job, JobStatus, LogEvent};
 
 pub use event::ExecutorEvent;
 
+/// Ensures file locks for a job are released on all exit paths.
+pub(super) struct JobLockGuard {
+    job_manager: Arc<Mutex<JobManager>>,
+    job_id: crate::JobId,
+}
+
+impl JobLockGuard {
+    pub(super) fn new(job_manager: Arc<Mutex<JobManager>>, job_id: crate::JobId) -> Self {
+        Self { job_manager, job_id }
+    }
+}
+
+impl Drop for JobLockGuard {
+    fn drop(&mut self) {
+        if let Ok(mut manager) = self.job_manager.lock() {
+            manager.release_job_locks(self.job_id);
+        }
+    }
+}
+
 /// Start the job executor in a background thread
 pub fn start_executor(
     work_dir: PathBuf,

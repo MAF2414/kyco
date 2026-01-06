@@ -17,6 +17,35 @@ const activeQueries = new Map<string, Query>();
 /** Current event emitter for the active query */
 let currentEventEmitter: EventEmitter | null = null;
 
+function isRateLimitMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return msg.includes('429')
+    || msg.includes('rate limit')
+    || msg.includes('rate_limit')
+    || msg.includes('too many requests');
+}
+
+function rateLimitCodeFromMessage(message: string): string {
+  return message.includes('429') ? '429' : 'rate_limit';
+}
+
+function extractErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const e = error as Record<string, unknown>;
+  const candidates = [
+    e.status,
+    e.statusCode,
+    e.code,
+    (e.error as Record<string, unknown> | undefined)?.status,
+    (e.response as Record<string, unknown> | undefined)?.status,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number') return String(candidate);
+    if (typeof candidate === 'string') return candidate;
+  }
+  return undefined;
+}
+
 /**
  * Execute a Claude query and stream events back
  */
@@ -46,11 +75,25 @@ export async function* executeClaudeQuery(
 
   currentEventEmitter = emitEvent;
   let q: Query | null = null;
+  let rateLimitSignalled = false;
 
   try {
     const options = buildQueryOptions(request, sessionState.id, emitEvent);
     // Use getter function so canUseTool always gets current sessionId
     options!.canUseTool = createCanUseToolCallback(() => sessionState.id, emitEvent);
+    options!.stderr = (data: string) => {
+      if (!rateLimitSignalled && isRateLimitMessage(data)) {
+        rateLimitSignalled = true;
+        emitEvent({
+          type: 'error',
+          sessionId: sessionState.id,
+          timestamp: Date.now(),
+          message: data.trim(),
+          code: rateLimitCodeFromMessage(data),
+        });
+        void q?.interrupt().catch(() => {});
+      }
+    };
 
     q = query({ prompt: buildClaudePrompt(request), options });
 
@@ -73,6 +116,19 @@ export async function* executeClaudeQuery(
               break;
             }
             case 'assistant': {
+              if (message.error) {
+                emitEvent({
+                  type: 'error',
+                  sessionId: sessionState.id || message.session_id,
+                  timestamp: Date.now(),
+                  message: message.error,
+                  code: message.error,
+                });
+                if (message.error === 'rate_limit') {
+                  rateLimitSignalled = true;
+                  void q?.interrupt().catch(() => {});
+                }
+              }
               for (const block of message.message.content) {
                 if (block.type === 'text') {
                   emitEvent({
@@ -135,6 +191,14 @@ export async function* executeClaudeQuery(
                   durationMs: Date.now() - startTime,
                 });
               } else {
+                const errorText = message.errors?.join('\n') || 'Claude SDK execution error';
+                emitEvent({
+                  type: 'error',
+                  sessionId: sessionState.id,
+                  timestamp: Date.now(),
+                  message: errorText,
+                  code: isRateLimitMessage(errorText) ? rateLimitCodeFromMessage(errorText) : undefined,
+                });
                 emitEvent({
                   type: 'session.complete',
                   sessionId: sessionState.id,
@@ -177,11 +241,15 @@ export async function* executeClaudeQuery(
           totalCostUsd: (existingSession?.totalCostUsd || 0) + costUsd,
         });
       } catch (error) {
+        const messageText = error instanceof Error ? error.message : String(error);
+        const extracted = extractErrorCode(error);
+        const code = extracted ?? (isRateLimitMessage(messageText) ? rateLimitCodeFromMessage(messageText) : undefined);
         emitEvent({
           type: 'error',
           sessionId: sessionState.id,
           timestamp: Date.now(),
-          message: error instanceof Error ? error.message : String(error),
+          message: messageText,
+          code,
         });
         emitEvent({
           type: 'session.complete',
@@ -232,11 +300,15 @@ export async function* executeClaudeQuery(
     const timeoutPromise = new Promise<void>(resolve => setTimeout(resolve, 2000));
     await Promise.race([streamPromise.catch(() => {}), timeoutPromise]);
   } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    const extracted = extractErrorCode(error);
+    const code = extracted ?? (isRateLimitMessage(messageText) ? rateLimitCodeFromMessage(messageText) : undefined);
     yield {
       type: 'error',
       sessionId: sessionState.id,
       timestamp: Date.now(),
-      message: error instanceof Error ? error.message : String(error),
+      message: messageText,
+      code,
     };
     yield {
       type: 'session.complete',
