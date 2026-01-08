@@ -232,6 +232,7 @@ impl KycoApp {
             agent_edit_price_input: String::new(),
             agent_edit_price_cached_input: String::new(),
             agent_edit_price_output: String::new(),
+            agent_edit_allow_dangerous_bypass: false,
             settings_max_concurrent,
             settings_auto_run,
             settings_use_worktree,

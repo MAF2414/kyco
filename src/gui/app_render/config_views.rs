@@ -123,6 +123,7 @@ impl KycoApp {
                 agent_edit_price_input: &mut self.agent_edit_price_input,
                 agent_edit_price_cached_input: &mut self.agent_edit_price_cached_input,
                 agent_edit_price_output: &mut self.agent_edit_price_output,
+                agent_edit_allow_dangerous_bypass: &mut self.agent_edit_allow_dangerous_bypass,
                 view_mode: &mut self.view_mode,
                 config: &mut *config,
                 work_dir: &self.work_dir,

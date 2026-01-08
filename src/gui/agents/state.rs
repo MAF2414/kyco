@@ -19,6 +19,8 @@ pub struct AgentEditorState<'a> {
     pub agent_edit_price_input: &'a mut String,
     pub agent_edit_price_cached_input: &'a mut String,
     pub agent_edit_price_output: &'a mut String,
+    // Safety settings
+    pub agent_edit_allow_dangerous_bypass: &'a mut bool,
     pub view_mode: &'a mut ViewMode,
     pub config: &'a mut Config,
     pub work_dir: &'a Path,

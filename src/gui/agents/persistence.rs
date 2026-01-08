@@ -35,6 +35,8 @@ pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
             .price_output
             .map(|v| format!("{:.2}", v))
             .unwrap_or_default();
+        // Safety settings
+        *state.agent_edit_allow_dangerous_bypass = agent.allow_dangerous_bypass;
         *state.agent_edit_status = None;
     }
 }
@@ -120,6 +122,7 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         price_input,
         price_cached_input,
         price_output,
+        allow_dangerous_bypass: *state.agent_edit_allow_dangerous_bypass,
     };
 
     state.config.agent.insert(name.clone(), agent_config);

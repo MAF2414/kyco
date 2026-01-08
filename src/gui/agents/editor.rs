@@ -204,6 +204,28 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(16.0);
 
+            ui.separator();
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new("⚠ Safety Settings")
+                    .monospace()
+                    .color(ACCENT_RED),
+            );
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                ui.checkbox(
+                    state.agent_edit_allow_dangerous_bypass,
+                    RichText::new("Allow dangerous bypass").color(TEXT_PRIMARY),
+                );
+            });
+            ui.label(
+                RichText::new("Enables --dangerously-skip-permissions (Claude) or --yolo (Codex)")
+                    .small()
+                    .color(TEXT_MUTED),
+            );
+            ui.add_space(16.0);
+
             if let Some((msg, is_error)) = &state.agent_edit_status {
                 let color = if *is_error { ACCENT_RED } else { ACCENT_GREEN };
                 ui.label(RichText::new(msg.as_str()).color(color));

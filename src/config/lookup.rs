@@ -96,6 +96,7 @@ impl Config {
                 },
                 output_schema,
                 structured_output_schema,
+                allow_dangerous_bypass: toml.allow_dangerous_bypass,
             }
         })
     }

@@ -51,4 +51,14 @@ pub struct AgentConfigToml {
     /// Output token price per 1M tokens (e.g., 15.0 for $15.00/1M)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub price_output: Option<f64>,
+
+    /// Whether this agent is allowed to bypass sandbox/permission restrictions.
+    ///
+    /// When true, enables:
+    /// - Claude: `--dangerously-skip-permissions`
+    /// - Codex: `--dangerously-bypass-approvals-and-sandbox` (--yolo)
+    ///
+    /// Default is false for safety.
+    #[serde(default)]
+    pub allow_dangerous_bypass: bool,
 }

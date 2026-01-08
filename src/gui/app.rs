@@ -145,6 +145,8 @@ pub struct KycoApp {
     pub(crate) agent_edit_price_cached_input: String,
     /// Agent editor: output token price per 1M tokens
     pub(crate) agent_edit_price_output: String,
+    /// Agent editor: allow dangerous bypass (--dangerously-skip-permissions / --yolo)
+    pub(crate) agent_edit_allow_dangerous_bypass: bool,
     /// Skill editor: raw SKILL.md content being edited
     pub(crate) skill_edit_content: String,
     /// Skill editor: folder structure info (scripts/, references/, assets/)

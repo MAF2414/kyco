@@ -167,6 +167,16 @@ pub struct AgentConfig {
     /// When set, the bridge will request JSON output that conforms to this schema.
     #[serde(default)]
     pub structured_output_schema: Option<String>,
+
+    /// Whether this agent is allowed to bypass sandbox/permission restrictions.
+    ///
+    /// When true, enables:
+    /// - Claude: `--dangerously-skip-permissions`
+    /// - Codex: `--dangerously-bypass-approvals-and-sandbox` (--yolo)
+    ///
+    /// Default is false for safety.
+    #[serde(default)]
+    pub allow_dangerous_bypass: bool,
 }
 
 impl Default for AgentConfig {
@@ -196,6 +206,7 @@ impl AgentConfig {
             plugins: Vec::new(),
             output_schema: None,
             structured_output_schema: None,
+            allow_dangerous_bypass: false,
         }
     }
 
@@ -219,6 +230,7 @@ impl AgentConfig {
             plugins: Vec::new(),
             output_schema: None,
             structured_output_schema: None,
+            allow_dangerous_bypass: false,
         }
     }
 
