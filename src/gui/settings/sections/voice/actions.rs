@@ -5,10 +5,10 @@ use eframe::egui::{self, Color32, RichText};
 use crate::gui::settings::state::SettingsState;
 use crate::gui::theme::{ACCENT_CYAN, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
 
-/// Render Voice Actions (Wakewords → Modes) section
+/// Render Voice Actions (Wakewords → Skills) section
 pub fn render_voice_actions(ui: &mut egui::Ui, state: &SettingsState<'_>) {
     ui.label(
-        RichText::new("Voice Actions (Wakewords → Modes)")
+        RichText::new("Voice Actions (Wakewords → Skills)")
             .monospace()
             .color(TEXT_PRIMARY),
     );
@@ -21,7 +21,7 @@ pub fn render_voice_actions(ui: &mut egui::Ui, state: &SettingsState<'_>) {
         .show(ui, |ui| {
             ui.label(
                 RichText::new(
-                    "Speak a wakeword to trigger the corresponding mode (loaded from config):",
+                    "Speak a wakeword to trigger the corresponding skill (loaded from config):",
                 )
                 .color(TEXT_MUTED),
             );
@@ -41,7 +41,7 @@ pub fn render_voice_actions(ui: &mut egui::Ui, state: &SettingsState<'_>) {
             // Display actions from registry
             if state.voice_action_registry.actions.is_empty() {
                 ui.label(
-                    RichText::new("No modes configured. Add modes in .kyco/config.toml")
+                    RichText::new("No skills configured. Add skills to .claude/skills/ or .codex/skills/")
                         .small()
                         .color(TEXT_DIM),
                 );
@@ -58,7 +58,7 @@ fn render_actions_grid(ui: &mut egui::Ui, state: &SettingsState<'_>) {
         .spacing([12.0, 4.0])
         .show(ui, |ui| {
             ui.label(RichText::new("Wakeword").color(TEXT_MUTED).small());
-            ui.label(RichText::new("Mode").color(TEXT_MUTED).small());
+            ui.label(RichText::new("Skill").color(TEXT_MUTED).small());
             ui.label(RichText::new("Aliases").color(TEXT_MUTED).small());
             ui.end_row();
 

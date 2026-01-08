@@ -147,15 +147,16 @@ pub fn save_chain_to_config(state: &mut ChainEditorState<'_>, is_new: bool) {
     }
 
     for (i, step) in state.chain_edit_steps.iter().enumerate() {
-        let mode_name = step.mode.trim();
-        if mode_name.is_empty() {
+        let skill_name = step.mode.trim();
+        if skill_name.is_empty() {
             *state.chain_edit_status =
-                Some((format!("Step {} must have a mode selected", i + 1), true));
+                Some((format!("Step {} must have a skill selected", i + 1), true));
             return;
         }
-        if !state.config.mode.contains_key(mode_name) {
+        // Check if skill exists (filesystem-based only - no legacy modes)
+        if !state.config.skill.contains_key(skill_name) {
             *state.chain_edit_status = Some((
-                format!("Step {}: mode '{}' does not exist", i + 1, mode_name),
+                format!("Step {}: skill '{}' does not exist", i + 1, skill_name),
                 true,
             ));
             return;

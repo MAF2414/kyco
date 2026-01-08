@@ -132,7 +132,7 @@ fn render_chain_step_full_width(
             ui.horizontal(|ui| {
                 ui.label(RichText::new(status_icon).color(status_color));
                 ui.label(
-                    RichText::new(format!("{}. {}", step.step_index + 1, step.mode))
+                    RichText::new(format!("{}. {}", step.step_index + 1, step.skill))
                         .monospace()
                         .color(TEXT_PRIMARY),
                 );

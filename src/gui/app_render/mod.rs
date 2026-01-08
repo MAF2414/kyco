@@ -78,8 +78,8 @@ impl KycoApp {
                     self.apply_voice_config();
                 }
             }
-            ViewMode::Modes => {
-                self.render_modes(ctx);
+            ViewMode::Skills => {
+                self.render_modes(ctx); // Still uses render_modes internally
             }
             ViewMode::Agents => {
                 self.render_agents(ctx);

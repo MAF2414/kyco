@@ -114,7 +114,7 @@ pub struct ChainStepEdit {
 impl From<&ChainStep> for ChainStepEdit {
     fn from(step: &ChainStep) -> Self {
         Self {
-            mode: step.mode.clone(),
+            mode: step.skill.clone(),
             trigger_on: step
                 .trigger_on
                 .as_ref()
@@ -135,7 +135,7 @@ impl From<&ChainStep> for ChainStepEdit {
 impl ChainStepEdit {
     pub fn to_chain_step(&self) -> ChainStep {
         ChainStep {
-            mode: self.mode.clone(),
+            skill: self.mode.clone(),
             trigger_on: parse_state_list(&self.trigger_on),
             skip_on: parse_state_list(&self.skip_on),
             agent: if self.agent.trim().is_empty() {

@@ -32,7 +32,7 @@ impl CodexAdapter {
 
     /// Build the prompt for a job using the mode template from config
     fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
-        let template = config.get_mode_template(&job.mode);
+        let template = config.get_skill_template(&job.mode);
         let file_path = job.source_file.display().to_string();
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
@@ -61,7 +61,7 @@ impl CodexAdapter {
         let mut args = config.get_run_args();
 
         // Build the full prompt with system prompt if configured
-        let template = config.get_mode_template(&job.mode);
+        let template = config.get_skill_template(&job.mode);
         let mut system_prompt = template.system_prompt.clone().unwrap_or_default();
 
         // If running in a worktree, add commit instruction

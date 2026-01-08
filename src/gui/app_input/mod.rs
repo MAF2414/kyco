@@ -55,8 +55,8 @@ impl KycoApp {
             ViewMode::Settings => {
                 self.handle_settings_input(i);
             }
-            ViewMode::Modes => {
-                self.handle_modes_input(i);
+            ViewMode::Skills => {
+                self.handle_skills_input(i);
             }
             ViewMode::Agents => {
                 self.handle_agents_input(i);
@@ -227,7 +227,7 @@ impl KycoApp {
         }
     }
 
-    fn handle_modes_input(&mut self, i: &egui::InputState) {
+    fn handle_skills_input(&mut self, i: &egui::InputState) {
         if i.key_pressed(Key::Escape) {
             if self.selected_mode.is_some() {
                 self.selected_mode = None;

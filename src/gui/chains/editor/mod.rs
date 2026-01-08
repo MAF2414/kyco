@@ -30,9 +30,9 @@ pub fn render_chain_editor(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>, 
     ui.label(RichText::new(&title).monospace().color(TEXT_PRIMARY));
     ui.add_space(16.0);
 
-    // Get available modes for dropdown (sorted alphabetically for consistent UX)
-    let mut available_modes: Vec<String> = state.config.mode.keys().cloned().collect();
-    available_modes.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    // Get available skills for dropdown (from filesystem only - no legacy modes)
+    let mut available_skills: Vec<String> = state.config.skill.keys().cloned().collect();
+    available_skills.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
 
     // Get available state IDs for trigger_on/skip_on hints
     let available_state_ids: Vec<String> = state
@@ -139,7 +139,7 @@ pub fn render_chain_editor(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>, 
             render_steps(
                 ui,
                 state.chain_edit_steps,
-                &available_modes,
+                &available_skills,
                 &available_state_ids,
             );
 

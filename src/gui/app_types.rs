@@ -19,8 +19,8 @@ pub enum ViewMode {
     ComparisonPopup,
     /// Settings/Extensions view
     Settings,
-    /// Modes configuration view
-    Modes,
+    /// Skills configuration view
+    Skills,
     /// Agents configuration view
     Agents,
     /// Chains configuration view

@@ -49,7 +49,7 @@ impl AutocompleteState {
         let default_agent = &config.settings.gui.default_agent;
 
         if input_trimmed.is_empty() {
-            // Show agents first, then modes when empty
+            // Show agents first, then skills when empty
             for (agent_name, agent_config) in &config.agent {
                 let backend = agent_config.sdk.default_name();
                 let desc = format!("{} ({})", backend, agent_config.aliases.join(", "));
@@ -59,17 +59,18 @@ impl AutocompleteState {
                     category: "agent",
                 });
             }
-            for (mode_name, mode_config) in &config.mode {
-                let aliases = if mode_config.aliases.is_empty() {
+            // Skills from filesystem (no legacy modes)
+            for (skill_name, skill_config) in &config.skill {
+                let aliases = if skill_config.kyco.aliases.is_empty() {
                     String::new()
                 } else {
-                    format!(" ({})", mode_config.aliases.join(", "))
+                    format!(" ({})", skill_config.kyco.aliases.join(", "))
                 };
-                let agent_hint = mode_config.agent.as_deref().unwrap_or(default_agent);
+                let agent_hint = skill_config.kyco.agent.as_deref().unwrap_or(default_agent);
                 self.suggestions.push(Suggestion {
-                    text: mode_name.to_string(),
+                    text: skill_name.to_string(),
                     description: format!("default: {}{}", agent_hint, aliases),
-                    category: "mode",
+                    category: "skill",
                 });
             }
             for (chain_name, chain_config) in &config.chain {
@@ -121,36 +122,38 @@ impl AutocompleteState {
             return;
         }
 
-        // Check if we have "agent:" prefix - show modes after colon
+        // Check if we have "agent:" prefix - show skills after colon
         if let Some(colon_pos) = input_trimmed.find(':') {
             let agent_part = &input_trimmed[..colon_pos];
-            let mode_part = &input_trimmed[colon_pos + 1..];
+            let skill_part = &input_trimmed[colon_pos + 1..];
 
-            for (mode_name, mode_config) in &config.mode {
-                let mode_lower = mode_name.to_lowercase();
-                let matches_mode = mode_lower.starts_with(mode_part) || mode_part.is_empty();
-                let matches_alias = mode_config
+            // Skills from filesystem (no legacy modes)
+            for (skill_name, skill_config) in &config.skill {
+                let skill_lower = skill_name.to_lowercase();
+                let matches_skill = skill_lower.starts_with(skill_part) || skill_part.is_empty();
+                let matches_alias = skill_config
+                    .kyco
                     .aliases
                     .iter()
-                    .any(|a| a.to_lowercase().starts_with(mode_part));
+                    .any(|a| a.to_lowercase().starts_with(skill_part));
 
-                if matches_mode || matches_alias {
-                    let aliases = if mode_config.aliases.is_empty() {
+                if matches_skill || matches_alias {
+                    let aliases = if skill_config.kyco.aliases.is_empty() {
                         String::new()
                     } else {
-                        format!(" ({})", mode_config.aliases.join(", "))
+                        format!(" ({})", skill_config.kyco.aliases.join(", "))
                     };
                     self.suggestions.push(Suggestion {
-                        text: format!("{}:{}", agent_part, mode_name),
+                        text: format!("{}:{}", agent_part, skill_name),
                         description: aliases,
-                        category: "mode",
+                        category: "skill",
                     });
                 }
             }
 
             for (chain_name, chain_config) in &config.chain {
                 let chain_lower = chain_name.to_lowercase();
-                let matches_chain = chain_lower.starts_with(mode_part) || mode_part.is_empty();
+                let matches_chain = chain_lower.starts_with(skill_part) || skill_part.is_empty();
 
                 if matches_chain {
                     let desc = chain_config
@@ -165,7 +168,7 @@ impl AutocompleteState {
                 }
             }
         } else {
-            // No colon yet - show matching agents and modes
+            // No colon yet - show matching agents and skills
             for (agent_name, agent_config) in &config.agent {
                 let name_lower = agent_name.to_lowercase();
                 let matches_name = name_lower.starts_with(input_trimmed);
@@ -185,26 +188,27 @@ impl AutocompleteState {
                 }
             }
 
-            // Then show matching modes (uses default agent)
-            for (mode_name, mode_config) in &config.mode {
-                let mode_lower = mode_name.to_lowercase();
-                let matches_mode = mode_lower.starts_with(input_trimmed);
-                let matches_alias = mode_config
+            // Show matching skills (from filesystem only - no legacy modes)
+            for (skill_name, skill_config) in &config.skill {
+                let skill_lower = skill_name.to_lowercase();
+                let matches_skill = skill_lower.starts_with(input_trimmed);
+                let matches_alias = skill_config
+                    .kyco
                     .aliases
                     .iter()
                     .any(|a| a.to_lowercase().starts_with(input_trimmed));
 
-                if matches_mode || matches_alias {
-                    let aliases = if mode_config.aliases.is_empty() {
+                if matches_skill || matches_alias {
+                    let aliases = if skill_config.kyco.aliases.is_empty() {
                         String::new()
                     } else {
-                        format!(" ({})", mode_config.aliases.join(", "))
+                        format!(" ({})", skill_config.kyco.aliases.join(", "))
                     };
-                    let agent_hint = mode_config.agent.as_deref().unwrap_or(default_agent);
+                    let agent_hint = skill_config.kyco.agent.as_deref().unwrap_or(default_agent);
                     self.suggestions.push(Suggestion {
-                        text: mode_name.to_string(),
+                        text: skill_name.to_string(),
                         description: format!("default: {}{}", agent_hint, aliases),
-                        category: "mode",
+                        category: "skill",
                     });
                 }
             }

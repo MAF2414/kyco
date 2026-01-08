@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use fs2::FileExt;
 
+use super::skill_discovery::SkillDiscovery;
 use super::Config;
 
 impl Config {
@@ -213,5 +214,29 @@ impl Config {
         let mut config = Self::default();
         config.merge_internal_defaults();
         config
+    }
+
+    /// Discover and load skills from the filesystem.
+    ///
+    /// Skills are loaded from:
+    /// 1. Project-local: `.claude/skills/` and `.codex/skills/` (higher priority)
+    /// 2. Global: `~/.kyco/skills/` (lower priority, fallback)
+    ///
+    /// Project-local skills override global skills with the same name.
+    pub fn discover_skills(&mut self, project_dir: Option<&Path>) {
+        let discovery = SkillDiscovery::new(project_dir.map(|p| p.to_path_buf()));
+        self.skill = discovery.discover_all();
+        tracing::debug!("Discovered {} skills", self.skill.len());
+    }
+
+    /// Load global configuration and discover skills for a project.
+    ///
+    /// This is the recommended way to load config when you know the project directory.
+    /// It loads the global config, merges internal defaults, and discovers skills
+    /// from both global and project-local directories.
+    pub fn load_with_project(project_dir: Option<&Path>) -> Result<Self> {
+        let mut config = Self::load()?;
+        config.discover_skills(project_dir);
+        Ok(config)
     }
 }

@@ -9,6 +9,10 @@ mod lookup;
 mod mode;
 mod scope;
 mod settings;
+mod skill;
+mod skill_discovery;
+mod skill_parser;
+mod skill_registry;
 mod target;
 mod token;
 
@@ -18,6 +22,17 @@ pub use chain::{ChainStep, ModeChain, ModeOrChain, ModeOrChainRef, StateDefiniti
 pub use internal::{InternalDefaults, INTERNAL_DEFAULTS_TOML};
 pub use mode::{ClaudeModeOptions, CodexModeOptions, ModeConfig, ModeSessionType};
 pub use scope::ScopeConfig;
+pub use skill::{
+    ClaudeSkillOptions, CodexSkillOptions, SkillConfig, SkillKycoExtensions, SkillSessionType,
+    SkillValidationError, validate_skill, validate_skill_description, validate_skill_name,
+};
+pub use skill_discovery::{
+    delete_skill, delete_skill_global, save_skill, save_skill_global, SkillAgentType,
+    SkillDiscovery,
+};
+pub use skill_parser::{create_skill_template, parse_skill_content, parse_skill_file, SkillParseError};
+pub use skill_registry::{RegistrySkill, SkillRegistry};
+pub use lookup::SkillOrChainRef;
 pub use settings::{
     default_orchestrator_system_prompt, GuiSettings, OrchestratorSettings, RegistrySettings,
     Settings, VoiceSettings,
@@ -36,9 +51,14 @@ pub struct Config {
     #[serde(default)]
     pub agent: HashMap<String, AgentConfigToml>,
 
-    /// Mode configurations (prompt builders)
+    /// Mode configurations (prompt builders) - DEPRECATED, use skills instead
     #[serde(default)]
     pub mode: HashMap<String, ModeConfig>,
+
+    /// Skill configurations (loaded from .claude/skills/ and .codex/skills/)
+    /// This is computed at runtime from SKILL.md files, not stored in config.toml
+    #[serde(skip)]
+    pub skill: HashMap<String, SkillConfig>,
 
     /// Mode chain configurations (sequential mode execution)
     #[serde(default)]
@@ -66,6 +86,7 @@ impl Default for Config {
         Self {
             agent: HashMap::new(),
             mode: HashMap::new(),
+            skill: HashMap::new(),
             chain: HashMap::new(),
             scope: HashMap::new(),
             target: HashMap::new(),
@@ -79,6 +100,8 @@ impl Config {
     /// Merge internal defaults into this config using versioned merging.
     ///
     /// Returns true if any changes were made (new items added or upgraded).
+    ///
+    /// Note: Skills are loaded from SKILL.md files, not merged from internal defaults.
     pub fn merge_internal_defaults(&mut self) -> bool {
         let internal = match internal::InternalDefaults::load() {
             Ok(defaults) => defaults,
@@ -90,7 +113,6 @@ impl Config {
 
         // Track sizes before merge to detect changes
         let agents_before = self.agent.len();
-        let modes_before = self.mode.len();
         let chains_before = self.chain.len();
 
         // Also need to check if any versions were upgraded
@@ -106,16 +128,6 @@ impl Config {
             }
         }
         if !version_changes {
-            for (name, internal_mode) in &internal.mode {
-                if let Some(existing) = self.mode.get(name) {
-                    if internal_mode.version > existing.version {
-                        version_changes = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if !version_changes {
             for (name, internal_chain) in &internal.chain {
                 if let Some(existing) = self.chain.get(name) {
                     if internal_chain.version > existing.version {
@@ -126,13 +138,12 @@ impl Config {
             }
         }
 
-        // Perform the merge
-        internal.merge_into(&mut self.agent, &mut self.mode, &mut self.chain);
+        // Perform the merge (skills are loaded from SKILL.md files, not here)
+        internal.merge_into(&mut self.agent, &mut self.chain);
 
         // Check if anything changed
-        let size_changes = self.agent.len() != agents_before
-            || self.mode.len() != modes_before
-            || self.chain.len() != chains_before;
+        let size_changes =
+            self.agent.len() != agents_before || self.chain.len() != chains_before;
 
         size_changes || version_changes
     }

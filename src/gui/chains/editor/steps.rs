@@ -9,7 +9,7 @@ use crate::gui::theme::{ACCENT_CYAN, ACCENT_RED, BG_SECONDARY, TEXT_DIM, TEXT_MU
 pub fn render_steps(
     ui: &mut egui::Ui,
     steps: &mut Vec<ChainStepEdit>,
-    available_modes: &[String],
+    available_skills: &[String],
     available_state_ids: &[String],
 ) {
     ui.label(RichText::new("Steps:").color(TEXT_PRIMARY));
@@ -31,14 +31,14 @@ pub fn render_steps(
 
                     egui::ComboBox::from_id_salt(format!("mode_{}", i))
                         .selected_text(if step.mode.is_empty() {
-                            "(select mode)"
+                            "(select skill)"
                         } else {
                             &step.mode
                         })
                         .width(150.0)
                         .show_ui(ui, |ui| {
-                            for mode in available_modes {
-                                ui.selectable_value(&mut step.mode, mode.clone(), mode);
+                            for skill in available_skills {
+                                ui.selectable_value(&mut step.mode, skill.clone(), skill);
                             }
                         });
 
@@ -106,7 +106,7 @@ pub fn render_steps(
                         egui::TextEdit::singleline(&mut step.agent)
                             .font(egui::TextStyle::Monospace)
                             .text_color(TEXT_PRIMARY)
-                            .hint_text("(mode default)")
+                            .hint_text("(skill default)")
                             .desired_width(100.0),
                     );
                     ui.add_space(16.0);
@@ -115,11 +115,11 @@ pub fn render_steps(
                         egui::TextEdit::singleline(&mut step.loop_to)
                             .font(egui::TextStyle::Monospace)
                             .text_color(TEXT_PRIMARY)
-                            .hint_text("(mode name)")
+                            .hint_text("(skill name)")
                             .desired_width(100.0),
                     )
                     .on_hover_text(
-                        "If triggered, restart chain from this step's mode.\n\
+                        "If triggered, restart chain from this step's skill.\n\
                          Useful for review → fix loops. Limited by max_loops.",
                     );
                 });

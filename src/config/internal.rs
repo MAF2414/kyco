@@ -1,14 +1,17 @@
 //! Internal default configurations embedded at compile-time
 //!
-//! This module embeds the built-in modes, chains, and agents from
+//! This module embeds the built-in chains and agents from
 //! `assets/internal/defaults.toml` and provides versioned merging
 //! into user configurations.
+//!
+//! Note: Skills are loaded from SKILL.md files in `.claude/skills/`,
+//! `.codex/skills/`, or `~/.kyco/skills/` - not from this file.
 
 use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use super::{AgentConfigToml, ModeChain, ModeConfig};
+use super::{AgentConfigToml, ModeChain};
 
 /// Embedded defaults TOML content (compile-time)
 pub const INTERNAL_DEFAULTS_TOML: &str = include_str!("../../assets/internal/defaults.toml");
@@ -18,8 +21,6 @@ pub const INTERNAL_DEFAULTS_TOML: &str = include_str!("../../assets/internal/def
 pub struct InternalDefaults {
     #[serde(default)]
     pub agent: HashMap<String, AgentConfigToml>,
-    #[serde(default)]
-    pub mode: HashMap<String, ModeConfig>,
     #[serde(default)]
     pub chain: HashMap<String, ModeChain>,
 }
@@ -32,14 +33,15 @@ impl InternalDefaults {
 
     /// Merge internal defaults into a config, respecting versions.
     ///
-    /// For each internal mode/chain/agent:
+    /// For each internal chain/agent:
     /// - If it doesn't exist in the target config, add it
     /// - If it exists but the internal version is higher, replace it
     /// - If it exists with same or higher version, keep the user's version
+    ///
+    /// Note: Skills are not merged here - they are loaded from SKILL.md files.
     pub fn merge_into(
         &self,
         agents: &mut HashMap<String, AgentConfigToml>,
-        modes: &mut HashMap<String, ModeConfig>,
         chains: &mut HashMap<String, ModeChain>,
     ) {
         // Merge agents
@@ -51,19 +53,6 @@ impl InternalDefaults {
                 _ => {
                     // Add or upgrade
                     agents.insert(name.clone(), internal_agent.clone());
-                }
-            }
-        }
-
-        // Merge modes
-        for (name, internal_mode) in &self.mode {
-            match modes.get(name) {
-                Some(existing) if existing.version >= internal_mode.version => {
-                    // User has same or newer version, keep it
-                }
-                _ => {
-                    // Add or upgrade
-                    modes.insert(name.clone(), internal_mode.clone());
                 }
             }
         }
@@ -95,13 +84,9 @@ mod tests {
         assert!(defaults.agent.contains_key("claude"));
         assert!(defaults.agent.contains_key("codex"));
 
-        // Should have modes
-        assert!(defaults.mode.contains_key("review"));
-        assert!(defaults.mode.contains_key("fix"));
-        assert!(defaults.mode.contains_key("implement"));
-
-        // Should have chains
-        assert!(defaults.chain.contains_key("review+fix"));
+        // No default chains - chains are user-created
+        // Skills are loaded from SKILL.md files, not from defaults
+        assert!(defaults.chain.is_empty());
     }
 
     #[test]
@@ -109,27 +94,21 @@ mod tests {
         let defaults = InternalDefaults::load().expect("Failed to parse internal defaults");
 
         let mut agents = HashMap::new();
-        let mut modes = HashMap::new();
         let mut chains = HashMap::new();
 
-        // First merge - should add all
-        defaults.merge_into(&mut agents, &mut modes, &mut chains);
+        // First merge - should add agents (no default chains)
+        defaults.merge_into(&mut agents, &mut chains);
         assert!(!agents.is_empty());
-        assert!(!modes.is_empty());
+        assert!(chains.is_empty()); // No default chains
 
-        // User customizes a mode with higher version
-        if let Some(review) = modes.get_mut("review") {
-            review.version = 999;
-            review.system_prompt = Some("Custom review prompt".to_string());
+        // User customizes an agent with higher version
+        if let Some(claude) = agents.get_mut("claude") {
+            claude.version = 999;
         }
 
         // Second merge - should NOT override user's higher version
-        defaults.merge_into(&mut agents, &mut modes, &mut chains);
-        let review = modes.get("review").unwrap();
-        assert_eq!(review.version, 999);
-        assert_eq!(
-            review.system_prompt,
-            Some("Custom review prompt".to_string())
-        );
+        defaults.merge_into(&mut agents, &mut chains);
+        let claude = agents.get("claude").unwrap();
+        assert_eq!(claude.version, 999);
     }
 }

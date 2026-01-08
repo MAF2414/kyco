@@ -11,9 +11,9 @@ use crate::JobResult;
 /// (parsed YAML output) and `agent_result` (execution metadata) are populated.
 #[derive(Debug, Clone)]
 pub struct ChainStepResult {
-    /// The mode that was executed (e.g., "review", "fix").
+    /// The skill that was executed (e.g., "review", "fix").
     /// Uses `Arc<str>` for cheap cloning in repeated chain executions.
-    pub mode: Arc<str>,
+    pub skill: Arc<str>,
     /// Zero-based index of this step in the chain.
     pub step_index: usize,
     /// `true` if the step was skipped due to `trigger_on`/`skip_on` conditions.
@@ -74,9 +74,9 @@ pub struct ChainProgressEvent {
     pub step_index: usize,
     /// Total number of steps
     pub total_steps: usize,
-    /// Mode being executed.
+    /// Skill being executed.
     /// Uses `Arc<str>` for cheap cloning in repeated chain executions.
-    pub mode: Arc<str>,
+    pub skill: Arc<str>,
     /// Whether the step is starting (true) or completed (false)
     pub is_starting: bool,
     /// Step result (only present when is_starting is false)

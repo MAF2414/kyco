@@ -99,7 +99,7 @@ impl ClaudeBridgeAdapter {
     }
 
     fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
-        let template = config.get_mode_template(&job.mode);
+        let template = config.get_skill_template(&job.mode);
         let paths = resolve_prompt_paths(job);
 
         template.prompt_template
@@ -113,7 +113,7 @@ impl ClaudeBridgeAdapter {
     }
 
     fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
-        let template = config.get_mode_template(&job.mode);
+        let template = config.get_skill_template(&job.mode);
         let mut system_prompt = template.system_prompt.unwrap_or_default();
 
         if let Some(wt_path) = &job.git_worktree_path {

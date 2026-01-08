@@ -67,39 +67,32 @@ impl KycoApp {
         );
     }
 
-    /// Render modes configuration view
+    /// Render skills configuration view
     pub(crate) fn render_modes(&mut self, ctx: &egui::Context) {
-        use crate::gui::modes;
+        use crate::gui::skills;
 
-        let Ok(mut config) = self.config.write() else {
+        let Ok(config) = self.config.read() else {
             self.logs
-                .push(LogEvent::error("Config lock poisoned, cannot render modes"));
+                .push(LogEvent::error("Config lock poisoned, cannot render skills"));
             return;
         };
-        modes::render_modes(
+        skills::render_skills(
             ctx,
-            &mut modes::ModeEditorState {
-                selected_mode: &mut self.selected_mode,
-                mode_edit_name: &mut self.mode_edit_name,
-                mode_edit_aliases: &mut self.mode_edit_aliases,
-                mode_edit_prompt: &mut self.mode_edit_prompt,
-                mode_edit_system_prompt: &mut self.mode_edit_system_prompt,
-                mode_edit_readonly: &mut self.mode_edit_readonly,
-                mode_edit_status: &mut self.mode_edit_status,
-                mode_edit_agent: &mut self.mode_edit_agent,
-                mode_edit_allowed_tools: &mut self.mode_edit_allowed_tools,
-                mode_edit_disallowed_tools: &mut self.mode_edit_disallowed_tools,
-                mode_edit_session_mode: &mut self.mode_edit_session_mode,
-                mode_edit_max_turns: &mut self.mode_edit_max_turns,
-                mode_edit_model: &mut self.mode_edit_model,
-                mode_edit_claude_permission: &mut self.mode_edit_claude_permission,
-                mode_edit_codex_sandbox: &mut self.mode_edit_codex_sandbox,
-                mode_edit_output_states: &mut self.mode_edit_output_states,
-                mode_edit_state_prompt: &mut self.mode_edit_state_prompt,
-                mode_edit_use_worktree: &mut self.mode_edit_use_worktree,
+            &mut skills::SkillEditorState {
+                selected_skill: &mut self.selected_mode, // Reuse existing field
+                skill_edit_content: &mut self.skill_edit_content,
+                skill_edit_status: &mut self.mode_edit_status, // Reuse existing field
+                skill_folder_info: &mut self.skill_folder_info,
+                skill_edit_name: &mut self.mode_edit_name, // Reuse for new skill name
                 view_mode: &mut self.view_mode,
-                config: &mut *config,
+                config: &*config,
                 work_dir: &self.work_dir,
+                skills_tab: &mut self.skills_tab,
+                registry_search_query: &mut self.registry_search_query,
+                registry_search_results: &mut self.registry_search_results,
+                registry: &mut self.skill_registry,
+                registry_install_status: &mut self.registry_install_status,
+                registry_install_location: &mut self.registry_install_location,
             },
         );
     }

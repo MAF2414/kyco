@@ -1,16 +1,16 @@
-//! Default mode templates for agent configuration.
+//! Default skill templates for agent configuration.
 
 use std::collections::HashMap;
 
-use super::ModeTemplate;
+use super::SkillTemplate;
 
-/// Build the default mode templates
-pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
+/// Build the default skill templates
+pub fn default_skill_templates() -> HashMap<String, SkillTemplate> {
     let mut templates = HashMap::new();
 
     templates.insert(
         "refactor".to_string(),
-        ModeTemplate {
+        SkillTemplate {
             prompt_template: "Refactor the {scope_type} `{target}` in `{file}`. {description}"
                 .to_string(),
             system_prompt: Some(
@@ -29,7 +29,7 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
 
     templates.insert(
         "fix".to_string(),
-        ModeTemplate {
+        SkillTemplate {
             prompt_template: "Fix the issue in {scope_type} `{target}` in `{file}`. {description}"
                 .to_string(),
             system_prompt: Some(
@@ -47,7 +47,7 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
 
     templates.insert(
         "tests".to_string(),
-        ModeTemplate {
+        SkillTemplate {
             prompt_template:
                 "Write unit tests for {scope_type} `{target}` in `{file}`. {description}"
                     .to_string(),
@@ -67,7 +67,7 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
 
     templates.insert(
         "docs".to_string(),
-        ModeTemplate {
+        SkillTemplate {
             prompt_template:
                 "Write documentation for {scope_type} `{target}` in `{file}`. {description}"
                     .to_string(),
@@ -87,7 +87,7 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
 
     templates.insert(
         "review".to_string(),
-        ModeTemplate {
+        SkillTemplate {
             prompt_template: "Review {scope_type} `{target}` in `{file}`. {description}"
                 .to_string(),
             system_prompt: Some(
@@ -106,7 +106,7 @@ pub fn default_mode_templates() -> HashMap<String, ModeTemplate> {
 
     templates.insert(
         "chat".to_string(),
-        ModeTemplate {
+        SkillTemplate {
             prompt_template: "{description}".to_string(),
             system_prompt: Some(
                 "You are running in KYCo 'chat' mode. This is a conversational session. \

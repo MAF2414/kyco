@@ -57,7 +57,7 @@ impl CodexBridgeAdapter {
     }
 
     pub(super) fn build_prompt(&self, job: &Job, config: &AgentConfig, _worktree: &Path) -> String {
-        let template = config.get_mode_template(&job.mode);
+        let template = config.get_skill_template(&job.mode);
         let paths = resolve_prompt_paths(job);
 
         let mut prompt = template.prompt_template

@@ -1,4 +1,4 @@
-//! Mode chain configuration types
+//! Skill chain configuration types
 
 use serde::{Deserialize, Serialize};
 
@@ -28,11 +28,13 @@ fn default_case_insensitive() -> bool {
     true
 }
 
-/// A step in a mode chain
+/// A step in a skill chain
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainStep {
-    /// The mode to execute in this step
-    pub mode: String,
+    /// The skill to execute in this step
+    /// Note: "mode" is accepted as alias for backwards compatibility
+    #[serde(alias = "mode")]
+    pub skill: String,
     /// States that trigger this step (if None, always runs)
     /// References state IDs defined in the chain's `states` array
     #[serde(default)]
@@ -47,7 +49,7 @@ pub struct ChainStep {
     /// Additional context to inject into the prompt
     #[serde(default)]
     pub inject_context: Option<String>,
-    /// Loop back to a previous step's mode name when this step's trigger_on matches
+    /// Loop back to a previous step's skill name when this step's trigger_on matches
     /// The chain will restart from that step. Use with max_loops to prevent infinite loops.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loop_to: Option<String>,

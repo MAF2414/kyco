@@ -7,7 +7,7 @@ use crate::gui::voice::VoiceActionRegistry;
 
 pub fn render_voice_actions_section(ui: &mut egui::Ui, registry: &VoiceActionRegistry) {
     ui.label(
-        RichText::new("Voice Actions (Wakewords → Modes)")
+        RichText::new("Voice Actions (Wakewords → Skills)")
             .monospace()
             .color(TEXT_PRIMARY),
     );
@@ -19,7 +19,7 @@ pub fn render_voice_actions_section(ui: &mut egui::Ui, registry: &VoiceActionReg
         .inner_margin(12.0)
         .show(ui, |ui| {
             ui.label(
-                RichText::new("Speak a wakeword to trigger the corresponding mode:")
+                RichText::new("Speak a wakeword to trigger the corresponding skill:")
                     .color(TEXT_MUTED),
             );
 
@@ -37,7 +37,7 @@ pub fn render_voice_actions_section(ui: &mut egui::Ui, registry: &VoiceActionReg
             // Display actions from registry (dynamically loaded from modes/chains)
             if registry.actions.is_empty() {
                 ui.label(
-                    RichText::new("No modes or chains configured. Add modes in your config to enable voice actions.")
+                    RichText::new("No skills or chains configured. Add skills to enable voice actions.")
                         .small()
                         .color(TEXT_DIM),
                 );
@@ -53,7 +53,7 @@ fn render_actions_grid(ui: &mut egui::Ui, registry: &VoiceActionRegistry) {
         .spacing([12.0, 4.0])
         .show(ui, |ui| {
             ui.label(RichText::new("Wakeword").color(TEXT_MUTED).small());
-            ui.label(RichText::new("Mode").color(TEXT_MUTED).small());
+            ui.label(RichText::new("Skill").color(TEXT_MUTED).small());
             ui.label(RichText::new("Aliases").color(TEXT_MUTED).small());
             ui.end_row();
 
@@ -92,7 +92,7 @@ fn render_actions_grid(ui: &mut egui::Ui, registry: &VoiceActionRegistry) {
         .unwrap_or("refactor");
     ui.label(
         RichText::new(format!(
-            "Example: Say \"{} this function\" to trigger {} mode",
+            "Example: Say \"{} this function\" to trigger {} skill",
             example_mode, example_mode
         ))
         .small()

@@ -65,46 +65,52 @@ pub fn detect_states(states: &[StateDefinition], output: &Option<String>) -> Vec
     detected
 }
 
-/// Auto-detects states from output text using a mode's output_states.
+/// Auto-detects states from output text using a skill's output_states.
 ///
 /// This enables chains to work without explicit state definitions by
-/// automatically generating patterns from the mode's output_states.
-/// For example, if a mode has `output_states = ["issues_found", "no_issues"]`,
+/// automatically generating patterns from the skill's output_states.
+/// For example, if a skill has `output_states = ["issues_found", "no_issues"]`,
 /// this will look for patterns like:
 /// - `state to "issues_found"` or `state: issues_found`
 /// - `issues_found` (the state name itself, case-insensitive)
 ///
 /// # Arguments
 ///
-/// * `config` - Application configuration with mode definitions
-/// * `mode_name` - The name of the mode to look up
+/// * `config` - Application configuration with skill definitions
+/// * `skill_name` - The name of the skill to look up
 /// * `output` - The output text to search for state patterns
 ///
 /// # Returns
 ///
-/// A vector of detected state IDs from the mode's output_states.
-pub fn detect_states_from_mode(
+/// A vector of detected state IDs from the skill's output_states.
+pub fn detect_states_from_skill(
     config: &Config,
-    mode_name: &str,
+    skill_name: &str,
     output: &Option<String>,
 ) -> Vec<String> {
     let Some(output_text) = output else {
         return Vec::new();
     };
 
-    // Look up the mode to get its output_states
-    let Some(mode) = config.mode.get(mode_name) else {
+    // Look up the skill to get its output_states (try skills first, then modes)
+    let output_states = config
+        .skill
+        .get(skill_name)
+        .map(|s| &s.kyco.output_states)
+        .or_else(|| config.mode.get(skill_name).map(|m| &m.output_states));
+
+    let Some(output_states) = output_states else {
         return Vec::new();
     };
 
-    if mode.output_states.is_empty() {
+    if output_states.is_empty() {
         return Vec::new();
     }
 
     let output_lower = output_text.to_lowercase();
     let mut detected = Vec::new();
 
-    for state_id in &mode.output_states {
+    for state_id in output_states {
         let state_lower = state_id.to_lowercase();
 
         // Check for various patterns that indicate this state

@@ -22,7 +22,7 @@ use worktree::setup_chain_worktree;
 fn step_result_to_summary(step_result: &ChainStepResult) -> ChainStepSummary {
     ChainStepSummary {
         step_index: step_result.step_index,
-        mode: step_result.mode.to_string(),
+        skill: step_result.skill.to_string(),
         skipped: step_result.skipped,
         success: step_result
             .agent_result
@@ -230,8 +230,8 @@ pub async fn run_chain_job(
                                 .job_result
                                 .as_ref()
                                 .and_then(|jr| jr.state.clone());
-                            // Clone mode before potentially cloning summary
-                            let mode = summary.mode.clone();
+                            // Clone skill before potentially cloning summary
+                            let mode = summary.skill.clone();
                             // Only clone summary if we need it for history
                             let step_summary = if j.chain_step_history.len() <= step_result.step_index {
                                 let clone = summary.clone();
@@ -274,10 +274,10 @@ pub async fn run_chain_job(
                 let summary = step_result_to_summary(step_result);
 
                 if step_result.skipped {
-                    combined_details.push(format!("[{}] skipped", summary.mode));
+                    combined_details.push(format!("[{}] skipped", summary.skill));
                 } else {
                     if let Some(title) = &summary.title {
-                        combined_details.push(format!("[{}] {}", summary.mode, title));
+                        combined_details.push(format!("[{}] {}", summary.skill, title));
                     }
                     total_files_changed += summary.files_changed;
                 }

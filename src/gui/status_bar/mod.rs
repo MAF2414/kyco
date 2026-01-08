@@ -183,8 +183,8 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         *state.view_mode = ViewMode::Settings;
                     }
                     ui.add_space(8.0);
-                    if animated_button(ui, "Modes", ACCENT_PURPLE, "statusbar_modes").clicked() {
-                        *state.view_mode = ViewMode::Modes;
+                    if animated_button(ui, "Skills", ACCENT_PURPLE, "statusbar_skills").clicked() {
+                        *state.view_mode = ViewMode::Skills;
                         *state.selected_mode = None;
                         *state.mode_edit_status = None;
                     }

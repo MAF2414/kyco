@@ -19,8 +19,9 @@ pub struct JobStats {
 pub struct ChainStepSummary {
     /// Step index (0-based)
     pub step_index: usize,
-    /// Mode that was executed
-    pub mode: String,
+    /// Skill that was executed
+    #[serde(alias = "mode")]
+    pub skill: String,
     /// Whether the step was skipped due to trigger conditions
     pub skipped: bool,
     /// Whether the step succeeded

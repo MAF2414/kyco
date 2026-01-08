@@ -6,7 +6,7 @@ use crate::config::Config;
 /// Build prompt preview for a job (before it runs)
 pub fn build_prompt_preview(job: &Job, config: &Config) -> String {
     let agent_config = config.get_agent(&job.agent_id).unwrap_or_default();
-    let template = agent_config.get_mode_template(&job.mode);
+    let template = agent_config.get_skill_template(&job.mode);
 
     let file_path = job.source_file.display().to_string();
     let line = job.source_line;

@@ -26,7 +26,7 @@ impl ClaudeAdapter {
 
     /// Build the prompt for a job using the mode template from config
     fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
-        let template = config.get_mode_template(&job.mode);
+        let template = config.get_skill_template(&job.mode);
         let file_path = job.source_file.display().to_string();
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
@@ -45,7 +45,7 @@ impl ClaudeAdapter {
 
     /// Build the system prompt addition for a job
     fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
-        let template = config.get_mode_template(&job.mode);
+        let template = config.get_skill_template(&job.mode);
         let mut system_prompt = template.system_prompt.unwrap_or_default();
 
         // If running in a worktree, add commit instruction

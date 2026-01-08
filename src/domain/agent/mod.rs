@@ -64,27 +64,27 @@ pub struct ClaudeAgentDefinition {
     pub critical_system_reminder_experimental: Option<String>,
 }
 
-/// Configuration for a specific mode's agent behavior
+/// Configuration for a specific skill's agent behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModeTemplate {
-    /// The prompt template for this mode
+pub struct SkillTemplate {
+    /// The prompt template for this skill
     pub prompt_template: String,
 
-    /// System prompt additions for this mode
+    /// System prompt additions for this skill
     pub system_prompt: Option<String>,
 
-    /// Default agent for this mode (if not specified in command)
+    /// Default agent for this skill (if not specified in command)
     pub default_agent: Option<String>,
 
-    /// Tools to disallow for this mode
+    /// Tools to disallow for this skill
     #[serde(default)]
     pub disallowed_tools: Vec<String>,
 
-    /// Tools to explicitly allow for this mode
+    /// Tools to explicitly allow for this skill
     #[serde(default)]
     pub allowed_tools: Vec<String>,
 
-    /// Possible output states this mode can produce (for chain triggers)
+    /// Possible output states this skill can produce (for chain triggers)
     #[serde(default)]
     pub output_states: Vec<String>,
 
@@ -93,6 +93,9 @@ pub struct ModeTemplate {
     #[serde(default)]
     pub state_prompt: Option<String>,
 }
+
+/// Deprecated alias for backwards compatibility
+pub type ModeTemplate = SkillTemplate;
 
 /// Configuration for an SDK-based agent (Claude or Codex)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,9 +127,9 @@ pub struct AgentConfig {
     #[serde(default)]
     pub system_prompt_mode: SystemPromptMode,
 
-    /// Mode-specific templates
-    #[serde(default)]
-    pub mode_templates: HashMap<String, ModeTemplate>,
+    /// Skill-specific templates
+    #[serde(default, alias = "mode_templates")]
+    pub skill_templates: HashMap<String, SkillTemplate>,
 
     /// Environment variables to pass to the agent
     #[serde(default)]
@@ -184,7 +187,7 @@ impl AgentConfig {
             sandbox: None,
             max_turns: 0,
             system_prompt_mode: SystemPromptMode::Append,
-            mode_templates: templates::default_mode_templates(),
+            skill_templates: templates::default_skill_templates(),
             env: HashMap::new(),
             disallowed_tools: vec![],
             allowed_tools: Vec::new(),
@@ -207,7 +210,7 @@ impl AgentConfig {
             sandbox: None,
             max_turns: 0,
             system_prompt_mode: SystemPromptMode::Append,
-            mode_templates: templates::default_mode_templates(),
+            skill_templates: templates::default_skill_templates(),
             env: HashMap::new(),
             disallowed_tools: vec![],
             allowed_tools: Vec::new(),
@@ -219,19 +222,19 @@ impl AgentConfig {
         }
     }
 
-    /// Get the mode template for a given mode, falling back to a generic template
-    pub fn get_mode_template(&self, mode: &str) -> ModeTemplate {
-        self.mode_templates
-            .get(mode)
+    /// Get the skill template for a given skill, falling back to a generic template
+    pub fn get_skill_template(&self, skill: &str) -> SkillTemplate {
+        self.skill_templates
+            .get(skill)
             .cloned()
-            .unwrap_or_else(|| ModeTemplate {
+            .unwrap_or_else(|| SkillTemplate {
                 prompt_template:
-                    "Execute '{mode}' on {scope_type} `{target}` in `{file}`. {description}"
+                    "Execute '{skill}' on {scope_type} `{target}` in `{file}`. {description}"
                         .to_string(),
                 system_prompt: Some(format!(
-                    "You are running in KYCo '{mode}' mode. You may read the entire repo. \
+                    "You are running in KYCo '{skill}' skill. You may read the entire repo. \
                      Make changes only within the marked scope.",
-                    mode = mode
+                    skill = skill
                 )),
                 default_agent: None,
                 disallowed_tools: vec![],
@@ -239,6 +242,12 @@ impl AgentConfig {
                 output_states: vec![],
                 state_prompt: None,
             })
+    }
+
+    /// Deprecated: Use get_skill_template instead
+    #[deprecated(note = "Use get_skill_template instead")]
+    pub fn get_mode_template(&self, mode: &str) -> SkillTemplate {
+        self.get_skill_template(mode)
     }
 
     /// Get the binary name for CLI-based adapters (fallback to SDK type name)

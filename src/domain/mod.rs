@@ -10,7 +10,7 @@ mod target;
 
 pub use agent::{
     AgentConfig, ClaudeAgentDefinition, CliType, McpServerConfig, ModeTemplate, SdkType,
-    SystemPromptMode,
+    SkillTemplate, SystemPromptMode,
 };
 pub use agent_group::{AgentGroupId, AgentRunGroup, GroupStatus};
 pub use comment::{CommentTag, StatusMarker};

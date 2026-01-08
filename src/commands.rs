@@ -27,10 +27,16 @@ pub enum Commands {
         command: JobCommands,
     },
 
-    /// Manage modes in `.kyco/config.toml`
+    /// Manage modes in `.kyco/config.toml` (DEPRECATED: use skill instead)
     Mode {
         #[command(subcommand)]
         command: ModeCommands,
+    },
+
+    /// Manage skills (SKILL.md files in .claude/skills/ or .codex/skills/)
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommands,
     },
 
     /// List/show configured agents
@@ -235,6 +241,105 @@ pub enum ModeCommands {
     },
     /// Delete a mode
     Delete { name: String },
+}
+
+#[derive(Subcommand)]
+pub enum SkillCommands {
+    /// List available skills
+    List {
+        /// Print JSON instead of plain lines
+        #[arg(long)]
+        json: bool,
+        /// Filter by agent (claude, codex)
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// Show a skill definition
+    Get {
+        name: String,
+        /// Print JSON instead of SKILL.md format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new skill
+    Create {
+        name: String,
+        /// Description of what this skill does
+        #[arg(long)]
+        description: Option<String>,
+        /// Agent type: claude (default) or codex
+        #[arg(long)]
+        agent: Option<String>,
+        /// Create in global ~/.kyco/skills/ instead of project-local
+        #[arg(long)]
+        global: bool,
+        /// Print JSON for the created skill
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete a skill
+    Delete {
+        name: String,
+        /// Agent type: claude (default) or codex
+        #[arg(long)]
+        agent: Option<String>,
+        /// Delete from global ~/.kyco/skills/
+        #[arg(long)]
+        global: bool,
+    },
+    /// Show the file path for a skill
+    Path {
+        name: String,
+        /// Agent type: claude (default) or codex
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// Install a skill template to all agent directories (.claude/skills/ and .codex/skills/)
+    Install {
+        name: String,
+        /// Deprecated: Skills are now installed to all agent directories
+        #[arg(long, hide = true)]
+        agent: Option<String>,
+        /// Also install to global ~/.kyco/skills/ for system-wide access
+        #[arg(long)]
+        global: bool,
+    },
+
+    // =========================================================================
+    // Registry commands (search & install from 50,000+ community skills)
+    // =========================================================================
+
+    /// Search for skills in the community registry (~50,000 skills)
+    Search {
+        /// Search query (matches name, description, author)
+        query: String,
+        /// Maximum number of results (default: 20)
+        #[arg(long, default_value = "20")]
+        limit: usize,
+        /// Print JSON instead of human-readable format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show details about a skill in the registry
+    Info {
+        /// Skill name (author/name or just name)
+        name: String,
+        /// Print JSON instead of human-readable format
+        #[arg(long)]
+        json: bool,
+    },
+    /// Install a skill from the community registry (downloads from GitHub)
+    #[command(name = "install-from-registry")]
+    InstallFromRegistry {
+        /// Skill to install (author/name or just name)
+        name: String,
+        /// Agent type: claude, codex, or both (default)
+        #[arg(long)]
+        agent: Option<String>,
+        /// Install to global ~/.kyco/skills/ instead of project-local
+        #[arg(long)]
+        global: bool,
+    },
 }
 
 #[derive(Subcommand)]

@@ -70,6 +70,12 @@ semver = "1"
 egui_commonmark = "0.21.1"
 regex = "1.12.2"
 
+# Compression for embedded registry
+flate2 = "1"
+
+# Fuzzy string matching for skill search
+strsim = "0.11"
+
 # Statistics storage
 rusqlite = { version = "0.33", features = ["bundled"] }
 

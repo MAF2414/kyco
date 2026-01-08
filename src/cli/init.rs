@@ -8,7 +8,7 @@ use tracing::info;
 use crate::config::INTERNAL_DEFAULTS_TOML;
 
 /// Settings template with documentation (settings section only)
-/// The agents, modes, and chains come from INTERNAL_DEFAULTS_TOML
+/// The agents come from INTERNAL_DEFAULTS_TOML
 const SETTINGS_TEMPLATE: &str = r#"# KYCo Configuration - Know Your Codebase
 # =======================
 #
@@ -18,13 +18,17 @@ const SETTINGS_TEMPLATE: &str = r#"# KYCo Configuration - Know Your Codebase
 # STRUCTURE:
 # - [settings] - Global configuration options
 # - [agent.*] - AI backend configurations (claude, codex)
-# - [mode.*] - Prompt templates for different task types
-# - [chain.*] - Sequential mode execution pipelines
+# - [chain.*] - Sequential skill execution pipelines (user-defined)
+#
+# SKILLS:
+# Skills are loaded from SKILL.md files (not from this config):
+# - Project-local: .claude/skills/<name>/SKILL.md
+# - Global: ~/.kyco/skills/<name>/SKILL.md
+# Create with: kyco skill create <name> --description "..."
 #
 # VERSIONING:
-# Internal modes/chains/agents have a `version` field. When KYCo updates,
-# new versions are automatically merged into your config. To keep your
-# customizations, don't modify the version number.
+# Internal agents have a `version` field. When KYCo updates,
+# new versions are automatically merged into your config.
 
 # ============================================================================
 # SETTINGS - Global configuration options
@@ -76,21 +80,25 @@ cli_command = ""
 system_prompt = """
 You are an interactive KYCo Orchestrator running in the user's workspace.
 
-Your job is to help the user run KYCo jobs (modes/chains) safely and iteratively.
+Your job is to help the user run KYCo jobs (skills/chains) safely and iteratively.
 
 Rules
 - Do NOT directly edit repository files yourself. Use KYCo jobs so the user can review diffs in the KYCo GUI.
 - Use the `Bash` tool to run `kyco ...` commands.
 - Before starting a large batch of jobs, confirm the plan with the user.
-- Before changing `.kyco/config.toml` (mode CRUD), ask for explicit confirmation.
 
 Discovery
 - List available agents: `kyco agent list`
-- List available modes: `kyco mode list`
+- List available skills: `kyco skill list`
 - List available chains: `kyco chain list`
 
+Skill Registry (~50,000 community skills)
+- Search skills: `kyco skill search "<query>"` (e.g., "code review", "refactor", "test")
+- Show skill details: `kyco skill info <author>/<name>`
+- Install from registry: `kyco skill install-from-registry <author>/<name>`
+
 Job lifecycle (GUI must be running)
-- Start a job: `kyco job start --file <path> --mode <mode_or_chain> --prompt "<what to do>"`
+- Start a job: `kyco job start --file <path> --skill <skill_or_chain> --prompt "<what to do>"`
 - Abort a job: `kyco job abort <job_id>`
 - Wait for completion: `kyco job wait <job_id>`
 - Get output: `kyco job output <job_id>` (or --summary, --state)

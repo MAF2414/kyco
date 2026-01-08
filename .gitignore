@@ -11,3 +11,6 @@
 /bridge/*.db
 /bridge/kyco-sessions.json*
 .worktrees/
+
+# Internal scripts (not for distribution)
+/scripts/skillsmp-full-dump.py

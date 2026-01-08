@@ -62,7 +62,7 @@ impl<'a> ChainRunner<'a> {
         let mut last_summary: Option<String> = None;
         let mut accumulated_summaries = Vec::new();
         let mut chain_success = true;
-        let mut last_mode: Option<String> = None;
+        let mut last_skill: Option<String> = None;
         let mut loop_count: u32 = 0;
 
         let _ = event_tx
@@ -76,14 +76,14 @@ impl<'a> ChainRunner<'a> {
         let mut step_index: usize = 0;
         while step_index < chain.steps.len() {
             let step = &chain.steps[step_index];
-            // Clone mode once per iteration into Arc<str> for cheap reuse
-            let mode: Arc<str> = Arc::from(step.mode.as_str());
+            // Clone skill once per iteration into Arc<str> for cheap reuse
+            let skill: Arc<str> = Arc::from(step.skill.as_str());
 
             // Detect states from previous output
             let detected_states = if !chain.states.is_empty() {
                 state::detect_states(&chain.states, &last_output)
-            } else if let Some(ref prev_mode) = last_mode {
-                state::detect_states_from_mode(self.config, prev_mode, &last_output)
+            } else if let Some(ref prev_skill) = last_skill {
+                state::detect_states_from_skill(self.config, prev_skill, &last_output)
             } else {
                 Vec::new()
             };
@@ -96,7 +96,7 @@ impl<'a> ChainRunner<'a> {
                 if let Some(ref loop_target) = step.loop_to {
                     if loop_count < chain.max_loops {
                         // Find the target step index by mode name
-                        if let Some(target_idx) = chain.steps.iter().position(|s| &s.mode == loop_target) {
+                        if let Some(target_idx) = chain.steps.iter().position(|s| &s.skill == loop_target) {
                             loop_count += 1;
                             let _ = event_tx
                                 .send(LogEvent::system(format!(
@@ -130,12 +130,12 @@ impl<'a> ChainRunner<'a> {
                     .send(LogEvent::system(format!(
                         "Skipping step {} ({}) - trigger condition not met",
                         step_index + 1,
-                        &mode
+                        &skill
                     )))
                     .await;
 
                 step_results.push(ChainStepResult {
-                    mode: Arc::clone(&mode),
+                    skill: Arc::clone(&skill),
                     step_index,
                     skipped: true,
                     job_result: None,
@@ -160,7 +160,7 @@ impl<'a> ChainRunner<'a> {
                     "Executing chain step {} of {}: mode '{}'{}",
                     step_index + 1,
                     chain.steps.len(),
-                    &mode,
+                    &skill,
                     if loop_count > 0 { format!(" (loop {})", loop_count) } else { String::new() }
                 )))
                 .await;
@@ -169,7 +169,7 @@ impl<'a> ChainRunner<'a> {
                 let _ = tx.send(ChainProgressEvent {
                     step_index,
                     total_steps: chain.steps.len(),
-                    mode: Arc::clone(&mode),
+                    skill: Arc::clone(&skill),
                     is_starting: true,
                     step_result: None,
                 });
@@ -193,11 +193,11 @@ impl<'a> ChainRunner<'a> {
             let step_job = prompt::create_step_job(self.config, initial_job, step, &chained_prompt);
 
             // Get the agent config and adapter
-            let default_agent = self.config.get_agent_for_mode(&step.mode);
+            let default_agent = self.config.get_agent_for_mode(&step.skill);
             let agent_id: &str = step.agent.as_deref().unwrap_or(&default_agent);
             let agent_config = self
                 .config
-                .get_agent_for_job(agent_id, &step.mode)
+                .get_agent_for_job(agent_id, &step.skill)
                 .unwrap_or_default();
 
             let adapter = match self.agent_registry.get_for_config(&agent_config) {
@@ -211,7 +211,7 @@ impl<'a> ChainRunner<'a> {
                         .await;
 
                     step_results.push(ChainStepResult {
-                        mode: Arc::clone(&mode),
+                        skill: Arc::clone(&skill),
                         step_index,
                         skipped: false,
                         job_result: None,
@@ -254,15 +254,15 @@ impl<'a> ChainRunner<'a> {
                         last_state.clone_from(&jr.state);
                         if let Some(ref summary) = jr.summary {
                             last_summary = Some(summary.clone());
-                            accumulated_summaries.push(format!("[{}] {}", &mode, summary));
+                            accumulated_summaries.push(format!("[{}] {}", &skill, summary));
                         } else if let Some(ref details) = jr.details {
                             last_summary = Some(details.clone());
-                            accumulated_summaries.push(format!("[{}] {}", &mode, details));
+                            accumulated_summaries.push(format!("[{}] {}", &skill, details));
                         }
                     }
 
                     let step_result = ChainStepResult {
-                        mode: Arc::clone(&mode),
+                        skill: Arc::clone(&skill),
                         step_index,
                         skipped: false,
                         job_result,
@@ -278,14 +278,14 @@ impl<'a> ChainRunner<'a> {
                         let _ = tx.send(ChainProgressEvent {
                             step_index,
                             total_steps: chain.steps.len(),
-                            mode: Arc::clone(&mode),
+                            skill: Arc::clone(&skill),
                             is_starting: false,
                             step_result: Some(step_result.clone()),
                         });
                     }
 
                     step_results.push(step_result);
-                    last_mode = Some(mode.to_string());
+                    last_skill = Some(skill.to_string());
 
                     if !agent_success && chain.stop_on_failure {
                         chain_success = false;
@@ -293,7 +293,7 @@ impl<'a> ChainRunner<'a> {
                             .send(LogEvent::error(format!(
                                 "Chain stopped: step {} ({}) failed",
                                 step_index + 1,
-                                &mode
+                                &skill
                             )))
                             .await;
                         break;
@@ -304,13 +304,13 @@ impl<'a> ChainRunner<'a> {
                         .send(LogEvent::error(format!(
                             "Step {} ({}) error: {}",
                             step_index + 1,
-                            &mode,
+                            &skill,
                             e
                         )))
                         .await;
 
                     step_results.push(ChainStepResult {
-                        mode: Arc::clone(&mode),
+                        skill: Arc::clone(&skill),
                         step_index,
                         skipped: false,
                         job_result: None,

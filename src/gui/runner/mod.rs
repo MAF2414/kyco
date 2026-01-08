@@ -26,6 +26,7 @@ use fonts::configure_fonts;
 
 fn start_config_watch_thread(
     config_path: PathBuf,
+    work_dir: PathBuf,
     config: Arc<RwLock<Config>>,
     max_concurrent_jobs: Arc<AtomicUsize>,
     event_tx: mpsc::Sender<ExecutorEvent>,
@@ -51,7 +52,10 @@ fn start_config_watch_thread(
             thread::sleep(Duration::from_millis(50));
 
             match Config::from_file(&config_path) {
-                Ok(new_config) => {
+                Ok(mut new_config) => {
+                    // Discover skills from filesystem on reload
+                    new_config.discover_skills(Some(&work_dir));
+
                     max_concurrent_jobs
                         .store(new_config.settings.max_concurrent_jobs, Ordering::Relaxed);
 
@@ -127,7 +131,7 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
 
     // Load config (auto-creates global config if missing)
     let config_was_present = config_path.exists();
-    let config = match Config::from_file(&config_path) {
+    let mut config = match Config::from_file(&config_path) {
         Ok(cfg) => cfg,
         Err(_) if !config_was_present => {
             // Config doesn't exist - use Config::load() which auto-inits global config
@@ -148,6 +152,9 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
             Config::with_defaults()
         }
     };
+
+    // Discover skills from filesystem (.claude/skills/, .codex/skills/, ~/.kyco/skills/)
+    config.discover_skills(Some(&work_dir));
 
     // Global config is auto-created by Config::load(), so it always exists after loading
     let config_exists = config_path.exists();
@@ -222,6 +229,7 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
 
     start_config_watch_thread(
         config_path.clone(),
+        work_dir.clone(),
         Arc::clone(&config),
         Arc::clone(&max_concurrent_jobs),
         executor_tx.clone(),

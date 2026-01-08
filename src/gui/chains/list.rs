@@ -5,7 +5,8 @@ use eframe::egui::{self, RichText, ScrollArea};
 use super::persistence::load_chain_for_editing;
 use super::state::{ChainEditorState, StateDefinitionEdit};
 use crate::gui::theme::{
-    ACCENT_CYAN, ACCENT_GREEN, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+    ACCENT_CYAN, ACCENT_GREEN, ACCENT_RED, ACCENT_YELLOW, BG_SECONDARY, TEXT_DIM, TEXT_MUTED,
+    TEXT_PRIMARY,
 };
 
 /// Color for state definitions
@@ -21,7 +22,7 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
     ui.add_space(8.0);
     ui.label(
         RichText::new(
-            "Chains execute multiple modes in sequence. Select code, then type the chain name.",
+            "Chains execute multiple skills in sequence. Select code, then type the chain name.",
         )
         .color(TEXT_DIM),
     );
@@ -35,7 +36,7 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
             let desc = chain.description.clone().unwrap_or_default();
             let steps = chain.steps.len();
             let states = chain.states.len();
-            let step_modes: Vec<String> = chain.steps.iter().map(|s| s.mode.clone()).collect();
+            let step_modes: Vec<String> = chain.steps.iter().map(|s| s.skill.clone()).collect();
             (name.clone(), desc, steps, states, step_modes)
         })
         .collect();
@@ -92,10 +93,23 @@ pub fn render_chains_list(ui: &mut egui::Ui, state: &mut ChainEditorState<'_>) {
 
                         ui.add_space(4.0);
                         ui.horizontal_wrapped(|ui| {
-                            for (i, mode) in step_modes.iter().enumerate() {
-                                ui.label(
-                                    RichText::new(mode).monospace().small().color(ACCENT_CYAN),
-                                );
+                            for (i, skill) in step_modes.iter().enumerate() {
+                                // Check if skill exists
+                                let skill_exists = state.config.skill.contains_key(skill);
+                                let color = if skill_exists { ACCENT_CYAN } else { ACCENT_RED };
+                                let text = if skill_exists {
+                                    RichText::new(skill).monospace().small().color(color)
+                                } else {
+                                    RichText::new(format!("{}⚠", skill))
+                                        .monospace()
+                                        .small()
+                                        .color(color)
+                                };
+                                ui.label(text).on_hover_text(if skill_exists {
+                                    String::new()
+                                } else {
+                                    format!("Skill '{}' not found - create it in Skills tab", skill)
+                                });
                                 if i < step_modes.len() - 1 {
                                     ui.label(RichText::new("→").small().color(TEXT_DIM));
                                 }

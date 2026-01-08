@@ -6,7 +6,7 @@ use std::time::Duration;
 use kyco::cli;
 
 mod commands;
-use commands::{AgentCommands, ChainCommands, Commands, JobCommands, ModeCommands};
+use commands::{AgentCommands, ChainCommands, Commands, JobCommands, ModeCommands, SkillCommands};
 
 #[derive(Parser)]
 #[command(name = "kyco")]
@@ -227,6 +227,56 @@ async fn main() -> Result<()> {
             }
             ModeCommands::Delete { name } => {
                 cli::mode::mode_delete_command(&work_dir, config_path.as_ref(), &name)?;
+            }
+        },
+        Some(Commands::Skill { command }) => match command {
+            SkillCommands::List { json, agent } => {
+                cli::skill::skill_list_command(&work_dir, json, agent.as_deref())?;
+            }
+            SkillCommands::Get { name, json } => {
+                cli::skill::skill_get_command(&work_dir, &name, json)?;
+            }
+            SkillCommands::Create {
+                name,
+                description,
+                agent,
+                global,
+                json,
+            } => {
+                cli::skill::skill_create_command(
+                    &work_dir,
+                    cli::skill::SkillCreateArgs {
+                        name,
+                        description,
+                        agent,
+                        global,
+                        json,
+                    },
+                )?;
+            }
+            SkillCommands::Delete { name, agent, global } => {
+                cli::skill::skill_delete_command(&work_dir, &name, agent.as_deref(), global)?;
+            }
+            SkillCommands::Path { name, agent } => {
+                cli::skill::skill_path_command(&work_dir, &name, agent.as_deref())?;
+            }
+            SkillCommands::Install { name, agent, global } => {
+                cli::skill::skill_install_command(&work_dir, &name, agent.as_deref(), global)?;
+            }
+            // Registry commands (search & install from community)
+            SkillCommands::Search { query, limit, json } => {
+                cli::skill::skill_search_command(&query, limit, json)?;
+            }
+            SkillCommands::Info { name, json } => {
+                cli::skill::skill_info_command(&name, json)?;
+            }
+            SkillCommands::InstallFromRegistry { name, agent, global } => {
+                cli::skill::skill_install_from_registry_command(
+                    &work_dir,
+                    &name,
+                    agent.as_deref(),
+                    global,
+                )?;
             }
         },
         Some(Commands::Agent { command }) => match command {

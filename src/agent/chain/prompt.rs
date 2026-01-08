@@ -40,7 +40,7 @@ pub fn build_chained_prompt(
     };
 
     let base_prompt = config.build_prompt(
-        &step.mode,
+        &step.skill,
         &initial_job.target,
         scope_type,
         initial_job.source_file.to_str().unwrap_or(""),
@@ -92,12 +92,12 @@ pub fn build_chained_prompt(
 /// * `prompt` - The full prompt built by [`build_chained_prompt`]
 pub fn create_step_job(config: &Config, initial_job: &Job, step: &ChainStep, prompt: &str) -> Job {
     let mut step_job = initial_job.clone();
-    step_job.mode = step.mode.clone();
+    step_job.mode = step.skill.clone();
     step_job.description = Some(prompt.to_string());
     if let Some(agent) = &step.agent {
         step_job.agent_id = agent.clone();
     } else {
-        step_job.agent_id = config.get_agent_for_mode(&step.mode).into_owned();
+        step_job.agent_id = config.get_agent_for_mode(&step.skill).into_owned();
     }
     step_job
 }

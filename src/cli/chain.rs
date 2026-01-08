@@ -139,8 +139,8 @@ pub fn chain_set_command(
         chain.steps = args
             .steps
             .into_iter()
-            .map(|mode| ChainStep {
-                mode,
+            .map(|skill| ChainStep {
+                skill,
                 trigger_on: None,
                 skip_on: None,
                 agent: None,

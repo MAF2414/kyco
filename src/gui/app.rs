@@ -113,19 +113,11 @@ pub struct KycoApp {
     pub(crate) continuation_prompt: String,
     /// Extension install status message
     pub(crate) extension_status: Option<(String, bool)>,
-    /// Selected mode for editing (None = list view)
+    /// Selected skill for editing (None = list view)
     pub(crate) selected_mode: Option<String>,
-    /// Mode editor: name field
+    /// Skill editor: name field for new skills
     pub(crate) mode_edit_name: String,
-    /// Mode editor: aliases field
-    pub(crate) mode_edit_aliases: String,
-    /// Mode editor: prompt field
-    pub(crate) mode_edit_prompt: String,
-    /// Mode editor: system_prompt field
-    pub(crate) mode_edit_system_prompt: String,
-    /// Mode editor: is read-only (disallowed_tools contains Write/Edit)
-    pub(crate) mode_edit_readonly: bool,
-    /// Mode editor: status message
+    /// Skill editor: status message
     pub(crate) mode_edit_status: Option<(String, bool)>,
     /// Selected agent for editing (None = list view)
     pub(crate) selected_agent: Option<String>,
@@ -153,28 +145,22 @@ pub struct KycoApp {
     pub(crate) agent_edit_price_cached_input: String,
     /// Agent editor: output token price per 1M tokens
     pub(crate) agent_edit_price_output: String,
-    /// Mode editor: default agent
-    pub(crate) mode_edit_agent: String,
-    /// Mode editor: allowed_tools
-    pub(crate) mode_edit_allowed_tools: String,
-    /// Mode editor: disallowed_tools
-    pub(crate) mode_edit_disallowed_tools: String,
-    /// Mode editor: session mode (oneshot/session)
-    pub(crate) mode_edit_session_mode: String,
-    /// Mode editor: max turns (0 = unlimited)
-    pub(crate) mode_edit_max_turns: String,
-    /// Mode editor: model override
-    pub(crate) mode_edit_model: String,
-    /// Mode editor: Claude permission mode
-    pub(crate) mode_edit_claude_permission: String,
-    /// Mode editor: Codex sandbox mode
-    pub(crate) mode_edit_codex_sandbox: String,
-    /// Mode editor: output states (comma-separated)
-    pub(crate) mode_edit_output_states: String,
-    /// Mode editor: state prompt for chain workflows
-    pub(crate) mode_edit_state_prompt: String,
-    /// Mode editor: use worktree (None = global, Some(true) = always, Some(false) = never)
-    pub(crate) mode_edit_use_worktree: Option<bool>,
+    /// Skill editor: raw SKILL.md content being edited
+    pub(crate) skill_edit_content: String,
+    /// Skill editor: folder structure info (scripts/, references/, assets/)
+    pub(crate) skill_folder_info: crate::gui::skills::SkillFolderInfo,
+    /// Skills view: current tab (Local/Registry)
+    pub(crate) skills_tab: crate::gui::skills::SkillsTab,
+    /// Skills view: registry search query
+    pub(crate) registry_search_query: String,
+    /// Skills view: registry search results
+    pub(crate) registry_search_results: Vec<crate::config::RegistrySkill>,
+    /// Skills view: loaded registry (lazily loaded)
+    pub(crate) skill_registry: Option<crate::config::SkillRegistry>,
+    /// Skills view: registry install status
+    pub(crate) registry_install_status: Option<(String, bool)>,
+    /// Skills view: registry install location (Global/Workspace)
+    pub(crate) registry_install_location: crate::gui::skills::SkillInstallLocation,
     /// Settings editor: max concurrent jobs
     pub(crate) settings_max_concurrent: String,
     /// Settings editor: auto run
