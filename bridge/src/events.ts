@@ -57,6 +57,14 @@ export interface TextEvent extends BaseEvent {
   partial: boolean;
 }
 
+/** Reasoning/thinking from the model (Codex) */
+export interface ReasoningEvent extends BaseEvent {
+  type: 'reasoning';
+  content: string;
+  /** Whether this is a partial/streaming update */
+  partial: boolean;
+}
+
 /** Error event */
 export interface ErrorEvent extends BaseEvent {
   type: 'error';
@@ -127,6 +135,7 @@ export interface HeartbeatEvent extends BaseEvent {
 export type BridgeEvent =
   | SessionStartEvent
   | TextEvent
+  | ReasoningEvent
   | ToolUseEvent
   | ToolResultEvent
   | ErrorEvent

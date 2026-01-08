@@ -78,8 +78,15 @@ export async function* executeCodexQuery(
     thread = codex.startThread(threadOptions);
   }
 
-  const MAX_RETRIES = 10;
-  const RETRY_DELAY_MS = 2000;
+  const MAX_RETRIES = 15;
+  const BASE_RETRY_DELAY_MS = 1000;
+
+  // Calculate retry delay with exponential backoff + jitter (matches Rust side)
+  const getRetryDelay = (attempt: number): number => {
+    const baseDelay = Math.min(BASE_RETRY_DELAY_MS * Math.pow(2, attempt - 1), 30000);
+    const jitter = Math.random() * Math.min(baseDelay * 0.1, 1000);
+    return baseDelay + jitter;
+  };
 
   try {
     if (threadId) {
@@ -150,7 +157,26 @@ export async function* executeCodexQuery(
             totalOutputTokens += event.usage.output_tokens;
             break;
 
-          case 'turn.failed':
+          case 'turn.failed': {
+            // Check if this is a retriable error (connection issues, rate limits)
+            const msg = event.error.message.toLowerCase();
+            const isRetriable = msg.includes('connection') ||
+                               msg.includes('network') ||
+                               msg.includes('timeout') ||
+                               msg.includes('reconnect') ||
+                               msg.includes('reset') ||
+                               msg.includes('econnreset') ||
+                               msg.includes('epipe') ||
+                               msg.includes('socket') ||
+                               event.error.message.includes('429') ||
+                               msg.includes('rate limit') ||
+                               msg.includes('too many requests');
+
+            if (isRetriable && retryCount < MAX_RETRIES) {
+              // Throw to trigger retry
+              throw new Error(event.error.message);
+            }
+
             success = false;
             yield {
               type: 'error',
@@ -159,8 +185,27 @@ export async function* executeCodexQuery(
               message: event.error.message,
             };
             break;
+          }
 
-          case 'error':
+          case 'error': {
+            // Check if this is a retriable error
+            const errMsg = event.message.toLowerCase();
+            const isRetriableError = errMsg.includes('connection') ||
+                                    errMsg.includes('network') ||
+                                    errMsg.includes('timeout') ||
+                                    errMsg.includes('reconnect') ||
+                                    errMsg.includes('reset') ||
+                                    errMsg.includes('econnreset') ||
+                                    errMsg.includes('epipe') ||
+                                    errMsg.includes('socket') ||
+                                    event.message.includes('429') ||
+                                    errMsg.includes('rate limit') ||
+                                    errMsg.includes('too many requests');
+
+            if (isRetriableError && retryCount < MAX_RETRIES) {
+              throw new Error(event.message);
+            }
+
             success = false;
             yield {
               type: 'error',
@@ -169,6 +214,7 @@ export async function* executeCodexQuery(
               message: event.message,
             };
             break;
+          }
         }
         }
         // If we completed the event loop without throwing, mark as success
@@ -180,14 +226,14 @@ export async function* executeCodexQuery(
           throw turnError; // Re-throw to outer catch
         }
         const errorMsg = turnError instanceof Error ? turnError.message : String(turnError);
+        const delay = getRetryDelay(retryCount);
         yield {
           type: 'error',
           sessionId: threadId ?? fallbackThreadId,
           timestamp: Date.now(),
-          message: `Connection lost, retrying ${retryCount}/${MAX_RETRIES}... (${errorMsg})`,
+          message: `Connection lost, retrying in ${Math.round(delay / 1000)}s (${retryCount}/${MAX_RETRIES})... ${errorMsg}`,
         };
-        // Exponential backoff
-        await new Promise(r => setTimeout(r, RETRY_DELAY_MS * retryCount));
+        await new Promise(r => setTimeout(r, delay));
       }
     } // end while retry loop
 

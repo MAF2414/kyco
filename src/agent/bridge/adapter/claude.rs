@@ -98,18 +98,31 @@ impl ClaudeBridgeAdapter {
         Self { client: BridgeClient::with_url(url) }
     }
 
-    fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
-        let template = config.get_skill_template(&job.mode);
+    fn build_prompt(&self, job: &Job, _config: &AgentConfig) -> String {
         let paths = resolve_prompt_paths(job);
 
-        template.prompt_template
-            .replace("{file}", &paths.file_path)
-            .replace("{line}", &job.source_line.to_string())
-            .replace("{target}", &paths.target)
-            .replace("{mode}", &job.mode)
-            .replace("{description}", job.description.as_deref().unwrap_or(""))
-            .replace("{scope_type}", "file")
-            .replace("{ide_context}", &paths.ide_context)
+        // Use Claude's native skill invocation with /skill-name
+        // The skill must be installed in .claude/skills/ for Claude to find it
+        let mut prompt = format!("/{}", job.mode);
+
+        // Add file context
+        prompt.push_str(&format!(" on file {}:{}", paths.file_path, job.source_line));
+
+        // Add IDE context if available
+        if !paths.ide_context.is_empty() {
+            prompt.push_str("\n\n");
+            prompt.push_str(&paths.ide_context);
+        }
+
+        // Add user description if provided
+        if let Some(desc) = &job.description {
+            if !desc.is_empty() {
+                prompt.push_str("\n\n");
+                prompt.push_str(desc);
+            }
+        }
+
+        prompt
     }
 
     fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
@@ -302,6 +315,10 @@ impl AgentRunner for ClaudeBridgeAdapter {
                     BridgeEvent::Text { content, partial, .. } => {
                         if !partial { output_text.push_str(&content); output_text.push('\n'); }
                         let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
+                    }
+                    BridgeEvent::Reasoning { content, .. } => {
+                        // Log reasoning as thought (not added to output_text)
+                        let _ = event_tx.send(LogEvent::thought(content).for_job(job_id)).await;
                     }
                     BridgeEvent::ToolUse { tool_name, mut tool_input, tool_use_id, .. } => {
                         let formatted = format_tool_call(&tool_name, &tool_input);

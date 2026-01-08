@@ -23,7 +23,14 @@ pub fn create_job_from_selection(
     prompt: &str,
     logs: &mut Vec<LogEvent>,
 ) -> Option<JobId> {
-    let file_path = selection.file_path.clone()?;
+    // If no file_path is provided, use workspace or a placeholder for prompt-only jobs
+    let file_path = selection.file_path.clone().unwrap_or_else(|| {
+        selection
+            .workspace_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "prompt".to_string())
+    });
     let line_number = selection.line_number.unwrap_or(1);
     let line_end = selection.line_end;
 
@@ -80,7 +87,14 @@ pub fn create_jobs_from_selection_multi(
     logs: &mut Vec<LogEvent>,
     force_worktree: bool,
 ) -> Option<CreateJobsResult> {
-    let file_path = selection.file_path.clone()?;
+    // If no file_path is provided, use workspace or a placeholder for prompt-only jobs
+    let file_path = selection.file_path.clone().unwrap_or_else(|| {
+        selection
+            .workspace_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "prompt".to_string())
+    });
     let line_number = selection.line_number.unwrap_or(1);
     let line_end = selection.line_end;
     let target = format!("{}:{}", file_path, line_number);

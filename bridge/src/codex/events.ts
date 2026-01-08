@@ -24,12 +24,12 @@ export function* itemToEvents(
       break;
 
     case 'reasoning':
-      // Emit reasoning as a special text event
+      // Emit reasoning as a dedicated event type (not mixed with output text)
       yield {
-        type: 'text',
+        type: 'reasoning',
         sessionId,
         timestamp,
-        content: `[Reasoning] ${item.text}`,
+        content: item.text,
         partial: eventType !== 'completed',
       };
       break;

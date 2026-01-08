@@ -27,7 +27,7 @@ pub(super) struct JobContinueResponse {
 /// Arguments for starting a new job via the CLI.
 #[derive(Debug, Clone)]
 pub struct JobStartArgs {
-    pub file_path: String,
+    pub file_path: Option<String>,
     pub line_start: Option<usize>,
     pub line_end: Option<usize>,
     pub selected_text: Option<String>,

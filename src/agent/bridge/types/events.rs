@@ -52,6 +52,15 @@ pub enum BridgeEvent {
         partial: bool,
     },
 
+    /// Reasoning/thinking from the model (Codex)
+    Reasoning {
+        #[serde(rename = "sessionId")]
+        session_id: String,
+        timestamp: u64,
+        content: String,
+        partial: bool,
+    },
+
     /// Tool use started
     #[serde(rename = "tool.use")]
     ToolUse {

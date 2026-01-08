@@ -84,32 +84,41 @@ pub async fn run_chain_job(
     } else {
         workspace_root.join(&job.source_file)
     };
-    if !resolved_source_file.exists() {
-        let error = format!("Source file not found: {}", resolved_source_file.display());
-        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(&error)));
-        if let Ok(mut manager) = job_manager.lock() {
-            if let Some(j) = manager.get_mut(job_id) {
-                j.fail(&error);
+
+    // Check if this is a prompt-only job (source_file equals workspace root)
+    // Prompt-only jobs have no specific source file - they use the workspace as a placeholder
+    let is_prompt_only_job = resolved_source_file == *workspace_root
+        || job.source_file.to_string_lossy() == "prompt";
+
+    // Only validate source file existence if it's not a prompt-only job
+    if !is_prompt_only_job {
+        if !resolved_source_file.exists() {
+            let error = format!("Source file not found: {}", resolved_source_file.display());
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(&error)));
+            if let Ok(mut manager) = job_manager.lock() {
+                if let Some(j) = manager.get_mut(job_id) {
+                    j.fail(&error);
+                }
+                manager.touch();
             }
-            manager.touch();
+            let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+            return;
         }
-        let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
-        return;
-    }
-    if !resolved_source_file.is_file() {
-        let error = format!(
-            "Invalid job input: source file is not a file: {}",
-            resolved_source_file.display()
-        );
-        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(&error)));
-        if let Ok(mut manager) = job_manager.lock() {
-            if let Some(j) = manager.get_mut(job_id) {
-                j.fail(&error);
+        if !resolved_source_file.is_file() {
+            let error = format!(
+                "Invalid job input: source file is not a file: {}",
+                resolved_source_file.display()
+            );
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(&error)));
+            if let Ok(mut manager) = job_manager.lock() {
+                if let Some(j) = manager.get_mut(job_id) {
+                    j.fail(&error);
+                }
+                manager.touch();
             }
-            manager.touch();
+            let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
+            return;
         }
-        let _ = event_tx.send(ExecutorEvent::JobFailed(job_id, error));
-        return;
     }
     if !job.source_file.is_absolute() {
         job.source_file = resolved_source_file;

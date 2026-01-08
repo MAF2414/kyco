@@ -72,12 +72,15 @@ pub fn handle_control_job_create(
         return;
     }
 
-    let file_path_raw = req.file_path.trim();
-    if file_path_raw.is_empty() {
+    // Validate: need either file_path or prompt (or both)
+    let file_path_raw = req.file_path.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let prompt_provided = req.prompt.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_some();
+
+    if file_path_raw.is_none() && !prompt_provided {
         respond_json(
             request,
             400,
-            serde_json::json!({ "error": "missing_file_path" }),
+            serde_json::json!({ "error": "missing_file_or_prompt", "message": "Either file_path or prompt (or both) must be provided" }),
         );
         return;
     }
@@ -174,49 +177,52 @@ pub fn handle_control_job_create(
         agents.push(agent);
     }
 
-    // Normalize file path to absolute within work_dir.
-    let path =
-        expand_tilde(file_path_raw).unwrap_or_else(|| std::path::PathBuf::from(file_path_raw));
-    let abs_path = if path.is_absolute() {
-        path
+    // Normalize and validate file path if provided
+    let (abs_path_str, workspace) = if let Some(file_path_raw) = file_path_raw {
+        let path = expand_tilde(file_path_raw)
+            .unwrap_or_else(|| std::path::PathBuf::from(file_path_raw));
+        let abs_path = if path.is_absolute() {
+            path
+        } else {
+            control.work_dir.join(path)
+        };
+        if !abs_path.exists() {
+            respond_json(
+                request,
+                400,
+                serde_json::json!({
+                    "error": "file_not_found",
+                    "message": format!("File not found: {}", abs_path.display()),
+                    "file_path": file_path_raw,
+                    "resolved_path": abs_path.display().to_string(),
+                }),
+            );
+            return;
+        }
+        if !abs_path.is_file() {
+            respond_json(
+                request,
+                400,
+                serde_json::json!({
+                    "error": "path_not_file",
+                    "message": format!("Path is not a file: {}", abs_path.display()),
+                    "file_path": file_path_raw,
+                    "resolved_path": abs_path.display().to_string(),
+                }),
+            );
+            return;
+        }
+        // Find the correct workspace root based on the file location
+        let ws = find_workspace_root(&abs_path, &control.work_dir);
+        (Some(abs_path.display().to_string()), ws)
     } else {
-        control.work_dir.join(path)
+        // No file provided - use current work_dir as workspace
+        (None, control.work_dir.clone())
     };
-    if !abs_path.exists() {
-        respond_json(
-            request,
-            400,
-            serde_json::json!({
-                "error": "file_not_found",
-                "message": format!("File not found: {}", abs_path.display()),
-                "file_path": file_path_raw,
-                "resolved_path": abs_path.display().to_string(),
-            }),
-        );
-        return;
-    }
-    if !abs_path.is_file() {
-        respond_json(
-            request,
-            400,
-            serde_json::json!({
-                "error": "path_not_file",
-                "message": format!("Path is not a file: {}", abs_path.display()),
-                "file_path": file_path_raw,
-                "resolved_path": abs_path.display().to_string(),
-            }),
-        );
-        return;
-    }
-    let abs_path_str = abs_path.display().to_string();
-
-    // Find the correct workspace root based on the file location
-    // Looks for .kyco or .git directories in parent paths
-    let workspace = find_workspace_root(&abs_path, &control.work_dir);
 
     let selection = SelectionContext {
         app_name: Some("CLI".to_string()),
-        file_path: Some(abs_path_str),
+        file_path: abs_path_str,
         selected_text: req.selected_text,
         line_number: req.line_start,
         line_end: req.line_end,

@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
+use std::fs;
 use std::path::Path;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -26,6 +27,21 @@ fn is_rate_limited(code: Option<&str>, message: &str) -> bool {
     }
     let msg = message.to_ascii_lowercase();
     msg.contains("rate limit") || msg.contains("too many requests")
+}
+
+/// Check if an error message indicates a retriable connection issue
+fn is_retriable_connection_error(message: &str) -> bool {
+    let msg = message.to_ascii_lowercase();
+    msg.contains("reconnect")
+        || msg.contains("connection")
+        || msg.contains("network")
+        || msg.contains("timeout")
+        || msg.contains("reset")
+        || msg.contains("econnreset")
+        || msg.contains("epipe")
+        || msg.contains("socket")
+        || msg.contains("closed")
+        || msg.contains("disconnected")
 }
 
 /// Calculate retry delay with exponential backoff (capped at 30s)
@@ -56,55 +72,90 @@ impl CodexBridgeAdapter {
         Self { client: BridgeClient::with_url(url) }
     }
 
-    pub(super) fn build_prompt(&self, job: &Job, config: &AgentConfig, _worktree: &Path) -> String {
-        let template = config.get_skill_template(&job.mode);
+    /// Find skill directory and list its files
+    fn find_skill_files(&self, job: &Job, worktree: &Path) -> (Option<String>, Vec<String>) {
+        // Try workspace-local first, then global
+        let skill_dirs = [
+            worktree.join(".codex/skills").join(&job.mode),
+            dirs::home_dir()
+                .map(|h| h.join(".codex/skills").join(&job.mode))
+                .unwrap_or_default(),
+        ];
+
+        for skill_dir in skill_dirs {
+            if skill_dir.exists() && skill_dir.is_dir() {
+                let dir_path = skill_dir.display().to_string();
+                let mut files = Vec::new();
+
+                if let Ok(entries) = fs::read_dir(&skill_dir) {
+                    for entry in entries.filter_map(|e| e.ok()) {
+                        let path = entry.path();
+                        if path.is_file() {
+                            if let Some(name) = path.file_name() {
+                                files.push(name.to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                }
+                files.sort();
+                return (Some(dir_path), files);
+            }
+        }
+
+        (None, Vec::new())
+    }
+
+    pub(super) fn build_prompt(&self, job: &Job, config: &AgentConfig, worktree: &Path) -> String {
         let paths = resolve_prompt_paths(job);
+        let template = config.get_skill_template(&job.mode);
 
-        let mut prompt = template.prompt_template
-            .replace("{file}", &paths.file_path)
-            .replace("{line}", &job.source_line.to_string())
-            .replace("{target}", &paths.target)
-            .replace("{mode}", &job.mode)
-            .replace("{description}", job.description.as_deref().unwrap_or(""))
-            .replace("{scope_type}", "file")
-            .replace("{ide_context}", &paths.ide_context);
+        // Find skill directory and files
+        let (skill_dir, skill_files) = self.find_skill_files(job, worktree);
 
+        // Build prompt with skill instructions for Codex
+        // (Codex doesn't have native skill loading like Claude's /skill command)
+        let mut prompt = String::new();
+
+        // Add system prompt / skill instructions first
         if let Some(system_prompt) = template.system_prompt.as_deref() {
             let system_prompt = system_prompt.trim();
             if !system_prompt.is_empty() {
-                prompt = format!("{}\n\n{}", system_prompt, prompt);
-            }
-        }
-
-        if let Some(wt_path) = &job.git_worktree_path {
-            prompt.push_str(&format!(
-                "\n\n---\n**IMPORTANT: Working Directory**\n\
-                You are working in an isolated Git worktree at: `{}`\n\
-                All file paths are relative to this worktree. \
-                Do NOT edit files outside this directory. \
-                When done, commit your changes with a descriptive message. Do NOT push.",
-                wt_path.display()
-            ));
-        }
-
-        if let Some(schema) = &config.output_schema {
-            if !schema.trim().is_empty() {
+                prompt.push_str("## Skill Instructions\n\n");
+                prompt.push_str(system_prompt);
                 prompt.push_str("\n\n");
-                prompt.push_str(schema);
             }
         }
 
-        if let Some(ref state_prompt) = template.state_prompt {
-            if !state_prompt.trim().is_empty() {
-                prompt.push_str("\n\n");
-                prompt.push_str(state_prompt);
+        // Add skill directory info if found
+        if let Some(dir) = &skill_dir {
+            prompt.push_str(&format!("## Skill Directory\n\nSkill '{}' is located at: `{}`\n", job.mode, dir));
+            if !skill_files.is_empty() {
+                prompt.push_str("\nFiles in skill directory:\n");
+                for file in &skill_files {
+                    prompt.push_str(&format!("- `{}`\n", file));
+                }
             }
-        } else if !template.output_states.is_empty() {
-            prompt.push_str("\n\n## Output State\nWhen you complete this task, indicate the outcome by stating one of the following:\n");
-            for state in &template.output_states {
-                prompt.push_str(&format!("- state: {}\n", state));
+            prompt.push_str("\n");
+        }
+
+        // Add the task
+        prompt.push_str(&format!(
+            "## Task\n\nExecute the '{}' skill on file `{}` at line {}.\n",
+            job.mode, paths.file_path, job.source_line
+        ));
+
+        // Add IDE context if available
+        if !paths.ide_context.is_empty() {
+            prompt.push_str("\n");
+            prompt.push_str(&paths.ide_context);
+        }
+
+        // Add user description if provided
+        if let Some(desc) = &job.description {
+            if !desc.is_empty() {
+                prompt.push_str("\n\n## User Request\n\n");
+                prompt.push_str(desc);
             }
-            prompt.push_str(&format!("\nExample: \"state: {}\" (at the end of your response)", &template.output_states[0]));
         }
 
         prompt
@@ -192,6 +243,9 @@ impl AgentRunner for CodexBridgeAdapter {
                     Err(e) => {
                         if is_rate_limited(None, &e) {
                             rate_limited_message = Some(e);
+                        } else if is_retriable_connection_error(&e) {
+                            // Log as system message, don't set result.error so outer loop retries
+                            let _ = event_tx.send(LogEvent::system(format!("Connection issue: {}", e)).for_job(job_id)).await;
                         } else {
                             let message = format!("Bridge event stream error: {}", e);
                             result.error = Some(message.clone());
@@ -207,8 +261,20 @@ impl AgentRunner for CodexBridgeAdapter {
                         let _ = event_tx.send(LogEvent::system("Codex thread started").with_tool_args(serde_json::json!({ "session_id": session_id })).for_job(job_id)).await;
                     }
                     BridgeEvent::Text { content, partial, .. } => {
-                        if !partial { output_text.push_str(&content); output_text.push('\n'); }
-                        let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
+                        // Detect reasoning that comes as text (Codex SDK sends [Reasoning] prefix)
+                        if content.starts_with("[Reasoning]") {
+                            // Strip the [Reasoning] prefix and log as thought
+                            let reasoning_content = content.strip_prefix("[Reasoning]").unwrap_or(&content).trim();
+                            let _ = event_tx.send(LogEvent::thought(reasoning_content.to_string()).for_job(job_id)).await;
+                            // Don't add reasoning to output_text
+                        } else {
+                            if !partial { output_text.push_str(&content); output_text.push('\n'); }
+                            let _ = event_tx.send(LogEvent::text(content).for_job(job_id)).await;
+                        }
+                    }
+                    BridgeEvent::Reasoning { content, .. } => {
+                        // Log reasoning as thought (not added to output_text)
+                        let _ = event_tx.send(LogEvent::thought(content).for_job(job_id)).await;
                     }
                     BridgeEvent::ToolUse { tool_name, tool_input, tool_use_id, .. } => {
                         let mut args = tool_input.clone();
@@ -225,6 +291,9 @@ impl AgentRunner for CodexBridgeAdapter {
                     BridgeEvent::Error { message, code, .. } => {
                         if is_rate_limited(code.as_deref(), &message) {
                             rate_limited_message = Some(message);
+                        } else if is_retriable_connection_error(&message) {
+                            // Log as system message, don't set result.error so outer loop retries
+                            let _ = event_tx.send(LogEvent::system(format!("Connection issue: {}", message)).for_job(job_id)).await;
                         } else {
                             result.error = Some(message.clone());
                             let _ = event_tx.send(LogEvent::error(message).for_job(job_id)).await;
@@ -322,7 +391,7 @@ impl AgentRunner for CodexBridgeAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_rate_limited, CodexBridgeAdapter};
+    use super::{is_rate_limited, is_retriable_connection_error, CodexBridgeAdapter};
     use crate::{AgentConfig, Job, ScopeDefinition};
     use std::path::{Path, PathBuf};
 
@@ -332,14 +401,18 @@ mod tests {
     }
 
     #[test]
-    fn codex_build_prompt_includes_mode_system_prompt() {
+    fn codex_build_prompt_uses_native_skill_invocation() {
         let adapter = CodexBridgeAdapter::new();
         let config = AgentConfig::codex_default();
         let job = create_test_job("refactor", Some("fix the bug"), "src/main.rs", 42);
         let prompt = adapter.build_prompt(&job, &config, Path::new("."));
 
-        assert!(prompt.starts_with("You are running in KYCo 'refactor' mode."), "Expected mode system prompt prefix, got: {}", prompt);
-        assert!(prompt.contains("Refactor the file"), "Expected user prompt to follow system prompt, got: {}", prompt);
+        // Should include task section with skill name and file context
+        assert!(prompt.contains("## Task"), "Expected Task section, got: {}", prompt);
+        assert!(prompt.contains("Execute the 'refactor' skill"), "Expected skill execution instruction, got: {}", prompt);
+        assert!(prompt.contains("src/main.rs"), "Expected file context, got: {}", prompt);
+        assert!(prompt.contains("line 42"), "Expected line context, got: {}", prompt);
+        assert!(prompt.contains("fix the bug"), "Expected description to be included, got: {}", prompt);
     }
 
     #[test]
@@ -347,5 +420,19 @@ mod tests {
         assert!(is_rate_limited(Some("429"), "anything"));
         assert!(is_rate_limited(Some("rate_limit"), "anything"));
         assert!(is_rate_limited(Some("RATE_LIMIT"), "anything"));
+    }
+
+    #[test]
+    fn detects_retriable_connection_errors() {
+        // "Reconnecting... 1/5" is the actual message from Codex SDK
+        assert!(is_retriable_connection_error("Reconnecting... 1/5"));
+        assert!(is_retriable_connection_error("Connection lost"));
+        assert!(is_retriable_connection_error("Network error"));
+        assert!(is_retriable_connection_error("timeout"));
+        assert!(is_retriable_connection_error("ECONNRESET"));
+        assert!(is_retriable_connection_error("socket closed"));
+        // Should NOT match unrelated errors
+        assert!(!is_retriable_connection_error("Invalid API key"));
+        assert!(!is_retriable_connection_error("File not found"));
     }
 }

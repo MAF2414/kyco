@@ -81,9 +81,9 @@ pub enum JobCommands {
     },
     /// Start a job (creates it in the GUI and optionally queues it)
     Start {
-        /// File path (relative to --path, or absolute)
+        /// File path (relative to --path, or absolute). Optional if --prompt is provided.
         #[arg(long)]
-        file: String,
+        file: Option<String>,
         /// Start line (1-indexed)
         #[arg(long)]
         line_start: Option<usize>,

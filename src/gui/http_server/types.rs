@@ -93,8 +93,8 @@ pub struct BatchRequest {
 /// Control API: create one or more jobs from a file selection.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ControlJobCreateRequest {
-    /// File path (relative to KYCo work_dir, or absolute).
-    pub file_path: String,
+    /// File path (relative to KYCo work_dir, or absolute). Optional if prompt is provided.
+    pub file_path: Option<String>,
     pub line_start: Option<usize>,
     pub line_end: Option<usize>,
     pub selected_text: Option<String>,

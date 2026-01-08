@@ -8,6 +8,8 @@ use crate::Job;
 /// Resolved paths for prompt building.
 pub struct ResolvedPaths {
     pub file_path: String,
+    /// Target path (may be needed for future template-based prompts)
+    #[allow(dead_code)]
     pub target: String,
     pub ide_context: String,
 }

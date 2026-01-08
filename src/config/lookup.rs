@@ -248,10 +248,14 @@ impl Config {
         self.chain.contains_key(name)
     }
 
-    /// Get mode or chain - returns a reference to avoid cloning
+    /// Get mode, skill, or chain - returns a reference to avoid cloning
+    ///
+    /// Search order: chains first, then skills (filesystem), then legacy modes (TOML)
     pub fn get_mode_or_chain(&self, name: &str) -> Option<ModeOrChainRef<'_>> {
         if let Some(chain) = self.chain.get(name) {
             Some(ModeOrChainRef::Chain(chain))
+        } else if let Some(skill) = self.skill.get(name) {
+            Some(ModeOrChainRef::Skill(skill))
         } else if let Some(mode) = self.mode.get(name) {
             Some(ModeOrChainRef::Mode(mode))
         } else {

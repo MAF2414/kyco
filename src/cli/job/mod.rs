@@ -79,9 +79,12 @@ pub fn job_start_command(
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs");
 
-    let file_path_raw = args.file_path.trim();
-    if file_path_raw.is_empty() {
-        anyhow::bail!("Missing --file");
+    // Validate: need either --file or --prompt (or both)
+    let file_path_raw = args.file_path.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let prompt_provided = args.prompt.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_some();
+
+    if file_path_raw.is_none() && !prompt_provided {
+        anyhow::bail!("Either --file or --prompt (or both) must be provided");
     }
 
     if let Some(start) = args.line_start {
@@ -100,14 +103,19 @@ pub fn job_start_command(
         }
     }
 
-    let resolved_path = resolve_file_path(work_dir, file_path_raw);
-    if !resolved_path.exists() {
-        anyhow::bail!("File not found: {}", resolved_path.display());
-    }
-    if !resolved_path.is_file() {
-        anyhow::bail!("Path is not a file: {}", resolved_path.display());
-    }
-    let file_path = resolved_path.display().to_string();
+    // Resolve file path if provided
+    let file_path = if let Some(raw) = file_path_raw {
+        let resolved_path = resolve_file_path(work_dir, raw);
+        if !resolved_path.exists() {
+            anyhow::bail!("File not found: {}", resolved_path.display());
+        }
+        if !resolved_path.is_file() {
+            anyhow::bail!("Path is not a file: {}", resolved_path.display());
+        }
+        Some(resolved_path.display().to_string())
+    } else {
+        None
+    };
 
     let agents = args
         .agents

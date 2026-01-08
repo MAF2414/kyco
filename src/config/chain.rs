@@ -108,11 +108,12 @@ pub enum ModeOrChain {
     Chain(ModeChain),
 }
 
-/// Either a single mode or a chain of modes (borrowed)
+/// Either a single mode/skill or a chain of modes (borrowed)
 ///
 /// Use this variant for read-only access to avoid cloning.
 #[derive(Debug, Clone, Copy)]
 pub enum ModeOrChainRef<'a> {
     Mode(&'a ModeConfig),
+    Skill(&'a super::skill::SkillConfig),
     Chain(&'a ModeChain),
 }

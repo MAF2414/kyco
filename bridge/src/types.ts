@@ -64,6 +64,7 @@ export type {
   SessionStartEvent,
   SessionCompleteEvent,
   TextEvent,
+  ReasoningEvent,
   ErrorEvent,
   ToolUseEvent,
   ToolResultEvent,
