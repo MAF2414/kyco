@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 
 use super::super::client::BridgeClient;
 use super::super::types::*;
-use super::util::{bridge_cwd, extract_output_from_result, format_tool_call, parse_json_schema, resolve_prompt_paths};
+use super::util::{ResolvedPaths, bridge_cwd, extract_output_from_result, format_tool_call, parse_json_schema, resolve_prompt_paths};
 use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
 
@@ -72,6 +72,63 @@ impl CodexBridgeAdapter {
         Self { client: BridgeClient::with_url(url) }
     }
 
+    fn format_scope(job: &Job) -> String {
+        if let Some(function_name) = &job.scope.function_name {
+            if let Some((start, end)) = job.scope.line_range {
+                return format!("function `{}` (lines {}-{})", function_name, start, end);
+            }
+            return format!("function `{}`", function_name);
+        }
+        if let Some(dir_path) = &job.scope.dir_path {
+            return format!("directory `{}`", dir_path.display());
+        }
+        if !job.scope.file_path.as_os_str().is_empty() {
+            return format!("file `{}`", job.scope.file_path.display());
+        }
+        "project".to_string()
+    }
+
+    fn find_skill_md(&self, job: &Job, worktree: &Path) -> Option<(String, String)> {
+        let skill = job.mode.as_str();
+        let mut candidates = vec![
+            worktree
+                .join(".codex/skills")
+                .join(skill)
+                .join("SKILL.md"),
+            worktree.join(".codex/skills").join(format!("{}.md", skill)),
+        ];
+
+        if let Some(home) = dirs::home_dir() {
+            candidates.extend([
+                home.join(".codex/skills").join(skill).join("SKILL.md"),
+                home.join(".codex/skills").join(format!("{}.md", skill)),
+                home.join(".kyco/skills").join(skill).join("SKILL.md"),
+                home.join(".kyco/skills").join(format!("{}.md", skill)),
+            ]);
+        }
+
+        for path in candidates {
+            if !path.is_file() {
+                continue;
+            }
+            if let Ok(content) = fs::read_to_string(&path) {
+                return Some((path.display().to_string(), content));
+            }
+        }
+        None
+    }
+
+    fn apply_skill_placeholders(template: &str, job: &Job, scope: &str, paths: &ResolvedPaths) -> String {
+        template
+            .replace("{mode}", &job.mode)
+            .replace("{skill}", &job.mode)
+            .replace("{target}", &paths.target)
+            .replace("{scope}", scope)
+            .replace("{file}", &paths.file_path)
+            .replace("{ide_context}", &paths.ide_context)
+            .replace("{description}", job.description.as_deref().unwrap_or(""))
+    }
+
     /// Find skill directory and list its files
     fn find_skill_files(&self, job: &Job, worktree: &Path) -> (Option<String>, Vec<String>) {
         // Try workspace-local first, then global
@@ -108,21 +165,37 @@ impl CodexBridgeAdapter {
     pub(super) fn build_prompt(&self, job: &Job, config: &AgentConfig, worktree: &Path) -> String {
         let paths = resolve_prompt_paths(job);
         let template = config.get_skill_template(&job.mode);
+        let scope = Self::format_scope(job);
 
         // Find skill directory and files
         let (skill_dir, skill_files) = self.find_skill_files(job, worktree);
+        let embedded_skill = self.find_skill_md(job, worktree);
 
         // Build prompt with skill instructions for Codex
         // (Codex doesn't have native skill loading like Claude's /skill command)
         let mut prompt = String::new();
 
-        // Add system prompt / skill instructions first
-        if let Some(system_prompt) = template.system_prompt.as_deref() {
-            let system_prompt = system_prompt.trim();
-            if !system_prompt.is_empty() {
-                prompt.push_str("## Skill Instructions\n\n");
-                prompt.push_str(system_prompt);
-                prompt.push_str("\n\n");
+        let mut skill_template_covered_description = false;
+        let mut skill_template_covered_ide_context = false;
+
+        // Add embedded skill definition first (preferred for Codex because skill loading is not reliable)
+        if let Some((skill_path, skill_md)) = embedded_skill {
+            skill_template_covered_description = skill_md.contains("{description}");
+            skill_template_covered_ide_context = skill_md.contains("{ide_context}");
+
+            prompt.push_str("## Skill (embedded SKILL.md)\n\n");
+            prompt.push_str(&Self::apply_skill_placeholders(&skill_md, job, &scope, &paths));
+            prompt.push_str("\n\n");
+            prompt.push_str(&format!("(Loaded from `{}`)\n\n", skill_path));
+        } else {
+            // Add system prompt / legacy skill instructions first
+            if let Some(system_prompt) = template.system_prompt.as_deref() {
+                let system_prompt = system_prompt.trim();
+                if !system_prompt.is_empty() {
+                    prompt.push_str("## Skill Instructions\n\n");
+                    prompt.push_str(system_prompt);
+                    prompt.push_str("\n\n");
+                }
             }
         }
 
@@ -145,16 +218,18 @@ impl CodexBridgeAdapter {
         ));
 
         // Add IDE context if available
-        if !paths.ide_context.is_empty() {
+        if !skill_template_covered_ide_context && !paths.ide_context.is_empty() {
             prompt.push_str("\n");
             prompt.push_str(&paths.ide_context);
         }
 
         // Add user description if provided
-        if let Some(desc) = &job.description {
-            if !desc.is_empty() {
-                prompt.push_str("\n\n## User Request\n\n");
-                prompt.push_str(desc);
+        if !skill_template_covered_description {
+            if let Some(desc) = &job.description {
+                if !desc.is_empty() {
+                    prompt.push_str("\n\n## User Request\n\n");
+                    prompt.push_str(desc);
+                }
             }
         }
 
@@ -394,6 +469,7 @@ mod tests {
     use super::{is_rate_limited, is_retriable_connection_error, CodexBridgeAdapter};
     use crate::{AgentConfig, Job, ScopeDefinition};
     use std::path::{Path, PathBuf};
+    use tempfile::TempDir;
 
     fn create_test_job(mode: &str, description: Option<&str>, source_file: &str, source_line: usize) -> Job {
         Job::new(1, mode.to_string(), ScopeDefinition::file(PathBuf::from(source_file)), format!("{}:{}", source_file, source_line),
@@ -413,6 +489,42 @@ mod tests {
         assert!(prompt.contains("src/main.rs"), "Expected file context, got: {}", prompt);
         assert!(prompt.contains("line 42"), "Expected line context, got: {}", prompt);
         assert!(prompt.contains("fix the bug"), "Expected description to be included, got: {}", prompt);
+    }
+
+    #[test]
+    fn codex_build_prompt_embeds_skill_md_when_present() {
+        let temp = TempDir::new().expect("tempdir");
+        let skill_dir = temp.path().join(".codex/skills/my-skill");
+        std::fs::create_dir_all(&skill_dir).expect("create skill dir");
+
+        let skill_md = r#"---
+name: my-skill
+description: test skill
+---
+
+# Instructions
+
+Target: {target}
+Scope: {scope}
+File: {file}
+Description: {description}
+
+{ide_context}
+"#;
+        std::fs::write(skill_dir.join("SKILL.md"), skill_md).expect("write SKILL.md");
+
+        let adapter = CodexBridgeAdapter::new();
+        let config = AgentConfig::codex_default();
+        let mut job = create_test_job("my-skill", Some("do the thing"), "src/main.rs", 42);
+        job.ide_context = Some("IDE CONTEXT".to_string());
+
+        let prompt = adapter.build_prompt(&job, &config, temp.path());
+
+        assert!(prompt.contains("## Skill (embedded SKILL.md)"), "Expected embedded skill header, got: {}", prompt);
+        assert!(prompt.contains("Target: src/main.rs:42"), "Expected target placeholder to be replaced, got: {}", prompt);
+        assert!(prompt.contains("Description: do the thing"), "Expected description placeholder to be replaced, got: {}", prompt);
+        assert!(prompt.contains("IDE CONTEXT"), "Expected ide_context placeholder to be replaced, got: {}", prompt);
+        assert!(!prompt.contains("## User Request"), "Expected user request to be skipped when embedded skill covers {{description}}, got: {}", prompt);
     }
 
     #[test]
