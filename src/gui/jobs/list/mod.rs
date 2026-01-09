@@ -39,13 +39,11 @@ pub fn render_job_list(
         ui.add_space(4.0);
         ui.separator();
 
-        let available_width = ui.available_width();
         render_job_scroll_area(
             ui,
             cached_jobs,
             selected_job_id,
             filter,
-            available_width,
             &mut action,
         );
     });
@@ -144,12 +142,14 @@ fn render_job_scroll_area(
     cached_jobs: &[Job],
     selected_job_id: &mut Option<u64>,
     filter: &JobListFilter,
-    available_width: f32,
     action: &mut JobListAction,
 ) {
     ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
+            // Use the scroll area's *actual* available width to avoid triggering an unintended
+            // horizontal scrollbar (e.g. when a vertical scrollbar becomes visible).
+            let available_width = ui.available_width();
             ui.set_min_width(available_width);
 
             let mut filtered_jobs: Vec<&Job> =
