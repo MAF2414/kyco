@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
                 status,
                 limit,
                 search,
-                mode,
+                skill,
             } => {
                 cli::job::job_list_command(
                     &work_dir,
@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
                     status.as_deref(),
                     limit,
                     search.as_deref(),
-                    mode.as_deref(),
+                    skill.as_deref(), // CLI uses --skill, internally still called mode
                 )?;
             }
             JobCommands::Get { job_id, json } => {
@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
                 file,
                 line_start,
                 line_end,
-                mode,
+                skill,
                 prompt,
                 agent,
                 agents,
@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
                         line_start,
                         line_end,
                         selected_text: None,
-                        mode,
+                        mode: skill, // CLI uses --skill, internally still called mode
                         prompt,
                         agent,
                         agents,

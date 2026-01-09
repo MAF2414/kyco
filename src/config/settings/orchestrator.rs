@@ -83,7 +83,7 @@ Your job is to help the user run KYCo jobs (skills/chains) safely and iterativel
 - Use `--agents claude,codex` for multi-agent comparison (parallel jobs)
 
 ### Monitoring Jobs
-- List jobs: `kyco job list [--status queued|running|done|failed]`
+- List jobs: `kyco job list [--status queued|running|done|failed] [--skill <name>]`
 - Get job details: `kyco job get <job_id> [--json]`
 - Wait for completion: `kyco job wait <job_id>`
 - View diff: `kyco job diff <job_id> [--json]`

@@ -68,9 +68,9 @@ pub enum JobCommands {
         /// Search in job description/prompt
         #[arg(long, short = 'q')]
         search: Option<String>,
-        /// Filter by mode (e.g., review, implement, fix)
-        #[arg(long, short = 'm')]
-        mode: Option<String>,
+        /// Filter by skill (e.g., review, implement, fix)
+        #[arg(long, visible_alias = "mode")]
+        skill: Option<String>,
     },
     /// Get a single job by ID
     Get {
@@ -90,9 +90,9 @@ pub enum JobCommands {
         /// End line (1-indexed)
         #[arg(long)]
         line_end: Option<usize>,
-        /// Mode or chain name
-        #[arg(long)]
-        mode: String,
+        /// Skill or chain name
+        #[arg(long, visible_alias = "mode")]
+        skill: String,
         /// Optional prompt/description text
         #[arg(long)]
         prompt: Option<String>,
