@@ -18,7 +18,6 @@ use super::app::KycoApp;
 use super::executor::{ExecutorEvent, start_executor};
 use super::http_server::{BatchRequest, ControlApiState, SelectionRequest, start_http_server};
 use crate::LogEvent;
-use crate::agent::BridgeProcess;
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
 
@@ -168,11 +167,6 @@ pub fn run_gui(work_dir: PathBuf, config_override: Option<PathBuf>) -> Result<()
         JobManager::load(&work_dir).unwrap_or_else(|_| JobManager::new(&work_dir)),
     ));
     let group_manager = Arc::new(Mutex::new(GroupManager::new()));
-
-    // Start SDK Bridge server (Node.js sidecar)
-    // This provides Claude Agent SDK and Codex SDK functionality
-    let _bridge_process = BridgeProcess::spawn()?;
-    info!("[kyco] SDK Bridge server ready");
 
     let (http_port, http_token) = config
         .read()

@@ -11,6 +11,8 @@ pub enum StreamEvent {
         subtype: String,
         #[serde(default)]
         message: Option<String>,
+        #[serde(default)]
+        session_id: Option<String>,
     },
 
     /// Assistant message (text or tool use)
@@ -30,12 +32,14 @@ pub enum StreamEvent {
         subtype: String,
         #[serde(default)]
         result: Option<String>,
-        #[serde(default)]
+        #[serde(default, alias = "total_cost_usd")]
         cost_usd: Option<f64>,
         #[serde(default)]
         duration_ms: Option<u64>,
         #[serde(default)]
         duration_api_ms: Option<u64>,
+        #[serde(default)]
+        session_id: Option<String>,
     },
 }
 
@@ -85,7 +89,9 @@ impl StreamEvent {
     /// Extract a human-readable summary from this event
     pub fn summary(&self) -> String {
         match self {
-            StreamEvent::System { subtype, message } => {
+            StreamEvent::System {
+                subtype, message, ..
+            } => {
                 format!("[system:{}] {}", subtype, message.as_deref().unwrap_or(""))
             }
             StreamEvent::Assistant { message } => {

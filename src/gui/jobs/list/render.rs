@@ -3,7 +3,9 @@
 use super::types::JobListAction;
 use crate::gui::animations::{blocked_indicator, pending_indicator, queued_indicator};
 use crate::gui::detail_panel::status_color;
-use crate::gui::theme::{ACCENT_CYAN, ACCENT_PURPLE, ACCENT_RED, BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY};
+use crate::gui::theme::{
+    ACCENT_CYAN, ACCENT_PURPLE, ACCENT_RED, BG_SELECTED, TEXT_DIM, TEXT_MUTED, TEXT_PRIMARY,
+};
 use crate::{Job, JobStatus};
 use chrono::{DateTime, Utc};
 use eframe::egui::{self, Color32, RichText, Stroke};
@@ -49,7 +51,9 @@ fn format_time_ago(time: DateTime<Utc>) -> String {
 /// Generate a color from a string, optimized for dark theme visibility
 fn color_from_string(s: &str) -> Color32 {
     // Simple hash function
-    let hash: u32 = s.bytes().fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
+    let hash: u32 = s
+        .bytes()
+        .fold(0u32, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u32));
 
     // Map hash to hue (0-360)
     let hue = (hash % 360) as f32;
@@ -139,7 +143,6 @@ pub fn render_job_row(
     ui: &mut egui::Ui,
     job: &Job,
     is_selected: bool,
-    available_width: f32,
     action: &mut JobListAction,
 ) -> egui::Response {
     let bg = if is_selected {
@@ -152,7 +155,7 @@ pub fn render_job_row(
         .fill(bg)
         .inner_margin(egui::vec2(8.0, 4.0))
         .show(ui, |ui| {
-            ui.set_min_width(available_width - 16.0);
+            ui.set_min_width(ui.available_width());
             ui.horizontal(|ui| {
                 render_status_indicator(ui, job);
 
@@ -184,7 +187,11 @@ pub fn render_job_row(
                 if let Some(ref result) = job.result {
                     if let Some(ref state) = result.state {
                         let state_color = color_from_string(state);
-                        ui.label(RichText::new(format!("[{}]", state)).small().color(state_color));
+                        ui.label(
+                            RichText::new(format!("[{}]", state))
+                                .small()
+                                .color(state_color),
+                        );
                     }
                 }
 
@@ -194,7 +201,7 @@ pub fn render_job_row(
                 });
             });
 
-            render_target_row(ui, job, available_width, action);
+            render_target_row(ui, job, action);
         })
         .response
 }
@@ -235,13 +242,8 @@ fn render_time_info(ui: &mut egui::Ui, job: &Job) {
 }
 
 /// Render the target file row with delete button for finished jobs
-fn render_target_row(
-    ui: &mut egui::Ui,
-    job: &Job,
-    available_width: f32,
-    action: &mut JobListAction,
-) {
-    let row_width = available_width - 16.0;
+fn render_target_row(ui: &mut egui::Ui, job: &Job, action: &mut JobListAction) {
+    let row_width = ui.available_width();
     ui.horizontal(|ui| {
         ui.set_width(row_width);
 
@@ -270,11 +272,10 @@ fn render_target_row(
 
         if job.is_finished() {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let delete_btn =
-                    egui::Button::new(RichText::new("✕").color(ACCENT_RED).size(12.0))
-                        .fill(Color32::TRANSPARENT)
-                        .stroke(Stroke::NONE)
-                        .small();
+                let delete_btn = egui::Button::new(RichText::new("✕").color(ACCENT_RED).size(12.0))
+                    .fill(Color32::TRANSPARENT)
+                    .stroke(Stroke::NONE)
+                    .small();
 
                 if ui
                     .add(delete_btn)

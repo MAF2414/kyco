@@ -3,6 +3,7 @@
 use super::super::app::KycoApp;
 use super::super::jobs;
 use crate::agent::bridge::PermissionMode;
+use crate::agent::process_registry;
 use crate::{JobId, LogEvent, SdkType};
 
 impl KycoApp {
@@ -11,6 +12,29 @@ impl KycoApp {
         // Mark cancellation requested (even before interrupting).
         // This prevents "can't stop" when the job has not emitted a session_id yet.
         jobs::kill_job(&self.job_manager, job_id, &mut self.logs);
+
+        // Prefer interrupting the running CLI process (Codex/Claude CLI adapters).
+        match process_registry::interrupt(job_id) {
+            Ok(true) => {
+                self.logs.push(LogEvent::system(format!(
+                    "Sent interrupt for job #{}",
+                    job_id
+                )));
+                if let Ok(mut manager) = self.job_manager.lock() {
+                    if let Some(job) = manager.get_mut(job_id) {
+                        job.cancel_sent = true;
+                    }
+                    manager.touch();
+                }
+                self.refresh_jobs();
+                return;
+            }
+            Ok(false) => {}
+            Err(e) => self.logs.push(LogEvent::error(format!(
+                "Failed to interrupt job #{}: {}",
+                job_id, e
+            ))),
+        }
 
         let session_info = self.job_manager.lock().ok().and_then(|manager| {
             manager.get(job_id).map(|job| {

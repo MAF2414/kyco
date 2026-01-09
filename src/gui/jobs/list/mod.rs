@@ -35,17 +35,18 @@ pub fn render_job_list(
     ui.vertical(|ui| {
         render_header(ui, count_finished, &mut action);
         ui.add_space(4.0);
-        render_filter_tabs(ui, filter, count_all, count_active, count_finished, count_failed);
+        render_filter_tabs(
+            ui,
+            filter,
+            count_all,
+            count_active,
+            count_finished,
+            count_failed,
+        );
         ui.add_space(4.0);
         ui.separator();
 
-        render_job_scroll_area(
-            ui,
-            cached_jobs,
-            selected_job_id,
-            filter,
-            &mut action,
-        );
+        render_job_scroll_area(ui, cached_jobs, selected_job_id, filter, &mut action);
     });
 
     action
@@ -117,12 +118,12 @@ fn render_filter_tabs(
                 (TEXT_MUTED, Color32::TRANSPARENT)
             };
 
-            let text_color =
-                if filter_option == JobListFilter::Failed && count > 0 && !is_selected {
-                    ACCENT_RED
-                } else {
-                    text_color
-                };
+            let text_color = if filter_option == JobListFilter::Failed && count > 0 && !is_selected
+            {
+                ACCENT_RED
+            } else {
+                text_color
+            };
 
             let btn = egui::Button::new(RichText::new(&label_with_count).small().color(text_color))
                 .fill(bg_color)
@@ -147,11 +148,6 @@ fn render_job_scroll_area(
     ScrollArea::vertical()
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            // Use the scroll area's *actual* available width to avoid triggering an unintended
-            // horizontal scrollbar (e.g. when a vertical scrollbar becomes visible).
-            let available_width = ui.available_width();
-            ui.set_min_width(available_width);
-
             let mut filtered_jobs: Vec<&Job> =
                 cached_jobs.iter().filter(|j| filter.matches(j)).collect();
 
@@ -173,7 +169,7 @@ fn render_job_scroll_area(
 
             for job in filtered_jobs {
                 let is_selected = *selected_job_id == Some(job.id);
-                let response = render_job_row(ui, job, is_selected, available_width, action);
+                let response = render_job_row(ui, job, is_selected, action);
 
                 // Only handle row click if no button action was triggered
                 // (delete button sets action, which takes priority)

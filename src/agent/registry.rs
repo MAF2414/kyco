@@ -1,13 +1,15 @@
 //! Agent registry for available agent adapters.
 //!
-//! All agents run via SDK-based adapters through the Bridge server.
+//! By default, agents run via local CLI adapters (Codex CLI / Claude Code).
+//! Bridge adapters can still be used for SDK-style integrations.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{AgentConfig, SdkType};
 
-use super::bridge::{ClaudeBridgeAdapter, CodexBridgeAdapter};
+use super::claude::ClaudeAdapter;
+use super::codex::CodexAdapter;
 use super::runner::AgentRunner;
 
 /// Central registry for managing agent adapters.
@@ -21,7 +23,7 @@ use super::runner::AgentRunner;
 /// making it safe to share across threads.
 #[derive(Clone)]
 pub struct AgentRegistry {
-    /// Adapters indexed by agent ID (e.g., `"claude"` → `ClaudeBridgeAdapter`).
+    /// Adapters indexed by agent ID (e.g., `"claude"` → `ClaudeAdapter`).
     adapters: HashMap<String, Arc<dyn AgentRunner>>,
 }
 
@@ -30,8 +32,8 @@ impl AgentRegistry {
     pub fn new() -> Self {
         let mut adapters: HashMap<String, Arc<dyn AgentRunner>> = HashMap::new();
 
-        adapters.insert("claude".to_string(), Arc::new(ClaudeBridgeAdapter::new()));
-        adapters.insert("codex".to_string(), Arc::new(CodexBridgeAdapter::new()));
+        adapters.insert("claude".to_string(), Arc::new(ClaudeAdapter::new()));
+        adapters.insert("codex".to_string(), Arc::new(CodexAdapter::new()));
 
         Self { adapters }
     }
@@ -67,7 +69,7 @@ impl AgentRegistry {
 
     /// Lists all available adapters.
     ///
-    /// An adapter is considered "available" if the Bridge server is reachable.
+    /// Availability is determined by each adapter (e.g., CLI binary present).
     pub fn list_available(&self) -> Vec<&str> {
         self.adapters
             .iter()

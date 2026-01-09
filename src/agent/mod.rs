@@ -1,7 +1,8 @@
 //! Agent execution and management.
 //!
 //! This module provides the core abstraction layer for executing AI coding agents.
-//! Agents run through the local Bridge server for SDK-based control.
+//! Agents run primarily via local CLI adapters (Codex CLI / Claude Code).
+//! An optional Bridge server is available for SDK-style integrations.
 //!
 //! # Architecture
 //!
@@ -9,9 +10,12 @@
 //!
 //! - **[`AgentRunner`]** - The core trait that all agent adapters implement, defining
 //!   how to execute a job and stream results.
-//! - **SDK Adapters** - Backend-specific implementations:
-//!   - [`ClaudeBridgeAdapter`] - Anthropic's Claude via Claude Agent SDK
-//!   - [`CodexBridgeAdapter`] - OpenAI's Codex via Codex SDK
+//! - **CLI Adapters** - Backend-specific implementations:
+//!   - [`ClaudeAdapter`] - Claude Code CLI
+//!   - [`CodexAdapter`] - Codex CLI
+//! - **Bridge Adapters (optional)** - SDK-style session control:
+//!   - [`ClaudeBridgeAdapter`]
+//!   - [`CodexBridgeAdapter`]
 //! - **[`AgentRegistry`]** - Manages available agents and selects an adapter per job.
 //! - **[`ChainRunner`]** - Executes sequential chains of modes, passing context
 //!   between steps for multi-stage workflows.
@@ -31,10 +35,10 @@
 
 pub mod bridge;
 mod chain;
+pub mod process_registry;
 mod registry;
 mod runner;
 
-// Legacy modules - kept for backwards compatibility but deprecated
 mod claude;
 mod codex;
 mod terminal;
@@ -44,9 +48,7 @@ pub use chain::{ChainProgressEvent, ChainResult, ChainRunner, ChainStepResult};
 pub use registry::{AgentRegistry, DEFAULT_TERMINAL_SUFFIX};
 pub use runner::{AgentResult, AgentRunner};
 
-#[deprecated(note = "Use ClaudeBridgeAdapter instead")]
 pub use claude::{ClaudeAdapter, StreamEvent};
-#[deprecated(note = "Use CodexBridgeAdapter instead")]
 pub use codex::CodexAdapter;
-#[deprecated(note = "Sessions are now handled by SDK adapters")]
+#[deprecated(note = "Legacy interactive terminal adapter; prefer CLI adapters")]
 pub use terminal::{TerminalAdapter, TerminalSession, get_session as get_terminal_session};

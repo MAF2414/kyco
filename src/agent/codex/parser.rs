@@ -1,9 +1,22 @@
-//! Codex CLI JSON output parser
+//! Codex CLI JSON output parser.
 
 use crate::LogEvent;
+use std::path::PathBuf;
 
 /// Result from parsing a Codex event
 pub enum CodexEventResult {
+    /// Thread started (new or resumed)
+    ThreadStarted { thread_id: String },
+    /// Turn completed with usage stats
+    TurnCompleted {
+        input_tokens: u64,
+        cached_input_tokens: u64,
+        output_tokens: u64,
+    },
+    /// Assistant message (full text)
+    AssistantMessage { text: String },
+    /// Files changed during this run
+    FilesChanged { paths: Vec<PathBuf> },
     /// A log event to display
     Log(LogEvent),
     /// No event to display
@@ -29,6 +42,7 @@ pub fn parse_codex_event(line: &str) -> CodexEventResult {
     };
 
     match event_type {
+        "thread.started" => parse_thread_started(&json),
         "turn.completed" => parse_turn_completed(&json),
         "item.completed" | "item.started" => parse_item_event(&json, event_type),
         // Legacy message format
@@ -50,15 +64,20 @@ fn parse_turn_completed(json: &serde_json::Value) -> CodexEventResult {
         .and_then(|u| u.get("input_tokens"))
         .and_then(|t| t.as_u64())
         .unwrap_or(0);
+    let cached_input_tokens = usage
+        .and_then(|u| u.get("cached_input_tokens"))
+        .and_then(|t| t.as_u64())
+        .unwrap_or(0);
     let output_tokens = usage
         .and_then(|u| u.get("output_tokens"))
         .and_then(|t| t.as_u64())
         .unwrap_or(0);
 
-    CodexEventResult::Log(LogEvent::system(format!(
-        "Completed (tokens: {} in, {} out)",
-        input_tokens, output_tokens
-    )))
+    CodexEventResult::TurnCompleted {
+        input_tokens,
+        cached_input_tokens,
+        output_tokens,
+    }
 }
 
 fn parse_item_event(json: &serde_json::Value, event_type: &str) -> CodexEventResult {
@@ -84,21 +103,69 @@ fn parse_item_event(json: &serde_json::Value, event_type: &str) -> CodexEventRes
             if event_type == "item.started" {
                 CodexEventResult::Log(LogEvent::tool_call("bash", cmd.to_string()))
             } else {
-                // For completed, we could show output but it's often long
-                CodexEventResult::None
+                let aggregated_output = item
+                    .get("aggregated_output")
+                    .and_then(|o| o.as_str())
+                    .unwrap_or("");
+                let exit_code = item.get("exit_code").and_then(|c| c.as_i64()).unwrap_or(-1);
+
+                let mut summary = format!("Exit code: {}", exit_code);
+                let output_preview = aggregated_output.lines().next().unwrap_or("");
+                if !output_preview.is_empty() {
+                    summary.push_str(&format!("\n{}", output_preview));
+                }
+
+                let mut ev = LogEvent::tool_output("bash", summary);
+                if !aggregated_output.is_empty() {
+                    ev = ev.with_content(aggregated_output.to_string());
+                }
+                CodexEventResult::Log(ev)
             }
         }
         "agent_message" => {
             let text = item.get("text").and_then(|t| t.as_str()).unwrap_or("");
-            let first_line = text.lines().next().unwrap_or("");
-            CodexEventResult::Log(LogEvent::text(first_line.to_string()))
+            CodexEventResult::AssistantMessage {
+                text: text.to_string(),
+            }
         }
-        "file_edit" | "file_create" => {
-            let path = item.get("path").and_then(|p| p.as_str()).unwrap_or("file");
-            CodexEventResult::Log(LogEvent::tool_call(item_type, path.to_string()))
+        "file_change" => {
+            if event_type == "item.started" {
+                return CodexEventResult::None;
+            }
+
+            let changes = item
+                .get("changes")
+                .and_then(|c| c.as_array())
+                .cloned()
+                .unwrap_or_default();
+
+            let mut paths: Vec<PathBuf> = Vec::new();
+            for change in changes {
+                if let Some(p) = change.get("path").and_then(|p| p.as_str()) {
+                    paths.push(PathBuf::from(p));
+                }
+            }
+
+            if paths.is_empty() {
+                return CodexEventResult::None;
+            }
+
+            CodexEventResult::FilesChanged { paths }
         }
         _ => CodexEventResult::None,
     }
+}
+
+fn parse_thread_started(json: &serde_json::Value) -> CodexEventResult {
+    let thread_id = json
+        .get("thread_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if thread_id.is_empty() {
+        return CodexEventResult::None;
+    }
+    CodexEventResult::ThreadStarted { thread_id }
 }
 
 fn parse_message(json: &serde_json::Value) -> CodexEventResult {

@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 
 use super::output::{ContentBlock, StreamEvent};
 use super::tool_format::format_tool_call;
+use crate::agent::process_registry;
 use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
 
@@ -68,8 +69,34 @@ impl ClaudeAdapter {
     }
 
     /// Build command arguments
-    fn build_args(&self, job: &Job, config: &AgentConfig, prompt: &str) -> Vec<String> {
-        let mut args = config.get_run_args();
+    fn build_args(
+        &self,
+        job: &Job,
+        worktree: &Path,
+        config: &AgentConfig,
+        prompt: &str,
+    ) -> Vec<String> {
+        let mut args: Vec<String> = vec![
+            "--print".to_string(),
+            "--output-format".to_string(),
+            "stream-json".to_string(),
+            "--verbose".to_string(),
+        ];
+
+        if let Some(session_id) = job.bridge_session_id.as_deref() {
+            args.push("--resume".to_string());
+            args.push(session_id.to_string());
+        }
+
+        if let Some(model) = config.model.as_deref() {
+            args.push("--model".to_string());
+            args.push(model.to_string());
+        }
+
+        if !config.permission_mode.trim().is_empty() {
+            args.push("--permission-mode".to_string());
+            args.push(config.permission_mode.clone());
+        }
 
         // Add system prompt if configured
         if let Some(system_prompt) = self.build_system_prompt(job, config) {
@@ -106,7 +133,11 @@ impl ClaudeAdapter {
             }
         }
 
-        args.push("--".to_string());
+        if let Some(add_dir) = find_skill_add_dir(job, worktree) {
+            args.push("--add-dir".to_string());
+            args.push(add_dir.display().to_string());
+        }
+
         args.push(prompt.to_string());
 
         args
@@ -128,8 +159,35 @@ impl AgentRunner for ClaudeAdapter {
         config: &AgentConfig,
         event_tx: mpsc::Sender<LogEvent>,
     ) -> Result<AgentResult> {
+        struct ProcessGuard {
+            job_id: u64,
+            registered: bool,
+        }
+        impl ProcessGuard {
+            fn register(job_id: u64, pid: Option<u32>, agent_id: &str) -> Self {
+                if let Some(pid) = pid {
+                    process_registry::register(job_id, pid, agent_id);
+                    return Self {
+                        job_id,
+                        registered: true,
+                    };
+                }
+                Self {
+                    job_id,
+                    registered: false,
+                }
+            }
+        }
+        impl Drop for ProcessGuard {
+            fn drop(&mut self) {
+                if self.registered {
+                    process_registry::unregister(self.job_id);
+                }
+            }
+        }
+
         let prompt = self.build_prompt(job, config);
-        let args = self.build_args(job, config, &prompt);
+        let args = self.build_args(job, worktree, config, &prompt);
 
         // Send start event with full prompt
         let job_id = job.id;
@@ -151,6 +209,8 @@ impl AgentRunner for ClaudeAdapter {
             .envs(&config.env)
             .spawn()
             .with_context(|| format!("Failed to spawn {}", binary))?;
+
+        let _process_guard = ProcessGuard::register(job_id, child.id(), self.id());
 
         let stdout = child
             .stdout
@@ -185,7 +245,7 @@ impl AgentRunner for ClaudeAdapter {
             duration_ms: None,
             sent_prompt: Some(prompt.clone()),
             output_text: None,
-            session_id: None, // CLI adapter doesn't support session continuation
+            session_id: job.bridge_session_id.clone(),
         };
 
         // Collect text output for parsing
@@ -194,11 +254,29 @@ impl AgentRunner for ClaudeAdapter {
         while let Ok(Some(line)) = reader.next_line().await {
             if let Some(event) = StreamEvent::parse(&line) {
                 let log_event = match &event {
-                    StreamEvent::System { subtype, message } => LogEvent::system(format!(
-                        "{}: {}",
+                    StreamEvent::System {
                         subtype,
-                        message.as_deref().unwrap_or("")
-                    )),
+                        message,
+                        session_id,
+                    } => {
+                        if let Some(id) = session_id.as_deref() {
+                            if !id.is_empty() && result.session_id.is_none() {
+                                result.session_id = Some(id.to_string());
+                                let _ = event_tx
+                                    .send(
+                                        LogEvent::system("Claude session started")
+                                            .with_tool_args(serde_json::json!({ "session_id": id }))
+                                            .for_job(job_id),
+                                    )
+                                    .await;
+                            }
+                        }
+                        LogEvent::system(format!(
+                            "{}: {}",
+                            subtype,
+                            message.as_deref().unwrap_or("")
+                        ))
+                    }
                     StreamEvent::Assistant { message } => {
                         let mut events = Vec::new();
                         for block in &message.content {
@@ -244,10 +322,16 @@ impl AgentRunner for ClaudeAdapter {
                         subtype,
                         cost_usd,
                         duration_ms,
+                        session_id,
                         ..
                     } => {
                         result.cost_usd = *cost_usd;
                         result.duration_ms = *duration_ms;
+                        if let Some(id) = session_id.as_deref() {
+                            if !id.is_empty() && result.session_id.is_none() {
+                                result.session_id = Some(id.to_string());
+                            }
+                        }
 
                         if subtype == "success" {
                             result.success = true;
@@ -294,6 +378,38 @@ impl AgentRunner for ClaudeAdapter {
             .map(|o| o.status.success())
             .unwrap_or(false)
     }
+}
+
+fn find_skill_add_dir(job: &Job, worktree: &Path) -> Option<std::path::PathBuf> {
+    let skill = job.mode.as_str();
+    let mut candidates = Vec::new();
+
+    candidates.push(worktree.join(".claude/skills").join(skill));
+    candidates.push(worktree.join(".claude/skills"));
+
+    if let Some(workspace) = job.workspace_path.as_ref() {
+        candidates.push(workspace.join(".claude/skills").join(skill));
+        candidates.push(workspace.join(".claude/skills"));
+    }
+
+    if let Some(worktree) = job.git_worktree_path.as_ref() {
+        candidates.push(worktree.join(".claude/skills").join(skill));
+        candidates.push(worktree.join(".claude/skills"));
+    }
+
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(home.join(".claude/skills").join(skill));
+        candidates.push(home.join(".claude/skills"));
+        candidates.push(home.join(".kyco/skills").join(skill));
+        candidates.push(home.join(".kyco/skills"));
+    }
+
+    for path in candidates {
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
+    None
 }
 #[cfg(test)]
 #[path = "adapter_tests.rs"]
