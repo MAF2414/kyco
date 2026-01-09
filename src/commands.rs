@@ -90,9 +90,9 @@ pub enum JobCommands {
         /// End line (1-indexed)
         #[arg(long)]
         line_end: Option<usize>,
-        /// Mode or chain name
-        #[arg(long)]
-        mode: String,
+        /// Skill or chain name
+        #[arg(long, visible_alias = "mode")]
+        skill: String,
         /// Optional prompt/description text
         #[arg(long)]
         prompt: Option<String>,

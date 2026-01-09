@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
                 file,
                 line_start,
                 line_end,
-                mode,
+                skill,
                 prompt,
                 agent,
                 agents,
@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
                         line_start,
                         line_end,
                         selected_text: None,
-                        mode,
+                        mode: skill, // CLI uses --skill, internally still called mode
                         prompt,
                         agent,
                         agents,
