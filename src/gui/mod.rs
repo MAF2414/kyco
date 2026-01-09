@@ -37,6 +37,7 @@ pub mod chains;
 pub mod detail_panel;
 pub mod diff;
 pub mod executor;
+pub mod files;
 pub mod groups;
 pub mod hotkey;
 pub mod http_server;

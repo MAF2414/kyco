@@ -161,4 +161,252 @@ impl KycoApp {
             },
         );
     }
+
+    /// Render file search and batch selection view
+    pub(crate) fn render_files(&mut self, ctx: &egui::Context) {
+        use crate::gui::files;
+        use crate::gui::http_server::BatchFile;
+        use crate::gui::app_types::ViewMode;
+        use crate::gui::theme::{BG_PRIMARY, BG_SECONDARY, TEXT_PRIMARY, TEXT_MUTED, ACCENT_CYAN, ACCENT_GREEN};
+
+        // Track actions to perform after UI rendering
+        let mut create_batch_jobs = false;
+        let mut set_as_context = false;
+
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(16.0))
+            .show(ctx, |ui| {
+                ui.heading(egui::RichText::new("📁 File Search").color(TEXT_PRIMARY));
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("Search for files and create batch jobs").color(TEXT_MUTED));
+                ui.add_space(16.0);
+
+                // Search input row
+                let mut do_search = false;
+                ui.horizontal(|ui| {
+                    // Mode selector
+                    egui::ComboBox::from_id_salt("search_mode")
+                        .selected_text(self.file_search.search_mode.label())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.file_search.search_mode,
+                                files::SearchMode::Glob,
+                                "Glob (file patterns)",
+                            );
+                            ui.selectable_value(
+                                &mut self.file_search.search_mode,
+                                files::SearchMode::Grep,
+                                "Grep (content search)",
+                            );
+                        });
+
+                    // Search input (full width)
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.file_search.search_query)
+                            .hint_text(self.file_search.search_mode.hint())
+                            .desired_width(ui.available_width() - 100.0),
+                    );
+
+                    // Search button or Enter key
+                    if ui.button("🔍 Search").clicked() {
+                        do_search = true;
+                    }
+                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        do_search = true;
+                    }
+                });
+
+                // Options row
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.file_search.respect_gitignore, "Respect .gitignore");
+                });
+
+                // Perform search (synchronous for now - fast for most cases)
+                if do_search && !self.file_search.search_query.is_empty() {
+                    self.file_search.is_searching = true;
+                    let results = files::perform_search(
+                        &self.file_search.search_query,
+                        self.file_search.search_mode,
+                        self.work_dir.clone(),
+                        self.file_search.respect_gitignore,
+                    );
+                    self.file_search.search_results = results;
+                    self.file_search.selected_files.clear();
+                    self.file_search.is_searching = false;
+                }
+
+                ui.add_space(16.0);
+
+                // Selection controls
+                if !self.file_search.search_results.is_empty() {
+                    ui.horizontal(|ui| {
+                        if ui.button("☑ Select All").clicked() {
+                            self.file_search.select_all();
+                        }
+                        if ui.button("☐ Deselect All").clicked() {
+                            self.file_search.deselect_all();
+                        }
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "{} / {} selected",
+                                self.file_search.selected_count(),
+                                self.file_search.search_results.len()
+                            ))
+                            .color(ACCENT_CYAN),
+                        );
+                    });
+                    ui.add_space(8.0);
+                }
+
+                // Action buttons - always visible at top
+                let selected_count = self.file_search.selected_count();
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(selected_count > 0, |ui| {
+                        if ui.button("🚀 Create Batch Jobs").clicked() {
+                            create_batch_jobs = true;
+                        }
+                        if ui.button("📌 Set as Context").clicked() {
+                            set_as_context = true;
+                        }
+                    });
+                    if selected_count > 0 {
+                        ui.label(
+                            egui::RichText::new(format!("({} files selected)", selected_count))
+                                .color(ACCENT_GREEN),
+                        );
+                    }
+                });
+
+                ui.add_space(8.0);
+
+                // Results area with scroll
+                // Collect toggles to apply after iteration (borrow checker)
+                let mut toggles: Vec<usize> = Vec::new();
+
+                let available_width = ui.available_width();
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_min_width(available_width);
+                        egui::Frame::NONE
+                            .fill(BG_SECONDARY)
+                            .corner_radius(4.0)
+                            .inner_margin(8.0)
+                            .show(ui, |ui| {
+                                ui.set_min_width(available_width - 16.0); // Account for inner margin
+
+                                if self.file_search.is_searching {
+                                    ui.label(egui::RichText::new("Searching...").color(TEXT_MUTED));
+                                } else if self.file_search.search_results.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new("No results. Enter a search pattern above.")
+                                            .color(TEXT_MUTED),
+                                    );
+                                } else {
+                                    // Render file list with checkboxes
+                                    for (idx, file_match) in self.file_search.search_results.iter().enumerate() {
+                                        let is_selected = self.file_search.selected_files.contains(&idx);
+                                        let mut should_toggle = false;
+
+                                        ui.horizontal(|ui| {
+                                            let mut selected = is_selected;
+                                            if ui.checkbox(&mut selected, "").changed() {
+                                                should_toggle = true;
+                                            }
+
+                                            // File path (clickable for preview) - use full width
+                                            let text = egui::RichText::new(&file_match.relative_path)
+                                                .monospace()
+                                                .color(if is_selected { ACCENT_GREEN } else { TEXT_PRIMARY });
+
+                                            if ui.link(text).clicked() {
+                                                // Toggle selection on click
+                                                should_toggle = true;
+                                            }
+
+                                            // Show match preview for grep results
+                                            if let Some(line) = file_match.match_line {
+                                                ui.label(
+                                                    egui::RichText::new(format!(":{}", line))
+                                                        .small()
+                                                        .color(TEXT_MUTED),
+                                                );
+                                            }
+                                        });
+
+                                        if should_toggle {
+                                            toggles.push(idx);
+                                        }
+
+                                        // Show match preview
+                                        if let Some(preview) = &file_match.match_preview {
+                                            ui.indent(format!("preview_{}", idx), |ui| {
+                                                ui.label(
+                                                    egui::RichText::new(preview)
+                                                        .small()
+                                                        .color(TEXT_MUTED),
+                                                );
+                                            });
+                                        }
+                                    }
+                                }
+                            });
+                    });
+
+                // Apply toggles after iteration
+                for idx in toggles {
+                    self.file_search.toggle_file(idx);
+                }
+            });
+
+        // Handle actions after UI rendering (outside the closure)
+        if create_batch_jobs {
+            // Convert selected files to BatchFile format
+            let batch_files: Vec<BatchFile> = self
+                .file_search
+                .selected_files
+                .iter()
+                .filter_map(|&idx| self.file_search.search_results.get(idx))
+                .map(|file_match| BatchFile {
+                    path: file_match.path.display().to_string(),
+                    workspace: self.work_dir.display().to_string(),
+                    git_root: None,
+                    project_root: Some(self.work_dir.display().to_string()),
+                    line_start: file_match.match_line,
+                    line_end: file_match.match_line,
+                })
+                .collect();
+
+            if !batch_files.is_empty() {
+                self.batch_files = batch_files;
+                self.view_mode = ViewMode::BatchPopup;
+                self.popup_input.clear();
+                self.popup_status = None;
+                self.update_suggestions();
+            }
+        }
+
+        if set_as_context {
+            // Store selected files as context for the next selection popup
+            let selected_paths: Vec<String> = self
+                .file_search
+                .selected_files
+                .iter()
+                .filter_map(|&idx| self.file_search.search_results.get(idx))
+                .map(|file_match| file_match.relative_path.clone())
+                .collect();
+
+            if !selected_paths.is_empty() {
+                // Set context files (will be shown in next selection popup)
+                self.selection.context_files = selected_paths;
+                // Return to job list
+                self.view_mode = ViewMode::JobList;
+                self.logs.push(crate::LogEvent::system(format!(
+                    "Set {} files as context for next job",
+                    self.file_search.selected_count()
+                )));
+            }
+        }
+    }
 }

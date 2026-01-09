@@ -27,10 +27,16 @@ impl KycoApp {
                 .read()
                 .map(|cfg| {
                     let orch = &cfg.settings.gui.orchestrator;
+                    let prompt = if orch.system_prompt.trim().is_empty() {
+                        // Use default if config value is empty (common after config migration)
+                        default_orchestrator_system_prompt()
+                    } else {
+                        orch.system_prompt.clone()
+                    };
                     (
                         orch.cli_agent.trim().to_lowercase(),
                         orch.cli_command.trim().to_string(),
-                        orch.system_prompt.clone(),
+                        prompt,
                     )
                 })
                 .unwrap_or_else(|_| {

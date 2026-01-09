@@ -64,6 +64,9 @@ impl KycoApp {
             ViewMode::Chains => {
                 self.handle_chains_input(i);
             }
+            ViewMode::Files => {
+                self.handle_files_input(i);
+            }
             ViewMode::Stats => {
                 self.handle_stats_input(i);
             }
@@ -257,6 +260,16 @@ impl KycoApp {
             } else {
                 self.view_mode = ViewMode::JobList;
             }
+        }
+    }
+
+    fn handle_files_input(&mut self, i: &egui::InputState) {
+        if i.key_pressed(Key::Escape) {
+            // Clear search and return to job list
+            self.file_search.search_query.clear();
+            self.file_search.search_results.clear();
+            self.file_search.selected_files.clear();
+            self.view_mode = ViewMode::JobList;
         }
     }
 

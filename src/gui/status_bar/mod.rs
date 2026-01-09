@@ -201,6 +201,10 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         *state.chain_edit_status = None;
                     }
                     ui.add_space(8.0);
+                    if animated_button(ui, "Files", TEXT_DIM, "statusbar_files").clicked() {
+                        *state.view_mode = ViewMode::Files;
+                    }
+                    ui.add_space(8.0);
                     if animated_button(ui, "Stats", ACCENT_CYAN, "statusbar_stats").clicked() {
                         *state.view_mode = ViewMode::Stats;
                     }

@@ -111,6 +111,7 @@ impl KycoApp {
                 line_number: file.line_start,
                 line_end: file.line_end,
                 possible_files: Vec::new(),
+                context_files: Vec::new(),
                 dependencies: None,
                 dependency_count: None,
                 additional_dependency_count: None,

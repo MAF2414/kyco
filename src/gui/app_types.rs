@@ -25,6 +25,8 @@ pub enum ViewMode {
     Agents,
     /// Chains configuration view
     Chains,
+    /// File search and batch selection view
+    Files,
     /// Statistics dashboard view
     Stats,
     /// Achievements gallery view

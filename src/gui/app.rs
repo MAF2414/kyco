@@ -66,6 +66,8 @@ pub struct KycoApp {
     pub(crate) selection: SelectionContext,
     /// Batch files for batch processing (from IDE extension)
     pub(crate) batch_files: Vec<BatchFile>,
+    /// File search state (for Files view)
+    pub(crate) file_search: crate::gui::files::FileSearchState,
     /// Current view mode
     pub(crate) view_mode: ViewMode,
     /// Selection popup input

@@ -201,10 +201,13 @@ impl SkillDiscovery {
 
 /// Save a skill to a directory structure
 ///
-/// Creates:
+/// Creates the full Agent Skills directory structure:
 /// ```text
 /// .claude/skills/skill-name/
-/// └── SKILL.md
+/// ├── SKILL.md
+/// ├── scripts/      # Executable scripts for agents
+/// ├── references/   # Additional documentation
+/// └── assets/       # Static resources (templates, images)
 /// ```
 pub fn save_skill(
     skill: &SkillConfig,
@@ -216,8 +219,11 @@ pub fn save_skill(
         .join("skills")
         .join(&skill.name);
 
-    // Create skill directory
+    // Create skill directory with full structure per agentskills.io spec
     std::fs::create_dir_all(&skill_dir)?;
+    std::fs::create_dir_all(skill_dir.join("scripts"))?;
+    std::fs::create_dir_all(skill_dir.join("references"))?;
+    std::fs::create_dir_all(skill_dir.join("assets"))?;
 
     let skill_md_path = skill_dir.join("SKILL.md");
     let content = skill.to_skill_md();
@@ -229,10 +235,14 @@ pub fn save_skill(
 
 /// Save a skill to global user location for a specific agent
 ///
-/// Creates:
+/// Creates the full Agent Skills directory structure:
 /// ```text
-/// ~/.claude/skills/skill-name/SKILL.md  (for Claude)
-/// ~/.codex/skills/skill-name/SKILL.md   (for Codex)
+/// ~/.claude/skills/skill-name/  (for Claude)
+/// ~/.codex/skills/skill-name/   (for Codex)
+/// ├── SKILL.md
+/// ├── scripts/      # Executable scripts for agents
+/// ├── references/   # Additional documentation
+/// └── assets/       # Static resources (templates, images)
 /// ```
 pub fn save_skill_global(
     skill: &SkillConfig,
@@ -249,7 +259,12 @@ pub fn save_skill_global(
         .join(agent.dir_name())
         .join("skills")
         .join(&skill.name);
+
+    // Create skill directory with full structure per agentskills.io spec
     std::fs::create_dir_all(&skill_dir)?;
+    std::fs::create_dir_all(skill_dir.join("scripts"))?;
+    std::fs::create_dir_all(skill_dir.join("references"))?;
+    std::fs::create_dir_all(skill_dir.join("assets"))?;
 
     let skill_md_path = skill_dir.join("SKILL.md");
     let content = skill.to_skill_md();
@@ -470,10 +485,13 @@ Project."#,
         assert!(path.exists());
         assert!(path.ends_with("test-save/SKILL.md"));
 
-        // Verify directory structure
+        // Verify full directory structure per agentskills.io spec
         let skill_dir = path.parent().unwrap();
         assert!(skill_dir.is_dir());
         assert_eq!(skill_dir.file_name().unwrap(), "test-save");
+        assert!(skill_dir.join("scripts").is_dir(), "scripts/ should exist");
+        assert!(skill_dir.join("references").is_dir(), "references/ should exist");
+        assert!(skill_dir.join("assets").is_dir(), "assets/ should exist");
 
         // Delete
         delete_skill("test-save", SkillAgentType::Claude, &project).unwrap();

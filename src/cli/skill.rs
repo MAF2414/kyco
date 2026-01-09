@@ -142,19 +142,35 @@ pub fn skill_create_command(work_dir: &Path, args: SkillCreateArgs) -> Result<()
         save_skill(&skill, agent_type, work_dir)?
     };
 
+    // Get skill directory (parent of SKILL.md)
+    let skill_dir = path.parent().unwrap_or(&path);
+
     if args.json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "name": skill.name,
-                "path": path.display().to_string()
+                "path": path.display().to_string(),
+                "directory": skill_dir.display().to_string(),
+                "structure": {
+                    "skill_md": "SKILL.md",
+                    "scripts": "scripts/",
+                    "references": "references/",
+                    "assets": "assets/"
+                }
             }))?
         );
     } else {
-        println!("Created skill: {}", skill.name);
-        println!("File: {}", path.display());
+        println!("✓ Created skill: {}", skill.name);
         println!();
-        println!("Edit the file to customize the skill instructions.");
+        println!("Directory: {}", skill_dir.display());
+        println!("├── SKILL.md        # Skill instructions (edit this)");
+        println!("├── scripts/        # Executable scripts for agents");
+        println!("├── references/     # Additional documentation");
+        println!("└── assets/         # Static resources (templates, images)");
+        println!();
+        println!("Edit SKILL.md to customize the skill instructions.");
+        println!("Add scripts, references, or assets as needed.");
     }
     Ok(())
 }
@@ -255,12 +271,19 @@ pub fn skill_install_command(
         installed_paths.push(global_codex_path);
     }
 
-    println!("Installed skill '{}' to:", name);
+    println!("✓ Installed skill '{}' to:", name);
     for path in &installed_paths {
-        println!("  - {}", path.display());
+        let skill_dir = path.parent().unwrap_or(path);
+        println!("  - {}/", skill_dir.display());
     }
     println!();
-    println!("Note: This created a template. Edit the files to customize the skill instructions.");
+    println!("Each skill directory contains:");
+    println!("  ├── SKILL.md        # Skill instructions (edit this)");
+    println!("  ├── scripts/        # Executable scripts for agents");
+    println!("  ├── references/     # Additional documentation");
+    println!("  └── assets/         # Static resources");
+    println!();
+    println!("Edit SKILL.md to customize the skill instructions.");
     if !global {
         println!("Tip: Use --global to also install to ~/.claude/skills/ and ~/.codex/skills/ for system-wide access.");
     }
@@ -566,11 +589,13 @@ mod tests {
         };
         skill_create_command(work_dir, args).unwrap();
 
-        // Verify directory structure exists: .claude/skills/test-skill/SKILL.md
+        // Verify full directory structure per agentskills.io spec
         let skill_dir = work_dir.join(".claude/skills/test-skill");
-        let skill_path = skill_dir.join("SKILL.md");
         assert!(skill_dir.is_dir(), "Skill directory should exist");
-        assert!(skill_path.exists(), "SKILL.md should exist");
+        assert!(skill_dir.join("SKILL.md").exists(), "SKILL.md should exist");
+        assert!(skill_dir.join("scripts").is_dir(), "scripts/ should exist");
+        assert!(skill_dir.join("references").is_dir(), "references/ should exist");
+        assert!(skill_dir.join("assets").is_dir(), "assets/ should exist");
 
         // List should find it
         let discovery = SkillDiscovery::new(Some(work_dir.to_path_buf()));

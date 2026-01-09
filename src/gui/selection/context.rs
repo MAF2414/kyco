@@ -18,6 +18,8 @@ pub struct SelectionContext {
     pub line_end: Option<usize>,
     /// Multiple file matches (when file_path couldn't be determined uniquely)
     pub possible_files: Vec<String>,
+    /// Context files for the next job (from File Search view)
+    pub context_files: Vec<String>,
     /// Dependencies found by IDE (files that reference the selected code)
     pub dependencies: Option<Vec<Dependency>>,
     /// Total count of dependencies

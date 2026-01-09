@@ -15,7 +15,7 @@ use super::update::UpdateChecker;
 use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager};
 use crate::LogEvent;
 use crate::agent::bridge::BridgeClient;
-use crate::config::Config;
+use crate::config::{default_orchestrator_system_prompt, Config};
 use crate::job::{GroupManager, JobManager};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -113,7 +113,12 @@ impl KycoApp {
                     cfg.settings.gui.structured_output_schema.clone(),
                     cfg.settings.gui.orchestrator.cli_agent.clone(),
                     cfg.settings.gui.orchestrator.cli_command.clone(),
-                    cfg.settings.gui.orchestrator.system_prompt.clone(),
+                    // Use default if config value is empty (common after config migration)
+                    if cfg.settings.gui.orchestrator.system_prompt.trim().is_empty() {
+                        default_orchestrator_system_prompt()
+                    } else {
+                        cfg.settings.gui.orchestrator.system_prompt.clone()
+                    },
                 )
             })
             .unwrap_or_else(|_| {
@@ -185,6 +190,7 @@ impl KycoApp {
             max_concurrent_jobs,
             selection: SelectionContext::default(),
             batch_files: Vec::new(),
+            file_search: crate::gui::files::FileSearchState::default(),
             view_mode: super::app_types::ViewMode::JobList,
             popup_input: String::new(),
             autocomplete: AutocompleteState::default(),

@@ -47,6 +47,7 @@ impl KycoApp {
             line_number: req.line_start,
             line_end: req.line_end,
             possible_files: Vec::new(),
+            context_files: Vec::new(),
             dependencies: req.dependencies,
             dependency_count: req.dependency_count,
             additional_dependency_count: req.additional_dependency_count,
