@@ -96,9 +96,13 @@ impl CodexAdapter {
                     .clone()
                     .unwrap_or_else(|| "workspace-write".to_string()),
             );
-
-            args.push("-c".to_string());
-            args.push("approval_policy=\"never\"".to_string());
+            args.push("--ask-for-approval".to_string());
+            args.push(
+                config
+                    .ask_for_approval
+                    .clone()
+                    .unwrap_or_else(|| "never".to_string()),
+            );
         }
 
         if let Some(model) = config.model.as_deref() {

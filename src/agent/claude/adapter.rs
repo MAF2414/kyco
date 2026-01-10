@@ -93,6 +93,10 @@ impl ClaudeAdapter {
             args.push(model.to_string());
         }
 
+        if config.allow_dangerous_bypass {
+            args.push("--dangerously-skip-permissions".to_string());
+        }
+
         if !config.permission_mode.trim().is_empty() {
             args.push("--permission-mode".to_string());
             args.push(config.permission_mode.clone());

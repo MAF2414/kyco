@@ -16,6 +16,9 @@ pub fn load_agent_for_editing(state: &mut AgentEditorState<'_>, name: &str) {
             _ => "claude".to_string(),
         };
         *state.agent_edit_model = agent.model.clone().unwrap_or_default();
+        *state.agent_edit_permission_mode = agent.permission_mode.clone().unwrap_or_default();
+        *state.agent_edit_sandbox = agent.sandbox.clone().unwrap_or_default();
+        *state.agent_edit_ask_for_approval = agent.ask_for_approval.clone().unwrap_or_default();
         // SessionMode removed - all agents use sessions now
         *state.agent_edit_mode = "session".to_string();
         *state.agent_edit_system_prompt_mode =
@@ -103,6 +106,24 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         Some(state.agent_edit_model.clone())
     };
 
+    let permission_mode = if state.agent_edit_permission_mode.trim().is_empty() {
+        None
+    } else {
+        Some(state.agent_edit_permission_mode.trim().to_string())
+    };
+
+    let sandbox = if state.agent_edit_sandbox.trim().is_empty() {
+        None
+    } else {
+        Some(state.agent_edit_sandbox.trim().to_string())
+    };
+
+    let ask_for_approval = if state.agent_edit_ask_for_approval.trim().is_empty() {
+        None
+    } else {
+        Some(state.agent_edit_ask_for_approval.trim().to_string())
+    };
+
     // Parse pricing fields
     let price_input = state.agent_edit_price_input.trim().parse::<f64>().ok();
     let price_cached_input = state.agent_edit_price_cached_input.trim().parse::<f64>().ok();
@@ -113,6 +134,9 @@ pub fn save_agent_to_config(state: &mut AgentEditorState<'_>, is_new: bool) {
         aliases,
         sdk,
         model,
+        permission_mode,
+        sandbox,
+        ask_for_approval,
         system_prompt_mode,
         disallowed_tools,
         allowed_tools,

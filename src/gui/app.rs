@@ -131,6 +131,12 @@ pub struct KycoApp {
     pub(crate) agent_edit_cli_type: String,
     /// Agent editor: model override
     pub(crate) agent_edit_model: String,
+    /// Agent editor: permission/approval mode (SDK-specific)
+    pub(crate) agent_edit_permission_mode: String,
+    /// Agent editor: Codex sandbox mode
+    pub(crate) agent_edit_sandbox: String,
+    /// Agent editor: Codex approvals policy (--ask-for-approval)
+    pub(crate) agent_edit_ask_for_approval: String,
     /// Agent editor: session mode (oneshot/session)
     pub(crate) agent_edit_mode: String,
     /// Agent editor: system_prompt_mode

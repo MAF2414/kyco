@@ -77,10 +77,15 @@ pub fn render_agents_list(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>) {
                 state.agent_edit_name.clear();
                 state.agent_edit_aliases.clear();
                 *state.agent_edit_cli_type = "claude".to_string();
+                state.agent_edit_model.clear();
+                state.agent_edit_permission_mode.clear();
+                state.agent_edit_sandbox.clear();
+                state.agent_edit_ask_for_approval.clear();
                 *state.agent_edit_mode = "oneshot".to_string();
                 *state.agent_edit_system_prompt_mode = "append".to_string();
                 state.agent_edit_allowed_tools.clear();
                 state.agent_edit_disallowed_tools.clear();
+                *state.agent_edit_allow_dangerous_bypass = false;
                 *state.agent_edit_status = None;
             }
         });

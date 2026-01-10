@@ -86,6 +86,127 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
             });
             ui.add_space(8.0);
 
+            // SDK-specific permission / sandbox settings
+            match state.agent_edit_cli_type.as_str() {
+                "claude" => {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Permission Mode:").color(TEXT_MUTED));
+                        let selected_text = if state.agent_edit_permission_mode.trim().is_empty()
+                        {
+                            "Auto (skill-derived)".to_string()
+                        } else {
+                            state.agent_edit_permission_mode.to_string()
+                        };
+                        egui::ComboBox::from_id_salt("agent_permission_mode")
+                            .selected_text(selected_text)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    state.agent_edit_permission_mode,
+                                    "".to_string(),
+                                    "Auto (skill-derived)",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_permission_mode,
+                                    "default".to_string(),
+                                    "default (ask)",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_permission_mode,
+                                    "acceptEdits".to_string(),
+                                    "acceptEdits",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_permission_mode,
+                                    "plan".to_string(),
+                                    "plan",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_permission_mode,
+                                    "bypassPermissions".to_string(),
+                                    "bypassPermissions",
+                                );
+                            });
+                    });
+                    ui.add_space(8.0);
+                }
+                "codex" => {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Sandbox:").color(TEXT_MUTED));
+                        let selected_text = if state.agent_edit_sandbox.trim().is_empty() {
+                            "Auto (skill-derived)".to_string()
+                        } else {
+                            state.agent_edit_sandbox.to_string()
+                        };
+                        egui::ComboBox::from_id_salt("agent_codex_sandbox")
+                            .selected_text(selected_text)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    state.agent_edit_sandbox,
+                                    "".to_string(),
+                                    "Auto (skill-derived)",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_sandbox,
+                                    "read-only".to_string(),
+                                    "read-only",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_sandbox,
+                                    "workspace-write".to_string(),
+                                    "workspace-write",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_sandbox,
+                                    "danger-full-access".to_string(),
+                                    "danger-full-access",
+                                );
+                            });
+                    });
+                    ui.add_space(8.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Ask For Approval:").color(TEXT_MUTED));
+                        let selected_text = if state.agent_edit_ask_for_approval.trim().is_empty()
+                        {
+                            "Auto (never)".to_string()
+                        } else {
+                            state.agent_edit_ask_for_approval.to_string()
+                        };
+                        egui::ComboBox::from_id_salt("agent_codex_ask_for_approval")
+                            .selected_text(selected_text)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    state.agent_edit_ask_for_approval,
+                                    "".to_string(),
+                                    "Auto (never)",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_ask_for_approval,
+                                    "untrusted".to_string(),
+                                    "untrusted (ask always)",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_ask_for_approval,
+                                    "on-request".to_string(),
+                                    "on-request",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_ask_for_approval,
+                                    "on-failure".to_string(),
+                                    "on-failure",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_ask_for_approval,
+                                    "never".to_string(),
+                                    "never (no prompts)",
+                                );
+                            });
+                    });
+                    ui.add_space(8.0);
+                }
+                _ => {}
+            }
+
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Session Mode:").color(TEXT_MUTED));
                 egui::ComboBox::from_id_salt("agent_mode")

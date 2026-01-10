@@ -25,6 +25,23 @@ pub struct AgentConfigToml {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
 
+    /// Permission mode / approval preset.
+    ///
+    /// - Claude CLI: `--permission-mode` (e.g., `acceptEdits`, `bypassPermissions`, `plan`)
+    /// - Codex CLI: unused (use `ask_for_approval` + `sandbox` instead)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+
+    /// Codex CLI sandbox mode (e.g., `workspace-write`, `read-only`, `danger-full-access`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<String>,
+
+    /// Codex CLI approvals policy (`--ask-for-approval`).
+    ///
+    /// Values: `untrusted`, `on-failure`, `on-request`, `never`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask_for_approval: Option<String>,
+
     #[serde(default)]
     pub system_prompt_mode: SystemPromptMode,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

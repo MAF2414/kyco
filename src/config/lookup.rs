@@ -73,14 +73,15 @@ impl Config {
                 };
 
             let sdk_type = toml.sdk;
-            let permission_mode = sdk_type.default_permission_mode().to_string();
+            let permission_mode = toml.permission_mode.clone().unwrap_or_default();
 
             AgentConfig {
                 id: id.to_string(),
                 sdk_type,
                 permission_mode,
                 model: toml.model.clone(),
-                sandbox: None,
+                sandbox: toml.sandbox.clone(),
+                ask_for_approval: toml.ask_for_approval.clone(),
                 max_turns: 0,
                 system_prompt_mode: toml.system_prompt_mode,
                 skill_templates,
@@ -169,24 +170,25 @@ impl Config {
 
             match agent_config.sdk_type {
                 SdkType::Codex => {
-                    agent_config.sandbox = Some(
-                        mode_config
-                            .codex
-                            .as_ref()
-                            .map(|c| c.sandbox.clone())
-                            .unwrap_or_else(|| {
-                                derive_codex_sandbox(&agent_config.disallowed_tools)
-                            }),
-                    );
+                    let required_sandbox = derive_codex_sandbox(&agent_config.disallowed_tools);
+                    let sandbox = if required_sandbox == "read-only" {
+                        required_sandbox
+                    } else if let Some(codex) = mode_config.codex.as_ref() {
+                        codex.sandbox.clone()
+                    } else if let Some(agent_sandbox) = agent_config.sandbox.as_deref() {
+                        agent_sandbox.to_string()
+                    } else {
+                        required_sandbox
+                    };
+                    agent_config.sandbox = Some(sandbox);
                 }
                 _ => {
-                    agent_config.permission_mode = mode_config
-                        .claude
-                        .as_ref()
-                        .map(|c| c.permission_mode.clone())
-                        .unwrap_or_else(|| {
-                            derive_claude_permission(&agent_config.disallowed_tools)
-                        });
+                    if let Some(claude) = mode_config.claude.as_ref() {
+                        agent_config.permission_mode = claude.permission_mode.clone();
+                    } else if agent_config.permission_mode.trim().is_empty() {
+                        agent_config.permission_mode =
+                            derive_claude_permission(&agent_config.disallowed_tools);
+                    }
                 }
             }
         } else if let Some(skill_config) = self.skill.get(mode) {
@@ -213,10 +215,25 @@ impl Config {
 
             match agent_config.sdk_type {
                 SdkType::Codex => {
-                    agent_config.sandbox = Some(skill_config.get_codex_sandbox());
+                    let required_sandbox = derive_codex_sandbox(&agent_config.disallowed_tools);
+                    let sandbox = if required_sandbox == "read-only" {
+                        required_sandbox
+                    } else if let Some(codex) = skill_config.kyco.codex.as_ref() {
+                        codex.sandbox.clone()
+                    } else if let Some(agent_sandbox) = agent_config.sandbox.as_deref() {
+                        agent_sandbox.to_string()
+                    } else {
+                        required_sandbox
+                    };
+                    agent_config.sandbox = Some(sandbox);
                 }
                 _ => {
-                    agent_config.permission_mode = skill_config.get_claude_permission();
+                    if let Some(claude) = skill_config.kyco.claude.as_ref() {
+                        agent_config.permission_mode = claude.permission_mode.clone();
+                    } else if agent_config.permission_mode.trim().is_empty() {
+                        agent_config.permission_mode =
+                            derive_claude_permission(&agent_config.disallowed_tools);
+                    }
                 }
             }
         }
@@ -385,26 +402,25 @@ impl Config {
 
             match agent_config.sdk_type {
                 SdkType::Codex => {
-                    agent_config.sandbox = Some(
-                        skill_config
-                            .kyco
-                            .codex
-                            .as_ref()
-                            .map(|c| c.sandbox.clone())
-                            .unwrap_or_else(|| {
-                                derive_codex_sandbox(&agent_config.disallowed_tools)
-                            }),
-                    );
+                    let required_sandbox = derive_codex_sandbox(&agent_config.disallowed_tools);
+                    let sandbox = if required_sandbox == "read-only" {
+                        required_sandbox
+                    } else if let Some(codex) = skill_config.kyco.codex.as_ref() {
+                        codex.sandbox.clone()
+                    } else if let Some(agent_sandbox) = agent_config.sandbox.as_deref() {
+                        agent_sandbox.to_string()
+                    } else {
+                        required_sandbox
+                    };
+                    agent_config.sandbox = Some(sandbox);
                 }
                 _ => {
-                    agent_config.permission_mode = skill_config
-                        .kyco
-                        .claude
-                        .as_ref()
-                        .map(|c| c.permission_mode.clone())
-                        .unwrap_or_else(|| {
-                            derive_claude_permission(&agent_config.disallowed_tools)
-                        });
+                    if let Some(claude) = skill_config.kyco.claude.as_ref() {
+                        agent_config.permission_mode = claude.permission_mode.clone();
+                    } else if agent_config.permission_mode.trim().is_empty() {
+                        agent_config.permission_mode =
+                            derive_claude_permission(&agent_config.disallowed_tools);
+                    }
                 }
             }
         }

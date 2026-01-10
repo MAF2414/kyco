@@ -119,6 +119,12 @@ pub struct AgentConfig {
     #[serde(default)]
     pub sandbox: Option<String>,
 
+    /// When Codex should ask for approval before running commands.
+    ///
+    /// This maps to the Codex CLI `--ask-for-approval` flag.
+    #[serde(default)]
+    pub ask_for_approval: Option<String>,
+
     /// Maximum number of turns for the agent (0 = unlimited)
     #[serde(default)]
     pub max_turns: u32,
@@ -195,6 +201,7 @@ impl AgentConfig {
             permission_mode: sdk_type.default_permission_mode().to_string(),
             model: None,
             sandbox: None,
+            ask_for_approval: None,
             max_turns: 0,
             system_prompt_mode: SystemPromptMode::Append,
             skill_templates: templates::default_skill_templates(),
@@ -219,6 +226,7 @@ impl AgentConfig {
             permission_mode: sdk_type.default_permission_mode().to_string(),
             model: None,
             sandbox: None,
+            ask_for_approval: None,
             max_turns: 0,
             system_prompt_mode: SystemPromptMode::Append,
             skill_templates: templates::default_skill_templates(),
