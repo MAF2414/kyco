@@ -65,26 +65,47 @@ pub fn save_skill_file(state: &mut SkillEditorState<'_>, is_new: bool) {
     }
 
     if is_new {
-        // Create new skill in .claude/skills/
-        let skill_dir = state.work_dir
-            .join(".claude/skills")
-            .join(&skill.name);
+        // Create new skill in BOTH .claude/skills/ AND .codex/skills/
+        let claude_dir = state.work_dir.join(".claude/skills").join(&skill.name);
+        let codex_dir = state.work_dir.join(".codex/skills").join(&skill.name);
 
-        if let Err(e) = std::fs::create_dir_all(&skill_dir) {
-            *state.skill_edit_status = Some((format!("Failed to create directory: {}", e), true));
+        let mut created_paths = Vec::new();
+        let mut errors = Vec::new();
+
+        for skill_dir in [&claude_dir, &codex_dir] {
+            if let Err(e) = std::fs::create_dir_all(skill_dir) {
+                errors.push(format!("{}: {}", skill_dir.display(), e));
+                continue;
+            }
+
+            let skill_path = skill_dir.join("SKILL.md");
+            if let Err(e) = std::fs::write(&skill_path, content) {
+                errors.push(format!("{}: {}", skill_path.display(), e));
+            } else {
+                created_paths.push(skill_path.display().to_string());
+            }
+        }
+
+        if created_paths.is_empty() {
+            *state.skill_edit_status = Some((
+                format!("Failed to create skill: {}", errors.join(", ")),
+                true,
+            ));
             return;
         }
 
-        let skill_path = skill_dir.join("SKILL.md");
-        if let Err(e) = std::fs::write(&skill_path, content) {
-            *state.skill_edit_status = Some((format!("Failed to write file: {}", e), true));
-            return;
-        }
+        let status_msg = if errors.is_empty() {
+            format!("Skill '{}' created in:\n  • {}", skill.name, created_paths.join("\n  • "))
+        } else {
+            format!(
+                "Skill '{}' partially created:\n  • {}\nErrors: {}",
+                skill.name,
+                created_paths.join("\n  • "),
+                errors.join(", ")
+            )
+        };
 
-        *state.skill_edit_status = Some((
-            format!("Skill '{}' created at {}", skill.name, skill_path.display()),
-            false,
-        ));
+        *state.skill_edit_status = Some((status_msg, !errors.is_empty()));
         *state.selected_skill = Some(skill.name);
     } else {
         // Save to existing source path

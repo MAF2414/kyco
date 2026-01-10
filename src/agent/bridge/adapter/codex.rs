@@ -41,6 +41,9 @@ fn is_retriable_connection_error(message: &str) -> bool {
         || msg.contains("epipe")
         || msg.contains("socket")
         || msg.contains("closed")
+        || msg.contains("failed to start")
+        || msg.contains("bridge")
+        || msg.contains("refused")
         || msg.contains("disconnected")
 }
 
@@ -90,20 +93,28 @@ impl CodexBridgeAdapter {
 
     fn find_skill_md(&self, job: &Job, worktree: &Path) -> Option<(String, String)> {
         let skill = job.skill.as_str();
+
+        // Search ALL skill directories (local + global, all agent types)
         let mut candidates = vec![
-            worktree
-                .join(".codex/skills")
-                .join(skill)
-                .join("SKILL.md"),
+            // Local workspace - both agent types
+            worktree.join(".codex/skills").join(skill).join("SKILL.md"),
             worktree.join(".codex/skills").join(format!("{}.md", skill)),
+            worktree.join(".claude/skills").join(skill).join("SKILL.md"),
+            worktree.join(".claude/skills").join(format!("{}.md", skill)),
         ];
 
         if let Some(home) = dirs::home_dir() {
             candidates.extend([
+                // Global - all agent types
                 home.join(".codex/skills").join(skill).join("SKILL.md"),
                 home.join(".codex/skills").join(format!("{}.md", skill)),
+                home.join(".claude/skills").join(skill).join("SKILL.md"),
+                home.join(".claude/skills").join(format!("{}.md", skill)),
                 home.join(".kyco/skills").join(skill).join("SKILL.md"),
                 home.join(".kyco/skills").join(format!("{}.md", skill)),
+                // Nested .system directories (Codex system skills)
+                home.join(".codex/skills/.system").join(skill).join("SKILL.md"),
+                home.join(".claude/skills/.system").join(skill).join("SKILL.md"),
             ]);
         }
 
@@ -131,13 +142,21 @@ impl CodexBridgeAdapter {
 
     /// Find skill directory and list its files
     fn find_skill_files(&self, job: &Job, worktree: &Path) -> (Option<String>, Vec<String>) {
-        // Try workspace-local first, then global
-        let skill_dirs = [
+        // Search ALL skill directories (local + global, all agent types)
+        let mut skill_dirs = vec![
             worktree.join(".codex/skills").join(&job.skill),
-            dirs::home_dir()
-                .map(|h| h.join(".codex/skills").join(&job.skill))
-                .unwrap_or_default(),
+            worktree.join(".claude/skills").join(&job.skill),
         ];
+
+        if let Some(home) = dirs::home_dir() {
+            skill_dirs.extend([
+                home.join(".codex/skills").join(&job.skill),
+                home.join(".claude/skills").join(&job.skill),
+                home.join(".kyco/skills").join(&job.skill),
+                home.join(".codex/skills/.system").join(&job.skill),
+                home.join(".claude/skills/.system").join(&job.skill),
+            ]);
+        }
 
         for skill_dir in skill_dirs {
             if skill_dir.exists() && skill_dir.is_dir() {
