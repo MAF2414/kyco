@@ -117,6 +117,16 @@ pub fn render_agent_editor(ui: &mut egui::Ui, state: &mut AgentEditorState<'_>, 
                                 );
                                 ui.selectable_value(
                                     state.agent_edit_permission_mode,
+                                    "delegate".to_string(),
+                                    "delegate",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_permission_mode,
+                                    "dontAsk".to_string(),
+                                    "dontAsk",
+                                );
+                                ui.selectable_value(
+                                    state.agent_edit_permission_mode,
                                     "plan".to_string(),
                                     "plan",
                                 );
