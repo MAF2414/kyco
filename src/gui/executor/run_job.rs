@@ -10,12 +10,13 @@ use crate::git::GitManager;
 use crate::job::JobManager;
 use crate::{Job, JobStatus, LogEvent};
 
+use super::ExecutorEvent;
+use super::JobLockGuard;
 use super::chain::run_chain_job;
 use super::git_utils::calculate_git_numstat_async;
 use super::log_forwarder::spawn_log_forwarder;
+use super::worktree_paths::remap_job_paths_to_worktree;
 use super::worktree_setup::setup_worktree;
-use super::ExecutorEvent;
-use super::JobLockGuard;
 
 /// Run a single job (non-chain)
 pub async fn run_job(
@@ -67,8 +68,8 @@ pub async fn run_job(
 
     // Check if this is a prompt-only job (source_file equals workspace root)
     // Prompt-only jobs have no specific source file - they use the workspace as a placeholder
-    let is_prompt_only_job = resolved_source_file == *workspace_root
-        || job.source_file.to_string_lossy() == "prompt";
+    let is_prompt_only_job =
+        resolved_source_file == *workspace_root || job.source_file.to_string_lossy() == "prompt";
 
     // Only validate source file existence if it's not a prompt-only job
     if !is_prompt_only_job {
@@ -146,7 +147,11 @@ pub async fn run_job(
     // Check if we have a custom workspace different from work_dir (before taking ownership)
     let has_custom_workspace = job.workspace_path.as_ref().is_some_and(|p| p != work_dir);
     // Take ownership of workspace_path or clone work_dir
-    let job_work_dir = job.workspace_path.take().unwrap_or_else(|| work_dir.clone());
+    let job_work_dir = job
+        .workspace_path
+        .take()
+        .unwrap_or_else(|| work_dir.clone());
+    let workspace_root = job_work_dir.clone();
 
     let job_git_manager = if has_custom_workspace {
         GitManager::new(&job_work_dir).ok()
@@ -181,6 +186,25 @@ pub async fn run_job(
             // No worktree needed - move job_work_dir instead of cloning
             (job_work_dir, false)
         };
+
+    if is_in_worktree {
+        let remap = remap_job_paths_to_worktree(&mut job, &workspace_root, &worktree_path);
+        if remap.copied_source_file {
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
+                "Copied source file into worktree to preserve isolation",
+            )));
+        }
+        if remap.remapped {
+            if let Ok(mut manager) = job_manager.lock() {
+                if let Some(j) = manager.get_mut(job_id) {
+                    j.source_file = job.source_file.clone();
+                    j.scope = job.scope.clone();
+                    j.target.clone_from(&job.target);
+                }
+                manager.touch();
+            }
+        }
+    }
 
     let mut agent_config = config
         .get_agent_for_job(&job.agent_id, &job.mode)
@@ -230,7 +254,8 @@ pub async fn run_job(
     };
 
     let (log_tx, log_rx) = tokio::sync::mpsc::channel::<LogEvent>(100);
-    let log_forwarder = spawn_log_forwarder(log_rx, event_tx.clone(), Arc::clone(job_manager), job_id);
+    let log_forwarder =
+        spawn_log_forwarder(log_rx, event_tx.clone(), Arc::clone(job_manager), job_id);
 
     // Track git stats info for async calculation after lock release
     let mut git_stats_info: Option<(usize, Option<String>)> = None;

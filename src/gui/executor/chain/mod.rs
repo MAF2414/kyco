@@ -13,9 +13,10 @@ use crate::git::GitManager;
 use crate::job::JobManager;
 use crate::{ChainStepSummary, Job, JobResult, JobStatus, LogEvent};
 
-use super::log_forwarder::spawn_log_forwarder;
 use super::ExecutorEvent;
 use super::JobLockGuard;
+use super::log_forwarder::spawn_log_forwarder;
+use super::worktree_paths::remap_job_paths_to_worktree;
 use worktree::setup_chain_worktree;
 
 /// Convert a ChainStepResult to a ChainStepSummary (clones string fields)
@@ -87,8 +88,8 @@ pub async fn run_chain_job(
 
     // Check if this is a prompt-only job (source_file equals workspace root)
     // Prompt-only jobs have no specific source file - they use the workspace as a placeholder
-    let is_prompt_only_job = resolved_source_file == *workspace_root
-        || job.source_file.to_string_lossy() == "prompt";
+    let is_prompt_only_job =
+        resolved_source_file == *workspace_root || job.source_file.to_string_lossy() == "prompt";
 
     // Only validate source file existence if it's not a prompt-only job
     if !is_prompt_only_job {
@@ -190,34 +191,53 @@ pub async fn run_chain_job(
     let effective_git_manager = job_git_manager.as_ref().or(git_manager);
 
     // Reuse existing worktree when present (e.g., session continuation)
-    let (worktree_path, _is_isolated) = if let Some(existing_worktree) =
-        job.git_worktree_path.as_ref().filter(|p| p.exists())
-    {
-        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
-            "Reusing worktree: {}",
-            existing_worktree.display()
-        ))));
-        (existing_worktree.clone(), true)
-    } else if should_use_worktree {
-        match setup_chain_worktree(
-            effective_git_manager,
-            job_id,
-            is_multi_agent_job,
-            job.force_worktree,
-            &job_work_dir,
-            event_tx,
-            job_manager,
-            &mut job,
-        ) {
-            Some(result) => result,
-            None => return,
+    let (worktree_path, _is_isolated) =
+        if let Some(existing_worktree) = job.git_worktree_path.as_ref().filter(|p| p.exists()) {
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+                "Reusing worktree: {}",
+                existing_worktree.display()
+            ))));
+            (existing_worktree.clone(), true)
+        } else if should_use_worktree {
+            match setup_chain_worktree(
+                effective_git_manager,
+                job_id,
+                is_multi_agent_job,
+                job.force_worktree,
+                &job_work_dir,
+                event_tx,
+                job_manager,
+                &mut job,
+            ) {
+                Some(result) => result,
+                None => return,
+            }
+        } else {
+            (job_work_dir.clone(), false)
+        };
+
+    if _is_isolated {
+        let remap = remap_job_paths_to_worktree(&mut job, &job_work_dir, &worktree_path);
+        if remap.copied_source_file {
+            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
+                "Copied source file into worktree to preserve isolation",
+            )));
         }
-    } else {
-        (job_work_dir.clone(), false)
-    };
+        if remap.remapped {
+            if let Ok(mut manager) = job_manager.lock() {
+                if let Some(j) = manager.get_mut(job_id) {
+                    j.source_file = job.source_file.clone();
+                    j.scope = job.scope.clone();
+                    j.target.clone_from(&job.target);
+                }
+                manager.touch();
+            }
+        }
+    }
 
     let (log_tx, log_rx) = tokio::sync::mpsc::channel::<LogEvent>(100);
-    let log_forwarder = spawn_log_forwarder(log_rx, event_tx.clone(), Arc::clone(job_manager), job_id);
+    let log_forwarder =
+        spawn_log_forwarder(log_rx, event_tx.clone(), Arc::clone(job_manager), job_id);
 
     let chain_runner = ChainRunner::new(config, agent_registry, &worktree_path);
     let (progress_tx, progress_rx) = std::sync::mpsc::channel::<ChainProgressEvent>();
@@ -242,13 +262,14 @@ pub async fn run_chain_job(
                             // Clone skill before potentially cloning summary
                             let mode = summary.skill.clone();
                             // Only clone summary if we need it for history
-                            let step_summary = if j.chain_step_history.len() <= step_result.step_index {
-                                let clone = summary.clone();
-                                j.chain_step_history.push(summary);
-                                clone
-                            } else {
-                                summary
-                            };
+                            let step_summary =
+                                if j.chain_step_history.len() <= step_result.step_index {
+                                    let clone = summary.clone();
+                                    j.chain_step_history.push(summary);
+                                    clone
+                                } else {
+                                    summary
+                                };
                             let _ = event_tx_progress.send(ExecutorEvent::ChainStepCompleted {
                                 job_id: progress_job_id,
                                 step_index: step_result.step_index,

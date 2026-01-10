@@ -7,6 +7,7 @@ mod event;
 mod git_utils;
 mod log_forwarder;
 mod run_job;
+mod worktree_paths;
 mod worktree_setup;
 
 use std::path::PathBuf;
@@ -32,7 +33,10 @@ pub(super) struct JobLockGuard {
 
 impl JobLockGuard {
     pub(super) fn new(job_manager: Arc<Mutex<JobManager>>, job_id: crate::JobId) -> Self {
-        Self { job_manager, job_id }
+        Self {
+            job_manager,
+            job_id,
+        }
     }
 }
 
