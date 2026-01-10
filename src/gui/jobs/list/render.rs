@@ -158,7 +158,6 @@ pub fn render_job_row(
             let available = ui.available_width();
             ui.set_min_width(available);
             ui.set_max_width(available);
-            ui.set_clip_rect(ui.max_rect());
             ui.horizontal(|ui| {
                 ui.set_max_width(available);
                 render_status_indicator(ui, job);
