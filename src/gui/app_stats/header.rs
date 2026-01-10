@@ -68,8 +68,8 @@ impl KycoApp {
 
             ui.add_space(12.0);
 
-            // Mode filter
-            ui.label(RichText::new("Mode:").small().color(TEXT_DIM));
+            // Skill filter
+            ui.label(RichText::new("Skill:").small().color(TEXT_DIM));
             let mode_label = self.stats_filter_mode.as_deref().unwrap_or("All");
             let available_modes = self.dashboard_summary.available_modes.clone();
             let mut mode_changed = false;

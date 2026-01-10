@@ -47,7 +47,7 @@ export const McpServerConfigSchema = z.object({
   /** Arguments to pass to the command */
   args: z.array(z.string()).optional(),
   /** Environment variables for the MCP server */
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   /** Optional working directory */
   cwd: z.string().optional(),
 });
@@ -104,17 +104,17 @@ export const ClaudeQueryRequestSchema = z.object({
   /** Fork the session instead of continuing it */
   forkSession: z.boolean().optional(),
   /** Permission mode */
-  permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan']).optional(),
+  permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'delegate', 'dontAsk']).optional(),
   /** Programmatically defined Claude subagents (Claude SDK only) */
-  agents: z.record(AgentConfigSchema).optional(),
+  agents: z.record(z.string(), AgentConfigSchema).optional(),
   /** Allowed tools (optional - if not set, all tools allowed) */
   allowedTools: z.array(z.string()).optional(),
   /** Disallowed tools */
   disallowedTools: z.array(z.string()).optional(),
   /** Environment variables to pass to the SDK process */
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   /** MCP servers to enable for this session (Claude SDK only) */
-  mcpServers: z.record(McpServerConfigSchema).optional(),
+  mcpServers: z.record(z.string(), McpServerConfigSchema).optional(),
   /** System prompt (append/replace depending on systemPromptMode) */
   systemPrompt: z.string().optional(),
   /** System prompt mode ("append" or "replace") */
@@ -130,7 +130,7 @@ export const ClaudeQueryRequestSchema = z.object({
   /** Model to use (sonnet, opus, haiku) */
   model: z.string().optional(),
   /** Structured output schema (JSON Schema) */
-  outputSchema: z.record(z.unknown()).optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
   /** KYCO callback URL for tool approvals */
   kycoCallbackUrl: z.string().optional(),
   /** Hook configuration (Claude SDK only) */
@@ -140,7 +140,7 @@ export const ClaudeQueryRequestSchema = z.object({
 export type ClaudeQueryRequest = z.infer<typeof ClaudeQueryRequestSchema>;
 
 export const SetPermissionModeRequestSchema = z.object({
-  permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan']),
+  permissionMode: z.enum(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'delegate', 'dontAsk']),
 });
 
 export type SetPermissionModeRequest = z.infer<typeof SetPermissionModeRequestSchema>;
@@ -162,9 +162,9 @@ export const CodexQueryRequestSchema = z.object({
   /** Sandbox mode */
   sandbox: z.enum(['read-only', 'workspace-write', 'danger-full-access']).optional(),
   /** Environment variables to pass to the Codex CLI process */
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   /** Structured output schema (JSON Schema) */
-  outputSchema: z.record(z.unknown()).optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
   /** Skip the git repository check (for temp directories, non-git projects) */
   skipGitRepoCheck: z.boolean().optional(),
   /** Model to use (optional, uses Codex default if not specified) */
@@ -187,7 +187,7 @@ export const ToolApprovalResponseSchema = z.object({
   decision: z.enum(['allow', 'deny', 'ask']),
   reason: z.string().optional(),
   /** Modified input (if KYCO wants to change parameters) */
-  modifiedInput: z.record(z.unknown()).optional(),
+  modifiedInput: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type ToolApprovalResponse = z.infer<typeof ToolApprovalResponseSchema>;

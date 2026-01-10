@@ -122,6 +122,8 @@ pub fn parse_claude_permission_mode(mode: &str) -> PermissionMode {
             PermissionMode::BypassPermissions
         }
         "plan" => PermissionMode::Plan,
+        "delegate" => PermissionMode::Delegate,
+        "dontAsk" | "dont_ask" | "dont-ask" => PermissionMode::DontAsk,
         _ => PermissionMode::Default,
     }
 }

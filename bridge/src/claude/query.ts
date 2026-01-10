@@ -285,7 +285,8 @@ export async function* executeClaudeQuery(
       }
     }
 
-    if (q) {
+    // Only interrupt if the session didn't complete naturally
+    if (q && !sessionCompleted) {
       try {
         await q.interrupt();
       } catch {

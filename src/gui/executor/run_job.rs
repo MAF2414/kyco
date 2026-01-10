@@ -31,7 +31,7 @@ pub async fn run_job(
     let job_id = job.id;
     let _job_locks = JobLockGuard::new(Arc::clone(job_manager), job_id);
 
-    if config.is_chain(&job.mode) {
+    if config.is_chain(&job.skill) {
         run_chain_job(
             work_dir,
             config,
@@ -134,9 +134,9 @@ pub async fn run_job(
     // Check if the mode/chain has a use_worktree override
     let mode_use_worktree = config
         .mode
-        .get(&job.mode)
+        .get(&job.skill)
         .and_then(|m| m.use_worktree)
-        .or_else(|| config.chain.get(&job.mode).and_then(|c| c.use_worktree));
+        .or_else(|| config.chain.get(&job.skill).and_then(|c| c.use_worktree));
 
     let should_use_worktree = match mode_use_worktree {
         Some(true) => true,   // Mode/chain explicitly enables worktree
@@ -207,7 +207,7 @@ pub async fn run_job(
     }
 
     let mut agent_config = config
-        .get_agent_for_job(&job.agent_id, &job.mode)
+        .get_agent_for_job(&job.agent_id, &job.skill)
         .unwrap_or_default();
 
     // When using a worktree, automatically allow git commands for committing

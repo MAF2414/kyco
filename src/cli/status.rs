@@ -66,7 +66,7 @@ pub async fn status_command(
     for job in jobs {
         println!(
             "  #{} [{}] {} - {}",
-            job.id, job.status, job.mode, job.target
+            job.id, job.status, job.skill, job.target
         );
 
         if let Some(desc) = job.description.as_deref().filter(|d| !d.trim().is_empty()) {

@@ -84,6 +84,7 @@ pub async fn calculate_git_numstat_async(
 
 /// Calculate lines added/removed using git numstat (sync version for compatibility)
 /// Prefer `calculate_git_numstat_async` in async contexts.
+#[allow(dead_code)]
 pub fn calculate_git_numstat(worktree: &Path, base_branch: Option<&str>) -> (usize, usize) {
     use std::process::Command as StdCommand;
 

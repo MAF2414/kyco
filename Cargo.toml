@@ -1,6 +1,6 @@
 [package]
 name = "kyco"
-version = "0.13.9"
+version = "0.13.11"
 edition = "2024"
 description = "Know Your Codebase - AI-powered code tasks with transparency"
 license = "BUSL-1.1"

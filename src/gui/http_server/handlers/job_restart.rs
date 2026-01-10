@@ -61,7 +61,7 @@ pub fn handle_control_job_restart(
             raw_line: String::new(),
             agent: original.agent_id.clone(),
             agents: vec![original.agent_id.clone()],
-            mode: original.mode.clone(),
+            mode: original.skill.clone(),
             target: Target::Block,
             status_marker: None,
             description: if description.is_empty() {

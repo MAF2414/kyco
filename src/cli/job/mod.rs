@@ -59,7 +59,7 @@ pub fn job_get_command(
     }
 
     let job = parsed.job;
-    println!("#{} [{}] {} - {}", job.id, job.status, job.mode, job.target);
+    println!("#{} [{}] {} - {}", job.id, job.status, job.skill, job.target);
     if let Some(desc) = job.description {
         if !desc.trim().is_empty() {
             println!("{}", desc.trim());
@@ -269,7 +269,7 @@ pub fn job_wait_command(
             if json {
                 println!("{}", serde_json::to_string_pretty(&job)?);
             } else {
-                println!("#{} [{}] {} - {}", job.id, job.status, job.mode, job.target);
+                println!("#{} [{}] {} - {}", job.id, job.status, job.skill, job.target);
             }
             return Ok(());
         }

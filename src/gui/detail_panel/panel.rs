@@ -142,8 +142,8 @@ fn render_job_info(ui: &mut egui::Ui, job: &Job) {
     });
 
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Mode:").color(TEXT_MUTED));
-        ui.label(RichText::new(&job.mode).color(TEXT_PRIMARY));
+        ui.label(RichText::new("Skill:").color(TEXT_MUTED));
+        ui.label(RichText::new(&job.skill).color(TEXT_PRIMARY));
         ui.label(RichText::new("Agent:").color(TEXT_MUTED));
         ui.label(RichText::new(&job.agent_id).color(ACCENT_CYAN));
     });

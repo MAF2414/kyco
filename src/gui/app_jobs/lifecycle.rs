@@ -40,7 +40,7 @@ impl KycoApp {
             manager.get(job_id).map(|job| {
                 (
                     job.agent_id.clone(),
-                    job.mode.clone(),
+                    job.skill.clone(),
                     job.bridge_session_id.clone(),
                 )
             })
@@ -130,7 +130,7 @@ impl KycoApp {
             match manager.get(job_id) {
                 Some(job) => (
                     job.agent_id.clone(),
-                    job.mode.clone(),
+                    job.skill.clone(),
                     job.bridge_session_id.clone(),
                 ),
                 None => {
@@ -181,6 +181,8 @@ impl KycoApp {
                         PermissionMode::AcceptEdits => "acceptEdits",
                         PermissionMode::BypassPermissions => "bypassPermissions",
                         PermissionMode::Plan => "plan",
+                        PermissionMode::Delegate => "delegate",
+                        PermissionMode::DontAsk => "dontAsk",
                     },
                     job_id
                 )));

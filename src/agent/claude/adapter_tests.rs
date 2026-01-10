@@ -123,3 +123,18 @@ fn test_prompt_format_without_description() {
     // "tests" mode has a template with "Write unit tests"
     assert!(prompt.contains("test"), "Prompt should mention tests");
 }
+
+#[test]
+fn test_build_args_ends_options_before_prompt() {
+    let adapter = ClaudeAdapter::new();
+    let config = AgentConfig::default();
+    let job = create_test_job("refactor", Some("fix the bug"), "src/main.rs", 42);
+    let prompt = adapter.build_prompt(&job, &config);
+    let tmp = tempfile::tempdir().expect("tempdir");
+
+    let args = adapter.build_args(&job, tmp.path(), &config, &prompt);
+
+    assert!(args.len() >= 2, "Expected at least `--` + prompt args");
+    assert_eq!(args[args.len() - 2], "--");
+    assert_eq!(args[args.len() - 1], prompt);
+}

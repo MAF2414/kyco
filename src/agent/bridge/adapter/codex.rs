@@ -89,7 +89,7 @@ impl CodexBridgeAdapter {
     }
 
     fn find_skill_md(&self, job: &Job, worktree: &Path) -> Option<(String, String)> {
-        let skill = job.mode.as_str();
+        let skill = job.skill.as_str();
         let mut candidates = vec![
             worktree
                 .join(".codex/skills")
@@ -120,8 +120,8 @@ impl CodexBridgeAdapter {
 
     fn apply_skill_placeholders(template: &str, job: &Job, scope: &str, paths: &ResolvedPaths) -> String {
         template
-            .replace("{mode}", &job.mode)
-            .replace("{skill}", &job.mode)
+            .replace("{mode}", &job.skill)
+            .replace("{skill}", &job.skill)
             .replace("{target}", &paths.target)
             .replace("{scope}", scope)
             .replace("{file}", &paths.file_path)
@@ -133,9 +133,9 @@ impl CodexBridgeAdapter {
     fn find_skill_files(&self, job: &Job, worktree: &Path) -> (Option<String>, Vec<String>) {
         // Try workspace-local first, then global
         let skill_dirs = [
-            worktree.join(".codex/skills").join(&job.mode),
+            worktree.join(".codex/skills").join(&job.skill),
             dirs::home_dir()
-                .map(|h| h.join(".codex/skills").join(&job.mode))
+                .map(|h| h.join(".codex/skills").join(&job.skill))
                 .unwrap_or_default(),
         ];
 
@@ -164,7 +164,7 @@ impl CodexBridgeAdapter {
 
     pub(super) fn build_prompt(&self, job: &Job, config: &AgentConfig, worktree: &Path) -> String {
         let paths = resolve_prompt_paths(job);
-        let template = config.get_skill_template(&job.mode);
+        let template = config.get_skill_template(&job.skill);
         let scope = Self::format_scope(job);
 
         // Find skill directory and files
@@ -201,7 +201,7 @@ impl CodexBridgeAdapter {
 
         // Add skill directory info if found
         if let Some(dir) = &skill_dir {
-            prompt.push_str(&format!("## Skill Directory\n\nSkill '{}' is located at: `{}`\n", job.mode, dir));
+            prompt.push_str(&format!("## Skill Directory\n\nSkill '{}' is located at: `{}`\n", job.skill, dir));
             if !skill_files.is_empty() {
                 prompt.push_str("\nFiles in skill directory:\n");
                 for file in &skill_files {
@@ -214,7 +214,7 @@ impl CodexBridgeAdapter {
         // Add the task
         prompt.push_str(&format!(
             "## Task\n\nExecute the '{}' skill on file `{}` at line {}.\n",
-            job.mode, paths.file_path, job.source_line
+            job.skill, paths.file_path, job.source_line
         ));
 
         // Add IDE context if available

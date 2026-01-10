@@ -164,7 +164,7 @@ pub fn render_job_row(
                         .monospace()
                         .color(TEXT_DIM),
                 );
-                ui.label(RichText::new(&job.mode).monospace().color(TEXT_PRIMARY));
+                ui.label(RichText::new(&job.skill).monospace().color(TEXT_PRIMARY));
                 ui.label(RichText::new(format!("[{}]", job.agent_id)).color(TEXT_MUTED));
 
                 if job.group_id.is_some() {

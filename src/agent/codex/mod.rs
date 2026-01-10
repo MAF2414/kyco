@@ -34,7 +34,7 @@ impl CodexAdapter {
 
     /// Build the prompt for a job using the mode template from config
     fn build_prompt(&self, job: &Job, worktree: &Path, config: &AgentConfig) -> String {
-        let template = config.get_skill_template(&job.mode);
+        let template = config.get_skill_template(&job.skill);
         let file_path = job.source_file.display().to_string();
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
@@ -45,7 +45,7 @@ impl CodexAdapter {
             .replace("{file}", &file_path)
             .replace("{line}", &line.to_string())
             .replace("{target}", &job.target)
-            .replace("{mode}", &job.mode)
+            .replace("{mode}", &job.skill)
             .replace("{description}", description)
             .replace("{scope_type}", "file")
             .replace("{ide_context}", ide_context);
@@ -361,7 +361,7 @@ impl AgentRunner for CodexAdapter {
 }
 
 fn find_skill_md_path(job: &Job, worktree: &Path) -> Option<std::path::PathBuf> {
-    let skill = job.mode.as_str();
+    let skill = job.skill.as_str();
     let mut candidates = Vec::new();
 
     candidates.push(worktree.join(".codex/skills").join(skill).join("SKILL.md"));
@@ -397,7 +397,7 @@ fn find_skill_md_path(job: &Job, worktree: &Path) -> Option<std::path::PathBuf> 
 }
 
 fn find_skill_add_dir(job: &Job, worktree: &Path) -> Option<std::path::PathBuf> {
-    let skill = job.mode.as_str();
+    let skill = job.skill.as_str();
     let mut candidates = Vec::new();
 
     if let Some(workspace) = job.workspace_path.as_ref() {

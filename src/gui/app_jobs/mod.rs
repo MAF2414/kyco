@@ -140,7 +140,7 @@ impl KycoApp {
             if let Some(job) = manager.remove_job(job_id) {
                 self.logs.push(LogEvent::system(format!(
                     "Deleted job #{} ({})",
-                    job_id, job.mode
+                    job_id, job.skill
                 )));
 
                 // Clear selection if deleted job was selected
@@ -196,7 +196,7 @@ impl KycoApp {
             raw_line: String::new(),
             agent: original.agent_id.clone(),
             agents: vec![original.agent_id.clone()],
-            mode: original.mode.clone(),
+            mode: original.skill.clone(),
             target: Target::Block,
             status_marker: None,
             description: if description.is_empty() {

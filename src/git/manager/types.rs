@@ -40,7 +40,7 @@ impl CommitMessage {
                     .filter(|s| !s.is_empty())
             })
             .map(sanitize_commit_subject)
-            .unwrap_or_else(|| sanitize_commit_subject(&format!("{}: {}", job.mode, job.target)));
+            .unwrap_or_else(|| sanitize_commit_subject(&format!("{}: {}", job.skill, job.target)));
 
         let body = job
             .result

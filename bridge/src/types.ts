@@ -14,7 +14,7 @@
 // ============================================================================
 
 /** Permission mode for Claude sessions */
-export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'delegate' | 'dontAsk';
 
 /** Tool approval decision from KYCO */
 export type ToolDecision = 'allow' | 'deny' | 'ask';

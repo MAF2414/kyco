@@ -85,11 +85,20 @@ impl SkillDiscovery {
         skills
     }
 
-    /// Load global skills from ~/.kyco/skills/
+    /// Load global skills from ~/.kyco/skills/, ~/.claude/skills/, ~/.codex/skills/
     fn load_global_skills(&self, skills: &mut HashMap<String, SkillConfig>) {
         if let Some(ref home) = self.home_dir {
-            let global_dir = home.join(".kyco/skills");
-            self.load_skills_from_dir(&global_dir, skills);
+            // Load from ~/.kyco/skills/ (lowest priority)
+            let kyco_global = home.join(".kyco/skills");
+            self.load_skills_from_dir(&kyco_global, skills);
+
+            // Load from ~/.claude/skills/ (higher priority)
+            let claude_global = home.join(".claude/skills");
+            self.load_skills_from_dir(&claude_global, skills);
+
+            // Load from ~/.codex/skills/ (higher priority)
+            let codex_global = home.join(".codex/skills");
+            self.load_skills_from_dir(&codex_global, skills);
         }
     }
 
@@ -106,7 +115,23 @@ impl SkillDiscovery {
     /// Supports both:
     /// - Directory-based skills: `skill-name/SKILL.md`
     /// - Single file skills (legacy): `skill-name.md`
+    /// - Nested container directories (e.g., `.system/skill-name/SKILL.md`)
     fn load_skills_from_dir(&self, dir: &Path, skills: &mut HashMap<String, SkillConfig>) {
+        self.load_skills_from_dir_recursive(dir, skills, 0);
+    }
+
+    /// Recursively load skills from a directory (max 2 levels deep)
+    fn load_skills_from_dir_recursive(
+        &self,
+        dir: &Path,
+        skills: &mut HashMap<String, SkillConfig>,
+        depth: usize,
+    ) {
+        // Prevent infinite recursion (max 2 levels: skills/ -> .system/ -> skill-name/)
+        if depth > 2 {
+            return;
+        }
+
         if !dir.exists() {
             debug!("Skills directory does not exist: {:?}", dir);
             return;
@@ -136,6 +161,10 @@ impl SkillDiscovery {
                             warn!("Failed to parse skill file {:?}: {}", skill_md_path, e);
                         }
                     }
+                } else {
+                    // No SKILL.md here - this might be a container directory (like .system)
+                    // Recurse into it to find nested skills
+                    self.load_skills_from_dir_recursive(&path, skills, depth + 1);
                 }
             } else if path.extension().is_some_and(|ext| ext == "md") {
                 // Legacy single-file skill: skill-name.md
@@ -184,12 +213,14 @@ impl SkillDiscovery {
     pub fn list_skill_directories(&self) -> Vec<PathBuf> {
         let mut dirs = Vec::new();
 
-        // Global directory
+        // Global directories (searched in order, later overwrites earlier)
         if let Some(ref home) = self.home_dir {
             dirs.push(home.join(".kyco/skills"));
+            dirs.push(home.join(".claude/skills"));
+            dirs.push(home.join(".codex/skills"));
         }
 
-        // Project directories
+        // Project directories (highest priority)
         if let Some(ref project) = self.project_dir {
             dirs.push(project.join(".claude/skills"));
             dirs.push(project.join(".codex/skills"));

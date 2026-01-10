@@ -1,15 +1,13 @@
 //! Agent registry for available agent adapters.
 //!
-//! By default, agents run via local CLI adapters (Codex CLI / Claude Code).
-//! Bridge adapters can still be used for SDK-style integrations.
+//! Agents run via the SDK Bridge (Node.js sidecar) for full SDK control.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{AgentConfig, SdkType};
 
-use super::claude::ClaudeAdapter;
-use super::codex::CodexAdapter;
+use super::bridge::{ClaudeBridgeAdapter, CodexBridgeAdapter};
 use super::runner::AgentRunner;
 
 /// Central registry for managing agent adapters.
@@ -28,12 +26,12 @@ pub struct AgentRegistry {
 }
 
 impl AgentRegistry {
-    /// Creates a new registry with all adapters registered.
+    /// Creates a new registry with SDK Bridge adapters.
     pub fn new() -> Self {
         let mut adapters: HashMap<String, Arc<dyn AgentRunner>> = HashMap::new();
 
-        adapters.insert("claude".to_string(), Arc::new(ClaudeAdapter::new()));
-        adapters.insert("codex".to_string(), Arc::new(CodexAdapter::new()));
+        adapters.insert("claude".to_string(), Arc::new(ClaudeBridgeAdapter::new()));
+        adapters.insert("codex".to_string(), Arc::new(CodexBridgeAdapter::new()));
 
         Self { adapters }
     }

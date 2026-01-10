@@ -61,8 +61,9 @@ pub struct AgentRunGroup {
     /// The prompt/description shared by all jobs in this group
     pub prompt: String,
 
-    /// The mode used for all jobs (e.g., "refactor", "fix")
-    pub mode: String,
+    /// The skill used for all jobs (e.g., "refactor", "fix")
+    #[serde(alias = "mode")]
+    pub skill: String,
 
     /// The target being processed (e.g., "src/lib.rs:42")
     pub target: String,
@@ -88,12 +89,12 @@ pub struct AgentRunGroup {
 
 impl AgentRunGroup {
     /// Create a new agent run group
-    pub fn new(id: AgentGroupId, prompt: String, mode: String, target: String) -> Self {
+    pub fn new(id: AgentGroupId, prompt: String, skill: String, target: String) -> Self {
         let now = Utc::now();
         Self {
             id,
             prompt,
-            mode,
+            skill,
             target,
             job_ids: Vec::new(),
             agent_names: Vec::new(),

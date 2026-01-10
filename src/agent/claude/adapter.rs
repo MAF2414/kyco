@@ -27,7 +27,7 @@ impl ClaudeAdapter {
 
     /// Build the prompt for a job using the mode template from config
     fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
-        let template = config.get_skill_template(&job.mode);
+        let template = config.get_skill_template(&job.skill);
         let file_path = job.source_file.display().to_string();
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
@@ -38,7 +38,7 @@ impl ClaudeAdapter {
             .replace("{file}", &file_path)
             .replace("{line}", &line.to_string())
             .replace("{target}", &job.target)
-            .replace("{mode}", &job.mode)
+            .replace("{mode}", &job.skill)
             .replace("{description}", description)
             .replace("{scope_type}", "file")
             .replace("{ide_context}", ide_context)
@@ -46,7 +46,7 @@ impl ClaudeAdapter {
 
     /// Build the system prompt addition for a job
     fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
-        let template = config.get_skill_template(&job.mode);
+        let template = config.get_skill_template(&job.skill);
         let mut system_prompt = template.system_prompt.unwrap_or_default();
 
         // If running in a worktree, add commit instruction
@@ -142,6 +142,9 @@ impl ClaudeAdapter {
             args.push(add_dir.display().to_string());
         }
 
+        // Claude's CLI has several variadic options (e.g. --add-dir/--allowedTools) that will
+        // greedily consume trailing args unless we explicitly end option parsing.
+        args.push("--".to_string());
         args.push(prompt.to_string());
 
         args
@@ -385,7 +388,7 @@ impl AgentRunner for ClaudeAdapter {
 }
 
 fn find_skill_add_dir(job: &Job, worktree: &Path) -> Option<std::path::PathBuf> {
-    let skill = job.mode.as_str();
+    let skill = job.skill.as_str();
     let mut candidates = Vec::new();
 
     candidates.push(worktree.join(".claude/skills").join(skill));

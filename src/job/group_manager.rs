@@ -24,9 +24,9 @@ impl GroupManager {
     }
 
     /// Create a new agent run group
-    pub fn create_group(&mut self, prompt: String, mode: String, target: String) -> AgentGroupId {
+    pub fn create_group(&mut self, prompt: String, skill: String, target: String) -> AgentGroupId {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let group = AgentRunGroup::new(id, prompt, mode, target);
+        let group = AgentRunGroup::new(id, prompt, skill, target);
         self.groups.insert(id, group);
         id
     }

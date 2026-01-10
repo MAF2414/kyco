@@ -103,7 +103,7 @@ impl ClaudeBridgeAdapter {
 
         // Use Claude's native skill invocation with /skill-name
         // The skill must be installed in .claude/skills/ for Claude to find it
-        let mut prompt = format!("/{}", job.mode);
+        let mut prompt = format!("/{}", job.skill);
 
         // Add file context
         prompt.push_str(&format!(" on file {}:{}", paths.file_path, job.source_line));
@@ -126,7 +126,7 @@ impl ClaudeBridgeAdapter {
     }
 
     fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
-        let template = config.get_skill_template(&job.mode);
+        let template = config.get_skill_template(&job.skill);
         let mut system_prompt = template.system_prompt.unwrap_or_default();
 
         if let Some(wt_path) = &job.git_worktree_path {

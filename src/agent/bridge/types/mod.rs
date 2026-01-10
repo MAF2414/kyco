@@ -22,6 +22,10 @@ pub enum PermissionMode {
     AcceptEdits,
     BypassPermissions,
     Plan,
+    /// Auto-approve certain tools, escalate others to user
+    Delegate,
+    /// Skip approval UI for pre-configured tools
+    DontAsk,
 }
 
 /// Claude SDK hook events

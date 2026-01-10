@@ -31,8 +31,9 @@ pub struct Job {
     #[serde(default)]
     pub workspace_path: Option<PathBuf>,
 
-    /// The mode of the job (e.g., "refactor", "tests", "docs", "review")
-    pub mode: String,
+    /// The skill to execute (e.g., "refactor", "tests", "docs", "review")
+    #[serde(alias = "mode")]
+    pub skill: String,
 
     /// The scope definition for this job
     pub scope: ScopeDefinition,

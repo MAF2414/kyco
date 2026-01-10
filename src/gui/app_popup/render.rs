@@ -37,7 +37,7 @@ impl KycoApp {
                     let workspace_root = self.workspace_root_for_job(job);
                     description_lines.push(format!("Repo: {}", workspace_root.display()));
                     description_lines.push(format!("Agent: {}", job.agent_id));
-                    description_lines.push(format!("Mode: {}", job.mode));
+                    description_lines.push(format!("Skill: {}", job.skill));
                     description_lines.push(format!("Target: {}", job.target));
 
                     let subject = crate::git::CommitMessage::from_job(job).subject;
@@ -69,7 +69,7 @@ impl KycoApp {
                     .and_then(|gm| gm.get(*group_id).cloned());
                 if let Some(group) = group {
                     description_lines.push(format!("Group status: {}", group.status));
-                    description_lines.push(format!("Mode: {}", group.mode));
+                    description_lines.push(format!("Skill: {}", group.skill));
                     description_lines.push(format!("Target: {}", group.target));
                 }
 

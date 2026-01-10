@@ -121,7 +121,7 @@ pub(super) fn render_action_buttons(
                 }
 
                 let is_claude_session = config
-                    .get_agent_for_job(&job.agent_id, &job.mode)
+                    .get_agent_for_job(&job.agent_id, &job.skill)
                     .map(|a| a.sdk_type != SdkType::Codex)
                     .unwrap_or(job.agent_id != "codex");
 
@@ -235,7 +235,7 @@ fn effective_permission_mode(
     }
 
     config
-        .get_agent_for_job(&job.agent_id, &job.mode)
+        .get_agent_for_job(&job.agent_id, &job.skill)
         .map(|a| parse_claude_permission_mode(&a.permission_mode))
         .unwrap_or(PermissionMode::Default)
 }
@@ -248,6 +248,8 @@ fn parse_claude_permission_mode(mode: &str) -> PermissionMode {
             PermissionMode::BypassPermissions
         }
         "plan" => PermissionMode::Plan,
+        "delegate" => PermissionMode::Delegate,
+        "dontAsk" | "dont_ask" | "dont-ask" => PermissionMode::DontAsk,
         _ => PermissionMode::Default,
     }
 }
@@ -258,5 +260,7 @@ fn permission_mode_display(mode: PermissionMode) -> &'static str {
         PermissionMode::AcceptEdits => "Accept edits",
         PermissionMode::BypassPermissions => "Bypass permissions",
         PermissionMode::Plan => "Plan",
+        PermissionMode::Delegate => "Delegate",
+        PermissionMode::DontAsk => "Don't ask",
     }
 }

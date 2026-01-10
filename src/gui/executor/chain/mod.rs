@@ -62,7 +62,7 @@ pub async fn run_chain_job(
     mut job: Job,
 ) {
     let job_id = job.id;
-    let chain_name = job.mode.clone();
+    let chain_name = job.skill.clone();
     let _job_locks = JobLockGuard::new(Arc::clone(job_manager), job_id);
 
     // Validate job inputs before marking as running.

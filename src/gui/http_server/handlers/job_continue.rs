@@ -72,10 +72,10 @@ pub fn handle_control_job_continue(
         let tag = CommentTag {
             file_path: original.source_file.clone(),
             line_number: original.source_line,
-            raw_line: format!("// @{}:{} {}", &original.agent_id, &original.mode, prompt),
+            raw_line: format!("// @{}:{} {}", &original.agent_id, &original.skill, prompt),
             agent: original.agent_id.clone(),
             agents: vec![original.agent_id.clone()],
-            mode: original.mode.clone(),
+            mode: original.skill.clone(),
             target: Target::Block,
             status_marker: None,
             description: Some(prompt.to_string()),

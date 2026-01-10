@@ -325,7 +325,7 @@ fn job_to_stats_record(job: &Job, agent_config: Option<&AgentConfigToml>) -> Job
     JobStatsRecord {
         job_id: job.id,
         session_id: job.bridge_session_id.clone(),
-        mode: job.mode.clone(),
+        mode: job.skill.clone(),
         agent_id: job.agent_id.clone(),
         agent_type: if job.agent_id.contains("codex") { "codex" } else { "claude" }.to_string(),
         status: format!("{:?}", job.status).to_lowercase(),

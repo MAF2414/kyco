@@ -12,12 +12,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "0.1.65",
-    "@openai/codex-sdk": "0.71.0",
+    "@anthropic-ai/claude-agent-sdk": "0.2.3",
+    "@openai/codex-sdk": "0.80.0",
     "better-sqlite3": "^12.5.0",
     "express": "^4.21.0",
     "uuid": "^10.0.0",
-    "zod": "^3.23.0"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

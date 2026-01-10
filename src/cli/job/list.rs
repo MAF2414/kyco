@@ -35,7 +35,7 @@ pub fn job_list_command(
                 }
             }
             if let Some(mode) = mode_filter {
-                if !job.mode.to_lowercase().contains(&mode.to_lowercase()) {
+                if !job.skill.to_lowercase().contains(&mode.to_lowercase()) {
                     return false;
                 }
             }
@@ -46,7 +46,7 @@ pub fn job_list_command(
                     .map(|d| d.to_lowercase().contains(query))
                     .unwrap_or(false);
                 let target_match = job.target.to_lowercase().contains(query);
-                let mode_match = job.mode.to_lowercase().contains(query);
+                let mode_match = job.skill.to_lowercase().contains(query);
                 if !desc_match && !target_match && !mode_match {
                     return false;
                 }
@@ -95,7 +95,7 @@ pub fn job_list_command(
     for job in jobs {
         println!(
             "  #{} [{}] {} - {}",
-            job.id, job.status, job.mode, job.target
+            job.id, job.status, job.skill, job.target
         );
         if let Some(desc) = job.description {
             if !desc.trim().is_empty() {

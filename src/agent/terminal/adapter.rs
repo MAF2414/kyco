@@ -70,7 +70,7 @@ impl TerminalAdapter {
     /// Substitutes template placeholders (`{file}`, `{line}`, `{target}`, etc.)
     /// with actual job values.
     fn build_prompt(&self, job: &Job, config: &AgentConfig) -> String {
-        let template = config.get_skill_template(&job.mode);
+        let template = config.get_skill_template(&job.skill);
         let file_path = job.source_file.display().to_string();
         let line = job.source_line;
         let description = job.description.as_deref().unwrap_or("");
@@ -80,7 +80,7 @@ impl TerminalAdapter {
             .replace("{file}", &file_path)
             .replace("{line}", &line.to_string())
             .replace("{target}", &job.target)
-            .replace("{mode}", &job.mode)
+            .replace("{mode}", &job.skill)
             .replace("{description}", description)
             .replace("{scope_type}", "file")
             .replace("{ide_context}", ide_context)
@@ -91,7 +91,7 @@ impl TerminalAdapter {
     /// Returns the mode's system prompt with any worktree-specific instructions
     /// appended. Returns `None` if no system prompt is configured.
     fn build_system_prompt(&self, job: &Job, config: &AgentConfig) -> Option<String> {
-        let template = config.get_skill_template(&job.mode);
+        let template = config.get_skill_template(&job.skill);
         let mut system_prompt = template.system_prompt.unwrap_or_default();
 
         // If running in a worktree, add commit instruction

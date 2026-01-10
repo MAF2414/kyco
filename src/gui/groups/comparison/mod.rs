@@ -124,7 +124,7 @@ pub fn render_comparison_popup(
 
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("Mode: {}", group.mode)).color(TEXT_DIM));
+                ui.label(RichText::new(format!("Skill: {}", group.skill)).color(TEXT_DIM));
                 ui.label(
                     RichText::new(format!("Target: {}", truncate(&group.target, 30)))
                         .color(TEXT_MUTED),

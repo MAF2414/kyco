@@ -8,7 +8,7 @@ impl Job {
     /// Create a new pending job
     pub fn new(
         id: JobId,
-        mode: String,
+        skill: String,
         scope: ScopeDefinition,
         target: String,
         description: Option<String>,
@@ -21,7 +21,7 @@ impl Job {
         Self {
             id,
             workspace_path: None,
-            mode,
+            skill,
             scope,
             target,
             description,

@@ -33,10 +33,10 @@ impl KycoApp {
             let tag = crate::CommentTag {
                 file_path: original.source_file.clone(),
                 line_number: original.source_line,
-                raw_line: format!("// @{}:{} {}", &original.agent_id, &original.mode, &prompt),
+                raw_line: format!("// @{}:{} {}", &original.agent_id, &original.skill, &prompt),
                 agent: original.agent_id.clone(),
                 agents: vec![original.agent_id.clone()],
-                mode: original.mode.clone(),
+                mode: original.skill.clone(),
                 target: crate::Target::Block,
                 status_marker: None,
                 description: Some(prompt),
@@ -70,7 +70,7 @@ impl KycoApp {
                 job.workspace_path = original.workspace_path.clone();
             }
 
-            (continuation_id, original.mode)
+            (continuation_id, original.skill)
         };
 
         self.logs.push(LogEvent::system(format!(

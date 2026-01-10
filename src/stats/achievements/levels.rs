@@ -580,8 +580,9 @@ mod tests {
             LevelTier::HighPriest,
             LevelTier::Singularity,
         ] {
+            // Verify each tier has a non-black color (at least one channel > 0)
             let (r, g, b) = tier.badge_color();
-            assert!(r <= 255 && g <= 255 && b <= 255);
+            assert!(r > 0 || g > 0 || b > 0, "Tier {:?} has black color", tier);
         }
     }
 }
