@@ -17,10 +17,10 @@ impl KycoApp {
         match self.view_mode {
             ViewMode::JobList => {
                 egui::SidePanel::left("job_list")
-                    .default_width(280.0)
-                    .min_width(280.0)
-                    .max_width(280.0)
-                    .resizable(false)
+                    .default_width(320.0)
+                    .min_width(200.0)
+                    .max_width(600.0)
+                    .resizable(true)
                     .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(8.0))
                     .show(ctx, |ui| {
                         self.render_job_list(ui);

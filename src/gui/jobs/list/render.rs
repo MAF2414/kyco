@@ -155,8 +155,12 @@ pub fn render_job_row(
         .fill(bg)
         .inner_margin(egui::vec2(8.0, 4.0))
         .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
+            let available = ui.available_width();
+            ui.set_min_width(available);
+            ui.set_max_width(available);
+            ui.set_clip_rect(ui.max_rect());
             ui.horizontal(|ui| {
+                ui.set_max_width(available);
                 render_status_indicator(ui, job);
 
                 ui.label(
@@ -195,10 +199,17 @@ pub fn render_job_row(
                     }
                 }
 
-                // Right-align time info
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    render_time_info(ui, job);
-                });
+                // Right-align time info - must use allocate_ui_with_layout to reserve space
+                let remaining_width = ui.available_width();
+                if remaining_width > 0.0 {
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(remaining_width, ui.min_size().y),
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            render_time_info(ui, job);
+                        },
+                    );
+                }
             });
 
             render_target_row(ui, job, action);
@@ -271,21 +282,29 @@ fn render_target_row(ui: &mut egui::Ui, job: &Job, action: &mut JobListAction) {
             .on_hover_text(&job.target);
 
         if job.is_finished() {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let delete_btn = egui::Button::new(RichText::new("✕").color(ACCENT_RED).size(12.0))
-                    .fill(Color32::TRANSPARENT)
-                    .stroke(Stroke::NONE)
-                    .small();
+            let remaining = ui.available_width();
+            if remaining > 0.0 {
+                ui.allocate_ui_with_layout(
+                    egui::vec2(remaining, ui.min_size().y),
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        let delete_btn =
+                            egui::Button::new(RichText::new("✕").color(ACCENT_RED).size(12.0))
+                                .fill(Color32::TRANSPARENT)
+                                .stroke(Stroke::NONE)
+                                .small();
 
-                if ui
-                    .add(delete_btn)
-                    .on_hover_text("Delete this job")
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                {
-                    *action = JobListAction::DeleteJob(job.id);
-                }
-            });
+                        if ui
+                            .add(delete_btn)
+                            .on_hover_text("Delete this job")
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
+                            *action = JobListAction::DeleteJob(job.id);
+                        }
+                    },
+                );
+            }
         }
     });
 }
