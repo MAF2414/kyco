@@ -83,19 +83,13 @@ impl CodexAdapter {
     }
 
     fn build_args(&self, job: &Job, worktree: &Path, config: &AgentConfig) -> Vec<String> {
-        let mut args: Vec<String> = vec!["exec".to_string(), "--json".to_string()];
+        // Note: `--ask-for-approval` is a *global* Codex flag (must come before `exec`).
+        let mut args: Vec<String> = Vec::new();
 
         // Keep Codex non-interactive by default. Users can opt into the global Codex config.
         if config.allow_dangerous_bypass {
             args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
         } else {
-            args.push("--sandbox".to_string());
-            args.push(
-                config
-                    .sandbox
-                    .clone()
-                    .unwrap_or_else(|| "workspace-write".to_string()),
-            );
             args.push("--ask-for-approval".to_string());
             args.push(
                 config
@@ -103,7 +97,18 @@ impl CodexAdapter {
                     .clone()
                     .unwrap_or_else(|| "never".to_string()),
             );
+
+            args.push("--sandbox".to_string());
+            args.push(
+                config
+                    .sandbox
+                    .clone()
+                    .unwrap_or_else(|| "workspace-write".to_string()),
+            );
         }
+
+        args.push("exec".to_string());
+        args.push("--json".to_string());
 
         if let Some(model) = config.model.as_deref() {
             args.push("--model".to_string());
