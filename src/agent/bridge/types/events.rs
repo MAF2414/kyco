@@ -27,6 +27,15 @@ impl UsageStats {
     pub fn effective_cache_read(&self) -> u64 {
         self.cache_read_tokens.or(self.cached_input_tokens).unwrap_or(0)
     }
+
+    /// Get effective *fresh* input tokens (non-cached).
+    ///
+    /// Codex reports `input_tokens` (total) + `cached_input_tokens` (cache read). For cost and
+    /// token breakdowns, we want the uncached remainder.
+    pub fn effective_fresh_input(&self) -> u64 {
+        self.input_tokens
+            .saturating_sub(self.cached_input_tokens.unwrap_or(0))
+    }
 }
 
 /// Bridge event - union of all possible events
@@ -151,4 +160,31 @@ pub enum BridgeEvent {
         #[serde(rename = "pendingApprovalRequestId")]
         pending_approval_request_id: Option<String>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UsageStats;
+
+    #[test]
+    fn usage_stats_fresh_input_from_codex_cached_tokens() {
+        let usage: UsageStats = serde_json::from_str(
+            r#"{"inputTokens":24763,"outputTokens":122,"cachedInputTokens":24448}"#,
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.effective_cache_read(), 24_448);
+        assert_eq!(usage.effective_fresh_input(), 315);
+    }
+
+    #[test]
+    fn usage_stats_fresh_input_passthrough_for_claude_style() {
+        let usage: UsageStats = serde_json::from_str(
+            r#"{"inputTokens":1000,"outputTokens":200,"cacheReadTokens":300,"cacheWriteTokens":50}"#,
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.effective_cache_read(), 300);
+        assert_eq!(usage.effective_fresh_input(), 1000);
+    }
 }

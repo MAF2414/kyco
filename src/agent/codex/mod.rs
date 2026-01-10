@@ -268,14 +268,15 @@ impl AgentRunner for CodexAdapter {
                 } => {
                     turn_completed = true;
                     result.success = true;
-                    result.input_tokens = Some(input_tokens.saturating_sub(cached_input_tokens));
+                    let fresh_input_tokens = input_tokens.saturating_sub(cached_input_tokens);
+                    result.input_tokens = Some(fresh_input_tokens);
                     result.output_tokens = Some(output_tokens);
                     result.cache_read_tokens = Some(cached_input_tokens);
                     let _ = event_tx
                         .send(
                             LogEvent::system(format!(
-                                "Completed (tokens: {} in, {} cached, {} out)",
-                                input_tokens, cached_input_tokens, output_tokens
+                                "Completed (tokens: {} in, {} cached, {} fresh, {} out)",
+                                input_tokens, cached_input_tokens, fresh_input_tokens, output_tokens
                             ))
                             .for_job(job_id),
                         )

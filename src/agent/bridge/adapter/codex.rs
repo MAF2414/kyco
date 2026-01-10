@@ -379,7 +379,7 @@ impl AgentRunner for CodexBridgeAdapter {
                         received_session_complete = true;
                         result.success = success; result.duration_ms = Some(duration_ms); structured_result = sr;
                         if let Some(ref u) = usage {
-                            result.input_tokens = Some(u.input_tokens);
+                            result.input_tokens = Some(u.effective_fresh_input());
                             result.output_tokens = Some(u.output_tokens);
                             result.cache_read_tokens = Some(u.effective_cache_read());
                             result.cache_write_tokens = u.cache_write_tokens;
