@@ -60,10 +60,10 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
 
         render_text_field(
             ui,
-            "Max Concurrent Jobs:",
+            "Max Concurrent Jobs (per agent):",
             state.settings_max_concurrent,
             60.0,
-            None,
+            Some("e.g., 4 means 4 Claude + 4 Codex can run simultaneously"),
         );
         ui.add_space(12.0);
 

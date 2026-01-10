@@ -35,12 +35,13 @@ const SETTINGS_TEMPLATE: &str = r#"# KYCo Configuration - Know Your Codebase
 # ============================================================================
 #
 # Available options:
-#   max_concurrent_jobs - Maximum number of jobs to run simultaneously (default: 4)
+#   max_concurrent_jobs - Max jobs PER AGENT (4 means 4 Claude + 4 Codex, default: 4)
 #   auto_run            - Automatically start jobs when found (default: true)
 #   use_worktree        - Run jobs in isolated Git worktrees (default: false)
 #   max_jobs_per_file   - Max concurrent jobs per file when not using worktrees (default: 1)
 
 [settings]
+# Per-agent limit: 4 means up to 4 Claude AND 4 Codex jobs can run simultaneously
 max_concurrent_jobs = 4
 auto_run = true
 use_worktree = false

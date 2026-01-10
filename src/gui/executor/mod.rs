@@ -97,7 +97,7 @@ async fn executor_loop(
         }
         let should_use_worktree = cached_use_worktree;
 
-        let (_, queued_jobs) = {
+        let queued_jobs = {
             let Ok(mut manager) = job_manager.lock() else {
                 // Lock poisoned - log and continue to next iteration
                 let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
@@ -106,11 +106,12 @@ async fn executor_loop(
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
             };
-            let running = manager
-                .jobs()
-                .iter()
-                .filter(|j| j.status == JobStatus::Running)
-                .count();
+            // Count running jobs per agent (concurrency limit is per-agent, not global)
+            let mut running_per_agent: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
+            for job in manager.jobs().iter().filter(|j| j.status == JobStatus::Running) {
+                *running_per_agent.entry(job.agent_id.clone()).or_insert(0) += 1;
+            }
 
             let blocked_jobs: Vec<_> = manager
                 .jobs()
@@ -138,19 +139,34 @@ async fn executor_loop(
                 }
             }
 
-            // Calculate available slots and collect multiple queued jobs at once
+            // Calculate available slots per agent and collect eligible jobs
+            // The max_concurrent_jobs limit applies to EACH agent independently
             let max_jobs = max_concurrent_jobs.load(Ordering::Relaxed);
-            let available = max_jobs.saturating_sub(running);
+
+            // Track how many more jobs we can start per agent
+            let mut slots_per_agent: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
 
             let queued_jobs: Vec<Job> = manager
                 .jobs()
                 .iter()
                 .filter(|j| j.status == JobStatus::Queued)
-                .take(available)
+                .filter(|j| {
+                    let agent = &j.agent_id;
+                    let running = running_per_agent.get(agent).copied().unwrap_or(0);
+                    let used = slots_per_agent.get(agent).copied().unwrap_or(0);
+                    let available = max_jobs.saturating_sub(running).saturating_sub(used);
+                    if available > 0 {
+                        *slots_per_agent.entry(agent.clone()).or_insert(0) += 1;
+                        true
+                    } else {
+                        false
+                    }
+                })
                 .map(|j| (*j).clone())
                 .collect();
 
-            (running, queued_jobs)
+            queued_jobs
         };
 
         if !queued_jobs.is_empty() {

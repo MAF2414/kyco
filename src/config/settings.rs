@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// General settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
-    /// Maximum concurrent jobs
+    /// Maximum concurrent jobs per agent (e.g., 4 means 4 Claude + 4 Codex simultaneously)
     #[serde(default = "default_max_concurrent_jobs")]
     pub max_concurrent_jobs: usize,
 
