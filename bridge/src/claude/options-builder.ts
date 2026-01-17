@@ -10,6 +10,11 @@ import type {
 } from '../types.js';
 import { mergeEnv } from './helpers.js';
 import type { EventEmitter } from './types.js';
+import { enforceToolUse, parseBugbountyPolicy } from '../policy/bugbounty.js';
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 export function buildQueryOptions(
   request: ClaudeQueryRequest,
@@ -47,7 +52,11 @@ export function buildQueryOptions(
     options.disallowedTools = request.disallowedTools;
   }
 
-  if (request.hooks?.events?.includes('PreToolUse')) {
+  const bugbountyPolicy = parseBugbountyPolicy(request.env);
+  const shouldEmitPreToolUse = request.hooks?.events?.includes('PreToolUse') ?? false;
+  const shouldInstallPreToolUseHook = shouldEmitPreToolUse || !!bugbountyPolicy;
+
+  if (shouldInstallPreToolUseHook) {
     options.hooks = {
       PreToolUse: [{
         hooks: [async (input: unknown) => {
@@ -59,16 +68,35 @@ export function buildQueryOptions(
               tool_input: unknown;
               tool_use_id: string;
             };
-            const event: HookPreToolUseEvent = {
-              type: 'hook.pre_tool_use',
-              sessionId: sessionId || hookInput.session_id,
-              timestamp: Date.now(),
-              toolName: hookInput.tool_name,
-              toolInput: hookInput.tool_input as Record<string, unknown>,
-              toolUseId: hookInput.tool_use_id,
-              transcriptPath: hookInput.transcript_path,
-            };
-            emitEvent(event);
+            const effectiveSessionId = sessionId || hookInput.session_id;
+            const toolName = hookInput.tool_name;
+            const toolInput = hookInput.tool_input as Record<string, unknown>;
+
+            if (shouldEmitPreToolUse) {
+              const event: HookPreToolUseEvent = {
+                type: 'hook.pre_tool_use',
+                sessionId: effectiveSessionId,
+                timestamp: Date.now(),
+                toolName,
+                toolInput,
+                toolUseId: hookInput.tool_use_id,
+                transcriptPath: hookInput.transcript_path,
+              };
+              emitEvent(event);
+            }
+
+            const decision = enforceToolUse(effectiveSessionId, toolName, toolInput, bugbountyPolicy);
+            if (!decision.allow) {
+              return {
+                continue: false,
+                decision: 'block',
+                reason: decision.reason,
+                systemMessage: decision.systemMessage ?? decision.reason,
+              };
+            }
+            if (decision.delayMs && decision.delayMs > 0) {
+              await sleep(decision.delayMs);
+            }
           } catch {
             // Hooks must never break execution.
           }

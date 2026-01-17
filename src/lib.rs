@@ -5,6 +5,7 @@
 //! selections and context to the GUI for processing.
 
 pub mod agent;
+pub mod bugbounty;
 pub mod cli;
 pub mod config;
 pub mod domain;

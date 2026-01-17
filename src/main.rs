@@ -6,7 +6,10 @@ use std::time::Duration;
 use kyco::cli;
 
 mod commands;
-use commands::{AgentCommands, ChainCommands, Commands, JobCommands, ModeCommands, SkillCommands};
+use commands::{
+    AgentCommands, ChainCommands, Commands, FindingCommands, ImportCommands, JobCommands, ModeCommands,
+    ProjectCommands, ScopeCommands, SkillCommands,
+};
 
 #[derive(Parser)]
 #[command(name = "kyco")]
@@ -57,7 +60,10 @@ async fn main() -> Result<()> {
         Some(Commands::Job { command }) => match command {
             JobCommands::List {
                 json,
+                project,
+                finding,
                 status,
+                state,
                 limit,
                 search,
                 skill,
@@ -66,7 +72,10 @@ async fn main() -> Result<()> {
                     &work_dir,
                     config_path.as_ref(),
                     json,
+                    project.as_deref(),
+                    finding.as_deref(),
                     status.as_deref(),
+                    state.as_deref(),
                     limit,
                     search.as_deref(),
                     skill.as_deref(), // CLI uses --skill, internally still called mode
@@ -77,10 +86,14 @@ async fn main() -> Result<()> {
             }
             JobCommands::Start {
                 file,
+                input,
+                batch,
                 line_start,
                 line_end,
                 skill,
                 prompt,
+                project,
+                finding,
                 agent,
                 agents,
                 pending,
@@ -92,11 +105,15 @@ async fn main() -> Result<()> {
                     config_path.as_ref(),
                     cli::job::JobStartArgs {
                         file_path: file,
+                        input,
+                        batch,
                         line_start,
                         line_end,
                         selected_text: None,
                         mode: skill, // CLI uses --skill, internally still called mode
                         prompt,
+                        bugbounty_project_id: project,
+                        bugbounty_finding_ids: finding,
                         agent,
                         agents,
                         queue: !pending,
@@ -158,6 +175,10 @@ async fn main() -> Result<()> {
             JobCommands::Output {
                 job_id,
                 json,
+                next_context,
+                findings,
+                flow,
+                artifacts,
                 summary,
                 state,
             } => {
@@ -166,6 +187,10 @@ async fn main() -> Result<()> {
                     config_path.as_ref(),
                     job_id,
                     json,
+                    next_context,
+                    findings,
+                    flow,
+                    artifacts,
                     summary,
                     state,
                 )?;
@@ -342,6 +367,278 @@ async fn main() -> Result<()> {
             }
             ChainCommands::Delete { name } => {
                 cli::chain::chain_delete_command(&work_dir, config_path.as_ref(), &name)?;
+            }
+        },
+        Some(Commands::Finding { command }) => match command {
+            FindingCommands::List {
+                project,
+                status,
+                severity,
+                search,
+                json,
+            } => {
+                cli::finding::list(project, status, severity, search, json)?;
+            }
+            FindingCommands::Show { id, json } => {
+                cli::finding::show(&id, json)?;
+            }
+            FindingCommands::Create {
+                title,
+                project,
+                severity,
+                attack_scenario,
+                preconditions,
+                impact,
+                confidence,
+                cwe,
+                assets,
+                write_notes,
+                json,
+            } => {
+                cli::finding::create(
+                    &work_dir,
+                    &title,
+                    &project,
+                    severity,
+                    attack_scenario,
+                    preconditions,
+                    impact,
+                    confidence,
+                    cwe,
+                    assets,
+                    write_notes,
+                    json,
+                )?;
+            }
+            FindingCommands::SetStatus { id, status } => {
+                cli::finding::set_status(&id, &status)?;
+            }
+            FindingCommands::Fp { id, reason } => {
+                cli::finding::mark_fp(&id, &reason)?;
+            }
+            FindingCommands::Delete { id, yes } => {
+                cli::finding::delete(&id, yes)?;
+            }
+            FindingCommands::Export { id, format, output } => {
+                cli::finding::export(&id, &format, output)?;
+            }
+            FindingCommands::ExportNotes {
+                id,
+                dry_run,
+                force,
+                json,
+            } => {
+                cli::finding::export_notes(&work_dir, &id, dry_run, force, json)?;
+            }
+            FindingCommands::Import { file, project, format, json } => {
+                cli::finding::import(&file, &project, &format, json)?;
+            }
+            FindingCommands::ImportNotes {
+                project,
+                dry_run,
+                json,
+            } => {
+                cli::finding::import_notes(&work_dir, &project, dry_run, json)?;
+            }
+            FindingCommands::ExtractFromJob { job_id, project, json } => {
+                cli::finding::extract_from_job(job_id, project, json)?;
+            }
+            FindingCommands::Link { finding, job, link_type } => {
+                cli::finding::link_job(&finding, &job, &link_type)?;
+            }
+            FindingCommands::Unlink { finding, job } => {
+                cli::finding::unlink_job(&finding, &job)?;
+            }
+        },
+        Some(Commands::Import { command }) => match command {
+            ImportCommands::Semgrep {
+                file,
+                project,
+                create_jobs,
+                queue,
+                skill,
+                agent,
+                agents,
+                json,
+            } => {
+                cli::import::import_tool(
+                    &work_dir,
+                    config_path.as_ref(),
+                    "semgrep",
+                    &file,
+                    project,
+                    "semgrep",
+                    create_jobs,
+                    queue,
+                    &skill,
+                    agent,
+                    agents,
+                    json,
+                )?;
+            }
+            ImportCommands::Codeql {
+                file,
+                project,
+                create_jobs,
+                queue,
+                skill,
+                agent,
+                agents,
+                json,
+            } => {
+                cli::import::import_tool(
+                    &work_dir,
+                    config_path.as_ref(),
+                    "codeql",
+                    &file,
+                    project,
+                    "sarif",
+                    create_jobs,
+                    queue,
+                    &skill,
+                    agent,
+                    agents,
+                    json,
+                )?;
+            }
+            ImportCommands::Sarif {
+                file,
+                project,
+                create_jobs,
+                queue,
+                skill,
+                agent,
+                agents,
+                json,
+            } => {
+                cli::import::import_tool(
+                    &work_dir,
+                    config_path.as_ref(),
+                    "sarif",
+                    &file,
+                    project,
+                    "sarif",
+                    create_jobs,
+                    queue,
+                    &skill,
+                    agent,
+                    agents,
+                    json,
+                )?;
+            }
+            ImportCommands::Snyk {
+                file,
+                project,
+                create_jobs,
+                queue,
+                skill,
+                agent,
+                agents,
+                json,
+            } => {
+                cli::import::import_tool(
+                    &work_dir,
+                    config_path.as_ref(),
+                    "snyk",
+                    &file,
+                    project,
+                    "snyk",
+                    create_jobs,
+                    queue,
+                    &skill,
+                    agent,
+                    agents,
+                    json,
+                )?;
+            }
+            ImportCommands::Nuclei {
+                file,
+                project,
+                create_jobs,
+                queue,
+                skill,
+                agent,
+                agents,
+                json,
+            } => {
+                cli::import::import_tool(
+                    &work_dir,
+                    config_path.as_ref(),
+                    "nuclei",
+                    &file,
+                    project,
+                    "nuclei",
+                    create_jobs,
+                    queue,
+                    &skill,
+                    agent,
+                    agents,
+                    json,
+                )?;
+            }
+            ImportCommands::Auto {
+                file,
+                project,
+                create_jobs,
+                queue,
+                skill,
+                agent,
+                agents,
+                json,
+            } => {
+                cli::import::import_tool(
+                    &work_dir,
+                    config_path.as_ref(),
+                    "auto",
+                    &file,
+                    project,
+                    "auto",
+                    create_jobs,
+                    queue,
+                    &skill,
+                    agent,
+                    agents,
+                    json,
+                )?;
+            }
+        },
+        Some(Commands::Project { command }) => match command {
+            ProjectCommands::List { platform, json } => {
+                cli::project::list(platform, json)?;
+            }
+            ProjectCommands::Show { id, json } => {
+                cli::project::show(&id, json)?;
+            }
+            ProjectCommands::Discover { path, dry_run } => {
+                cli::project::discover(path, dry_run)?;
+            }
+            ProjectCommands::Select { id } => {
+                cli::project::select(&id)?;
+            }
+            ProjectCommands::Init { id, root_path, platform } => {
+                cli::project::init(&id, &root_path, platform)?;
+            }
+            ProjectCommands::Delete { id, yes } => {
+                cli::project::delete(&id, yes)?;
+            }
+            ProjectCommands::Overview {
+                project,
+                output,
+                update_global,
+                json,
+            } => {
+                cli::project::overview(project, output, update_global, json)?;
+            }
+        },
+        Some(Commands::Scope { command }) => match command {
+            ScopeCommands::Show { project, json } => {
+                cli::scope::show(project, json)?;
+            }
+            ScopeCommands::Check { url, project } => {
+                cli::scope::check(&url, project)?;
+            }
+            ScopeCommands::Policy { project, json } => {
+                cli::scope::policy(project, json)?;
             }
         },
         None => {

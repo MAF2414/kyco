@@ -267,7 +267,13 @@ impl ClaudeBridgeAdapter {
             model: config.model.clone(),
             output_schema: parse_json_schema(config.structured_output_schema.as_deref()),
             kyco_callback_url: None,
-            hooks: None,
+            hooks: if job.bugbounty_project_id.is_some() || !job.bugbounty_finding_ids.is_empty() {
+                Some(ClaudeHooksConfig {
+                    events: Some(vec![HookEvent::PreToolUse]),
+                })
+            } else {
+                None
+            },
         }
     }
 }

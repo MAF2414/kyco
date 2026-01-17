@@ -43,6 +43,7 @@ pub mod hotkey;
 pub mod http_server;
 pub mod install;
 pub mod jobs;
+pub mod kanban;
 pub mod skills;
 pub mod output_schema;
 pub mod permission;

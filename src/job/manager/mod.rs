@@ -4,11 +4,15 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use crate::git::find_git_root;
 use crate::{CommentTag, Job, JobId, JobStatus, ScopeDefinition};
 
-/// Manages job lifecycle (in-memory only, no persistence)
+const JOB_MANAGER_STATE_VERSION: u32 = 1;
+const JOB_MANAGER_PERSIST_DEBOUNCE: Duration = Duration::from_millis(750);
+
+/// Manages job lifecycle (in-memory + persisted snapshot)
 pub struct JobManager {
     /// Root directory of the repository
     #[allow(dead_code)]
@@ -23,11 +27,19 @@ pub struct JobManager {
     /// Generation counter - incremented on any mutation.
     /// Used by GUI to know when to refresh cached jobs.
     pub(super) generation: u64,
+
+    /// Path to the persisted job manager state file.
+    persist_path: PathBuf,
+    /// Whether there are unapplied changes since the last persist.
+    dirty: bool,
+    /// Last time we persisted state to disk (throttled).
+    last_persisted_at: Option<Instant>,
 }
 
 impl JobManager {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
+        let persist_path = root.join(".kyco").join("job_manager.json");
 
         Self {
             root,
@@ -35,6 +47,9 @@ impl JobManager {
             next_id: AtomicU64::new(1),
             file_locks: HashMap::new(),
             generation: 0,
+            persist_path,
+            dirty: false,
+            last_persisted_at: None,
         }
     }
 
@@ -46,7 +61,63 @@ impl JobManager {
 
     /// Create a new job manager (for API compatibility, same as new())
     pub fn load(root: &Path) -> Result<Self> {
-        Ok(Self::new(root))
+        let persist_path = root.join(".kyco").join("job_manager.json");
+        if !persist_path.exists() {
+            return Ok(Self::new(root));
+        }
+
+        let content = std::fs::read_to_string(&persist_path)?;
+        let snapshot: JobManagerSnapshot = serde_json::from_str(&content)?;
+
+        if snapshot.version != JOB_MANAGER_STATE_VERSION {
+            // Unknown format - fall back to empty state.
+            return Ok(Self::new(root));
+        }
+
+        let mut manager = Self::new(root);
+        let mut max_id = 0u64;
+        let now = chrono::Utc::now();
+
+        for mut job in snapshot.jobs {
+            max_id = max_id.max(job.id);
+
+            // Clear volatile fields across restarts.
+            job.cancel_requested = false;
+            job.cancel_sent = false;
+
+            if job.status == JobStatus::Running {
+                job.status = JobStatus::Failed;
+                if job.error_message.is_none() {
+                    job.error_message = Some("KYCo restarted while this job was running".to_string());
+                }
+                job.finished_at = Some(now);
+                job.blocked_by = None;
+                job.blocked_file = None;
+            } else if job.status == JobStatus::Blocked {
+                // Locks cannot be restored safely across sessions; re-queue and let
+                // the executor re-check locks.
+                job.status = JobStatus::Queued;
+                job.blocked_by = None;
+                job.blocked_file = None;
+            } else {
+                job.blocked_by = None;
+                job.blocked_file = None;
+            }
+
+            manager.jobs.insert(job.id, job);
+        }
+
+        let next_id = snapshot
+            .next_id
+            .max(max_id.saturating_add(1))
+            .max(1);
+        manager.next_id.store(next_id, Ordering::SeqCst);
+
+        // Loaded state is clean.
+        manager.dirty = false;
+        manager.last_persisted_at = Some(Instant::now());
+
+        Ok(manager)
     }
 
     /// Allocate the next job ID
@@ -58,6 +129,7 @@ impl JobManager {
     fn insert_job(&mut self, id: JobId, job: Job) {
         self.jobs.insert(id, job);
         self.generation += 1;
+        self.mark_dirty_and_maybe_persist(true);
     }
 
     /// Create a new job from a comment tag
@@ -143,6 +215,7 @@ impl JobManager {
         if let Some(job) = self.jobs.get_mut(&id) {
             job.set_status(status);
             self.generation += 1;
+            self.mark_dirty_and_maybe_persist(false);
         }
     }
 
@@ -152,6 +225,7 @@ impl JobManager {
     /// the GUI cache is invalidated and refreshes the job list.
     pub fn touch(&mut self) {
         self.generation += 1;
+        self.mark_dirty_and_maybe_persist(false);
     }
 
     /// Try to acquire a file lock for a job
@@ -204,7 +278,93 @@ impl JobManager {
         let removed = self.jobs.remove(&job_id);
         if removed.is_some() {
             self.generation += 1;
+            self.mark_dirty_and_maybe_persist(true);
         }
         removed
     }
+
+    fn mark_dirty_and_maybe_persist(&mut self, force: bool) {
+        self.dirty = true;
+
+        let is_idle = self.jobs.values().all(|j| j.status != JobStatus::Running);
+        let should_persist = force
+            || is_idle
+            || self
+                .last_persisted_at
+                .map_or(true, |t| t.elapsed() >= JOB_MANAGER_PERSIST_DEBOUNCE);
+
+        if should_persist {
+            match self.persist_to_disk() {
+                Ok(()) => {
+                    self.dirty = false;
+                    self.last_persisted_at = Some(Instant::now());
+                }
+                Err(err) => {
+                    tracing::error!("Failed to persist job manager state: {}", err);
+                }
+            }
+        }
+    }
+
+    fn persist_to_disk(&self) -> Result<()> {
+        use fs2::FileExt;
+        use std::fs::OpenOptions;
+
+        if !self.dirty {
+            return Ok(());
+        }
+
+        if let Some(parent) = self.persist_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut jobs: Vec<Job> = self.jobs.values().cloned().collect();
+        jobs.sort_by_key(|j| j.id);
+
+        let snapshot = JobManagerSnapshot {
+            version: JOB_MANAGER_STATE_VERSION,
+            next_id: self.next_id.load(Ordering::SeqCst),
+            jobs,
+        };
+
+        let content = serde_json::to_string_pretty(&snapshot)?;
+
+        let lock_path = self.persist_path.with_extension("json.lock");
+        let lock_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&lock_path)?;
+        lock_file.lock_exclusive()?;
+
+        let tmp_path = self.persist_path.with_extension("json.tmp");
+        std::fs::write(&tmp_path, content)?;
+
+        if self.persist_path.exists() {
+            let _ = std::fs::remove_file(&self.persist_path);
+        }
+        std::fs::rename(&tmp_path, &self.persist_path)?;
+
+        let _ = lock_file.unlock();
+
+        Ok(())
+    }
+}
+
+impl Drop for JobManager {
+    fn drop(&mut self) {
+        // Best-effort final flush on graceful shutdown.
+        if self.dirty {
+            if let Err(err) = self.persist_to_disk() {
+                tracing::error!("Failed to persist job manager state on shutdown: {}", err);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct JobManagerSnapshot {
+    version: u32,
+    next_id: u64,
+    jobs: Vec<Job>,
 }

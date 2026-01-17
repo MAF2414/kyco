@@ -84,9 +84,10 @@ mod tests {
         assert!(defaults.agent.contains_key("claude"));
         assert!(defaults.agent.contains_key("codex"));
 
-        // No default chains - chains are user-created
-        // Skills are loaded from SKILL.md files, not from defaults
-        assert!(defaults.chain.is_empty());
+        // Built-in chains ship with KYCo (e.g. bugbounty/security pipelines).
+        // Skills are loaded from SKILL.md files, not from defaults.
+        assert!(defaults.chain.contains_key("audit-file"));
+        assert!(defaults.chain.contains_key("audit-project"));
     }
 
     #[test]
@@ -96,10 +97,11 @@ mod tests {
         let mut agents = HashMap::new();
         let mut chains = HashMap::new();
 
-        // First merge - should add agents (no default chains)
+        // First merge - should add agents + internal chains
         defaults.merge_into(&mut agents, &mut chains);
         assert!(!agents.is_empty());
-        assert!(chains.is_empty()); // No default chains
+        assert!(chains.contains_key("audit-file"));
+        assert!(chains.contains_key("audit-project"));
 
         // User customizes an agent with higher version
         if let Some(claude) = agents.get_mut("claude") {

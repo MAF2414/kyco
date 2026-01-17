@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::{Job, JobId, JobStatus};
+use crate::bugbounty::NextContext;
 
 use http::{http_get_json, http_post_json, load_gui_http_settings};
 use types::{JobContinueResponse, JobCreateResponse, JobGetResponse};
@@ -16,6 +17,19 @@ use types::{JobContinueResponse, JobCreateResponse, JobGetResponse};
 // Re-export public API
 pub use list::job_list_command;
 pub use types::JobStartArgs;
+
+pub(crate) fn ctl_create_jobs(
+    work_dir: &Path,
+    config_override: Option<&PathBuf>,
+    payload: serde_json::Value,
+) -> Result<JobCreateResponse> {
+    let (port, token) = load_gui_http_settings(work_dir, config_override);
+    let url = format!("http://127.0.0.1:{port}/ctl/jobs");
+    let value = http_post_json(&url, token.as_deref(), payload)?;
+    let parsed: JobCreateResponse =
+        serde_json::from_value(value).context("Invalid /ctl/jobs response")?;
+    Ok(parsed)
+}
 
 fn expand_tilde(path: &str) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
@@ -39,6 +53,97 @@ fn resolve_file_path(work_dir: &Path, raw: &str) -> PathBuf {
     } else {
         work_dir.join(path)
     }
+}
+
+fn looks_like_glob_pattern(raw: &str) -> bool {
+    raw.contains('*') || raw.contains('?') || raw.contains('[')
+}
+
+fn collect_files_recursively(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = std::fs::read_dir(dir)
+        .with_context(|| format!("Failed to read directory: {}", dir.display()))?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name == ".git" || name == ".kyco" {
+                continue;
+            }
+            collect_files_recursively(&path, out)?;
+        } else if file_type.is_file() {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn expand_input_files(work_dir: &Path, inputs: &[String]) -> Result<Vec<PathBuf>> {
+    let mut files: Vec<PathBuf> = Vec::new();
+    let mut unmatched_globs: Vec<String> = Vec::new();
+
+    for raw in inputs {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            continue;
+        }
+
+        if looks_like_glob_pattern(raw) {
+            let pattern_path = resolve_file_path(work_dir, raw);
+            let pattern = pattern_path.to_string_lossy().to_string();
+            let mut matched_any = false;
+            for entry in glob::glob(&pattern).with_context(|| format!("Invalid glob: {raw}"))? {
+                let path = match entry {
+                    Ok(p) => p,
+                    Err(err) => {
+                        tracing::warn!("Glob match error for {}: {}", raw, err);
+                        continue;
+                    }
+                };
+                if path.is_file() {
+                    files.push(path);
+                    matched_any = true;
+                } else if path.is_dir() {
+                    collect_files_recursively(&path, &mut files)?;
+                    matched_any = true;
+                }
+            }
+            if !matched_any {
+                unmatched_globs.push(raw.to_string());
+            }
+            continue;
+        }
+
+        let resolved = resolve_file_path(work_dir, raw);
+        if !resolved.exists() {
+            anyhow::bail!("Input not found: {}", resolved.display());
+        }
+        if resolved.is_file() {
+            files.push(resolved);
+        } else if resolved.is_dir() {
+            collect_files_recursively(&resolved, &mut files)?;
+        } else {
+            anyhow::bail!("Invalid input path: {}", resolved.display());
+        }
+    }
+
+    if !unmatched_globs.is_empty() && files.is_empty() {
+        anyhow::bail!(
+            "No files matched for glob(s): {}",
+            unmatched_globs.join(", ")
+        );
+    }
+
+    // Best-effort de-dupe and stable ordering.
+    let mut normalized: Vec<PathBuf> = files
+        .into_iter()
+        .map(|p| p.canonicalize().unwrap_or(p))
+        .collect();
+    normalized.sort();
+    normalized.dedup();
+
+    Ok(normalized)
 }
 
 pub fn job_get_command(
@@ -76,15 +181,27 @@ pub fn job_start_command(
     config_override: Option<&PathBuf>,
     args: JobStartArgs,
 ) -> Result<()> {
-    let (port, token) = load_gui_http_settings(work_dir, config_override);
-    let url = format!("http://127.0.0.1:{port}/ctl/jobs");
+    let input = args
+        .input
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    let uses_input = !input.is_empty();
 
-    // Validate: need either --file or --prompt (or both)
+    if uses_input && args.file_path.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+        anyhow::bail!("Use either --file or --input (not both)");
+    }
+    if args.batch && !uses_input {
+        anyhow::bail!("--batch requires --input");
+    }
+
+    // Validate: need either --file/--input or --prompt (or both)
     let file_path_raw = args.file_path.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let prompt_provided = args.prompt.as_deref().map(str::trim).filter(|s| !s.is_empty()).is_some();
 
-    if file_path_raw.is_none() && !prompt_provided {
-        anyhow::bail!("Either --file or --prompt (or both) must be provided");
+    if file_path_raw.is_none() && !uses_input && !prompt_provided {
+        anyhow::bail!("Either --file/--input or --prompt (or both) must be provided");
     }
 
     if let Some(start) = args.line_start {
@@ -103,8 +220,21 @@ pub fn job_start_command(
         }
     }
 
-    // Resolve file path if provided
-    let file_path = if let Some(raw) = file_path_raw {
+    let input_files: Vec<PathBuf> = if uses_input {
+        expand_input_files(work_dir, &input)?
+    } else {
+        Vec::new()
+    };
+
+    if !args.batch && input_files.len() > 1 {
+        anyhow::bail!(
+            "--input resolved to {} files. Use --batch to create one job per input.",
+            input_files.len()
+        );
+    }
+
+    // Resolve file path if provided (single file mode)
+    let single_file_path: Option<String> = if let Some(raw) = file_path_raw {
         let resolved_path = resolve_file_path(work_dir, raw);
         if !resolved_path.exists() {
             anyhow::bail!("File not found: {}", resolved_path.display());
@@ -113,6 +243,8 @@ pub fn job_start_command(
             anyhow::bail!("Path is not a file: {}", resolved_path.display());
         }
         Some(resolved_path.display().to_string())
+    } else if !input_files.is_empty() {
+        Some(input_files[0].display().to_string())
     } else {
         None
     };
@@ -124,40 +256,119 @@ pub fn job_start_command(
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>();
 
-    let payload = serde_json::json!({
-        "file_path": file_path,
-        "line_start": args.line_start,
-        "line_end": args.line_end,
-        "selected_text": args.selected_text,
-        "mode": args.mode,
-        "prompt": args.prompt,
-        "agent": args.agent,
-        "agents": if agents.is_empty() { None::<Vec<String>> } else { Some(agents) },
-        "queue": args.queue,
-        "force_worktree": args.force_worktree,
-    });
+    let bugbounty_finding_ids = args
+        .bugbounty_finding_ids
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    let bugbounty_finding_ids =
+        if bugbounty_finding_ids.is_empty() { None } else { Some(bugbounty_finding_ids) };
 
-    let value = http_post_json(&url, token.as_deref(), payload)?;
-    let parsed: JobCreateResponse =
-        serde_json::from_value(value).context("Invalid /ctl/jobs response")?;
+    let mode = args.mode.clone();
+    let prompt = args.prompt.clone();
+    let selected_text = args.selected_text.clone();
+    let bugbounty_project_id = args.bugbounty_project_id.clone();
+    let agent = args.agent.clone();
+
+    let mut batch_results: Vec<(Option<String>, JobCreateResponse)> = Vec::new();
+
+    if args.batch {
+        for path in &input_files {
+            let payload = serde_json::json!({
+                "file_path": path.display().to_string(),
+                "line_start": args.line_start,
+                "line_end": args.line_end,
+                "selected_text": selected_text.clone(),
+                "mode": mode.clone(),
+                "prompt": prompt.clone(),
+                "bugbounty_project_id": bugbounty_project_id.clone(),
+                "bugbounty_finding_ids": bugbounty_finding_ids.clone(),
+                "agent": agent.clone(),
+                "agents": if agents.is_empty() { None::<Vec<String>> } else { Some(agents.clone()) },
+                "queue": args.queue,
+                "force_worktree": args.force_worktree,
+            });
+            let parsed = ctl_create_jobs(work_dir, config_override, payload)?;
+            batch_results.push((Some(path.display().to_string()), parsed));
+        }
+    } else {
+        let payload = serde_json::json!({
+            "file_path": single_file_path,
+            "line_start": args.line_start,
+            "line_end": args.line_end,
+            "selected_text": selected_text,
+            "mode": mode,
+            "prompt": prompt,
+            "bugbounty_project_id": bugbounty_project_id,
+            "bugbounty_finding_ids": bugbounty_finding_ids,
+            "agent": agent,
+            "agents": if agents.is_empty() { None::<Vec<String>> } else { Some(agents) },
+            "queue": args.queue,
+            "force_worktree": args.force_worktree,
+        });
+        let parsed = ctl_create_jobs(work_dir, config_override, payload)?;
+        batch_results.push((single_file_path.clone(), parsed));
+    }
 
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&parsed)?);
+        if batch_results.len() == 1 {
+            println!("{}", serde_json::to_string_pretty(&batch_results[0].1)?);
+            return Ok(());
+        }
+
+        let flattened = batch_results
+            .iter()
+            .flat_map(|(_, r)| r.job_ids.iter().copied())
+            .collect::<Vec<_>>();
+
+        let output = serde_json::json!({
+            "jobs": batch_results.iter().map(|(input, r)| serde_json::json!({
+                "input": input,
+                "job_ids": r.job_ids,
+                "group_id": r.group_id,
+            })).collect::<Vec<_>>(),
+            "job_ids": flattened,
+        });
+        println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
 
-    if parsed.job_ids.len() == 1 {
-        println!("Created job #{}", parsed.job_ids[0]);
-    } else {
-        println!(
-            "Created jobs: {}",
-            parsed
-                .job_ids
-                .iter()
-                .map(|id| format!("#{id}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+    if batch_results.len() == 1 {
+        let parsed = &batch_results[0].1;
+        if parsed.job_ids.len() == 1 {
+            println!("Created job #{}", parsed.job_ids[0]);
+        } else {
+            println!(
+                "Created jobs: {}",
+                parsed
+                    .job_ids
+                    .iter()
+                    .map(|id| format!("#{id}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        return Ok(());
+    }
+
+    println!(
+        "Created {} job groups across {} inputs",
+        batch_results.len(),
+        input_files.len()
+    );
+    for (input, parsed) in batch_results {
+        let ids = parsed
+            .job_ids
+            .iter()
+            .map(|id| format!("#{id}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if let Some(input) = input {
+            println!("  {} → {}", input, ids);
+        } else {
+            println!("  {}", ids);
+        }
     }
 
     Ok(())
@@ -287,6 +498,10 @@ pub fn job_output_command(
     config_override: Option<&PathBuf>,
     job_id: JobId,
     json: bool,
+    next_context: bool,
+    findings: bool,
+    flow: bool,
+    artifacts: bool,
     summary: bool,
     state: bool,
 ) -> Result<()> {
@@ -295,6 +510,59 @@ pub fn job_output_command(
     if json {
         println!("{}", serde_json::to_string_pretty(&job)?);
         return Ok(());
+    }
+
+    if next_context || findings || flow || artifacts {
+        let ctx = job
+            .result
+            .as_ref()
+            .and_then(|r| r.next_context.clone())
+            .and_then(|v| NextContext::from_value(v).ok())
+            .or_else(|| {
+                let text = job
+                    .full_response
+                    .as_deref()
+                    .or_else(|| job.result.as_ref().and_then(|r| r.raw_text.as_deref()))
+                    .unwrap_or("");
+                NextContext::extract_from_text(text)
+            })
+            .ok_or_else(|| anyhow::anyhow!("No next_context found in job output"))?;
+
+        if next_context {
+            println!("{}", serde_json::to_string_pretty(&ctx)?);
+            return Ok(());
+        }
+
+        let selected = [findings, flow, artifacts].into_iter().filter(|v| *v).count();
+        if selected > 1 {
+            let mut output = serde_json::Map::new();
+            if findings {
+                output.insert("findings".to_string(), serde_json::to_value(&ctx.findings)?);
+            }
+            if flow {
+                output.insert("flow_edges".to_string(), serde_json::to_value(&ctx.flow_edges)?);
+            }
+            if artifacts {
+                output.insert("artifacts".to_string(), serde_json::to_value(&ctx.artifacts)?);
+            }
+            println!("{}", serde_json::to_string_pretty(&output)?);
+            return Ok(());
+        }
+
+        if findings {
+            println!("{}", serde_json::to_string_pretty(&ctx.findings)?);
+            return Ok(());
+        }
+
+        if flow {
+            println!("{}", serde_json::to_string_pretty(&ctx.flow_edges)?);
+            return Ok(());
+        }
+
+        if artifacts {
+            println!("{}", serde_json::to_string_pretty(&ctx.artifacts)?);
+            return Ok(());
+        }
     }
 
     if state {

@@ -102,6 +102,10 @@ pub struct ControlJobCreateRequest {
     pub mode: String,
     /// Optional freeform prompt/description.
     pub prompt: Option<String>,
+    /// Optional BugBounty project ID (overrides inference/active project).
+    pub bugbounty_project_id: Option<String>,
+    /// Optional list of finding IDs to link to this job.
+    pub bugbounty_finding_ids: Option<Vec<String>>,
     /// Primary agent id (e.g. "claude"). Ignored if `agents` is provided.
     pub agent: Option<String>,
     /// Optional list of agents for parallel execution (multi-agent group).

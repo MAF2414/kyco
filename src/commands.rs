@@ -50,6 +50,30 @@ pub enum Commands {
         #[command(subcommand)]
         command: ChainCommands,
     },
+
+    /// Manage security findings (BugBounty Kanban)
+    Finding {
+        #[command(subcommand)]
+        command: FindingCommands,
+    },
+
+    /// Import findings from external security tools (aliases for `kyco finding import`)
+    Import {
+        #[command(subcommand)]
+        command: ImportCommands,
+    },
+
+    /// Manage BugBounty projects
+    Project {
+        #[command(subcommand)]
+        command: ProjectCommands,
+    },
+
+    /// Check scope and tool policy for a project
+    Scope {
+        #[command(subcommand)]
+        command: ScopeCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -59,9 +83,18 @@ pub enum JobCommands {
         /// Print JSON instead of human output
         #[arg(long)]
         json: bool,
+        /// Filter by BugBounty project ID (job.bugbounty_project_id)
+        #[arg(long)]
+        project: Option<String>,
+        /// Filter by linked finding ID (requires BugBounty DB)
+        #[arg(long)]
+        finding: Option<String>,
         /// Filter by status (pending, queued, running, completed, failed, aborted)
         #[arg(long, short = 's')]
         status: Option<String>,
+        /// Filter by agent result state (job.result.state)
+        #[arg(long)]
+        state: Option<String>,
         /// Limit number of results
         #[arg(long, short = 'n')]
         limit: Option<usize>,
@@ -84,6 +117,12 @@ pub enum JobCommands {
         /// File path (relative to --path, or absolute). Optional if --prompt is provided.
         #[arg(long)]
         file: Option<String>,
+        /// One or more input files / glob patterns (repeatable, comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        input: Vec<String>,
+        /// Create one job per resolved input (requires --input)
+        #[arg(long)]
+        batch: bool,
         /// Start line (1-indexed)
         #[arg(long)]
         line_start: Option<usize>,
@@ -96,6 +135,12 @@ pub enum JobCommands {
         /// Optional prompt/description text
         #[arg(long)]
         prompt: Option<String>,
+        /// BugBounty project ID (optional; overrides inference/active project)
+        #[arg(long)]
+        project: Option<String>,
+        /// Link this job to one or more existing findings (repeatable, comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        finding: Vec<String>,
         /// Primary agent id (e.g. "claude")
         #[arg(long)]
         agent: Option<String>,
@@ -157,6 +202,18 @@ pub enum JobCommands {
         /// Print full job JSON
         #[arg(long)]
         json: bool,
+        /// Print parsed `next_context` (JSON)
+        #[arg(long)]
+        next_context: bool,
+        /// Print parsed `next_context.findings` (JSON)
+        #[arg(long)]
+        findings: bool,
+        /// Print parsed `next_context.flow_edges` (JSON)
+        #[arg(long)]
+        flow: bool,
+        /// Print parsed `next_context.artifacts` (JSON)
+        #[arg(long)]
+        artifacts: bool,
         /// Print parsed `result.summary` (or raw fallback)
         #[arg(long)]
         summary: bool,
@@ -410,4 +467,440 @@ pub enum ChainCommands {
     },
     /// Delete a chain
     Delete { name: String },
+}
+
+// ============================================
+// BUGBOUNTY COMMANDS
+// ============================================
+
+#[derive(Subcommand)]
+pub enum FindingCommands {
+    /// List findings
+    List {
+        /// Filter by project ID
+        #[arg(long)]
+        project: Option<String>,
+        /// Filter by status (raw, needs_repro, verified, submitted, etc.)
+        #[arg(long, short = 's')]
+        status: Option<String>,
+        /// Filter by severity (critical, high, medium, low, info)
+        #[arg(long)]
+        severity: Option<String>,
+        /// Search query (matches id/title/text/assets)
+        #[arg(long, short = 'q')]
+        search: Option<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show a finding by ID
+    Show {
+        /// Finding ID (e.g., VULN-001)
+        id: String,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new finding
+    Create {
+        /// Finding title
+        #[arg(long, short = 't')]
+        title: String,
+        /// Project ID
+        #[arg(long)]
+        project: String,
+        /// Severity (critical, high, medium, low, info)
+        #[arg(long, short = 's')]
+        severity: Option<String>,
+        /// Attack scenario description
+        #[arg(long)]
+        attack_scenario: Option<String>,
+        /// Preconditions
+        #[arg(long)]
+        preconditions: Option<String>,
+        /// Impact description
+        #[arg(long)]
+        impact: Option<String>,
+        /// Confidence (high, medium, low)
+        #[arg(long)]
+        confidence: Option<String>,
+        /// CWE ID (e.g., CWE-639)
+        #[arg(long)]
+        cwe: Option<String>,
+        /// Affected assets (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        assets: Vec<String>,
+        /// Also write `notes/findings/<id>.md` under the project's root
+        #[arg(long)]
+        write_notes: bool,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Update finding status (move in Kanban)
+    SetStatus {
+        /// Finding ID
+        id: String,
+        /// New status (raw, needs_repro, verified, report_draft, submitted, triaged, accepted, paid, duplicate, wont_fix, false_positive, out_of_scope)
+        status: String,
+    },
+    /// Link an existing job to a finding
+    Link {
+        /// Finding ID
+        #[arg(long)]
+        finding: String,
+        /// Job identifier (KYCo job id like "123" or BugBounty job id UUID)
+        #[arg(long)]
+        job: String,
+        /// Link type (e.g. discovered, related, verification)
+        #[arg(long, default_value = "related")]
+        link_type: String,
+    },
+    /// Remove a job link from a finding
+    Unlink {
+        /// Finding ID
+        #[arg(long)]
+        finding: String,
+        /// Job identifier (KYCo job id like "123" or BugBounty job id UUID)
+        #[arg(long)]
+        job: String,
+    },
+    /// Mark finding as false positive
+    Fp {
+        /// Finding ID
+        id: String,
+        /// Reason for marking as FP
+        #[arg(long, short = 'r')]
+        reason: String,
+    },
+    /// Delete a finding
+    Delete {
+        /// Finding ID
+        id: String,
+        /// Skip confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Export finding to report format
+    Export {
+        /// Finding ID
+        id: String,
+        /// Output format (markdown, intigriti, hackerone)
+        #[arg(long, short = 'f', default_value = "markdown")]
+        format: String,
+        /// Output file path (stdout if not specified)
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+    },
+    /// Export a finding to `notes/findings/<id>.md` under the project root
+    ExportNotes {
+        /// Finding ID
+        id: String,
+        /// Dry run - show diff without writing
+        #[arg(long)]
+        dry_run: bool,
+        /// Overwrite even if notes file looks newer than the DB
+        #[arg(long)]
+        force: bool,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import findings from SARIF or Semgrep output
+    Import {
+        /// Path to the file to import (SARIF/Semgrep/Snyk/Nuclei JSON)
+        file: String,
+        /// Target project ID
+        #[arg(long)]
+        project: String,
+        /// Input format (sarif, semgrep, snyk, nuclei, auto)
+        #[arg(long, short = 'f', default_value = "auto")]
+        format: String,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import/sync findings from `notes/findings/*.md` in the project root
+    ImportNotes {
+        /// Target project ID
+        #[arg(long)]
+        project: String,
+        /// Dry run - parse and report without writing to DB
+        #[arg(long)]
+        dry_run: bool,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Extract findings from a completed job's output
+    ExtractFromJob {
+        /// Job ID to extract findings from
+        job_id: u64,
+        /// Target project ID (uses job's bugbounty_project_id if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ImportCommands {
+    /// Import Semgrep JSON output
+    Semgrep {
+        /// Path to Semgrep JSON output
+        file: String,
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Create one verify job per imported finding
+        #[arg(long)]
+        create_jobs: bool,
+        /// Queue created jobs immediately (default: create as pending only)
+        #[arg(long)]
+        queue: bool,
+        /// Skill/chain to run for verify jobs (only used with --create-jobs)
+        #[arg(long, default_value = "flow-trace")]
+        skill: String,
+        /// Primary agent id (e.g. "claude")
+        #[arg(long)]
+        agent: Option<String>,
+        /// Optional list of agents for parallel execution (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        agents: Vec<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import CodeQL SARIF output
+    Codeql {
+        /// Path to SARIF output
+        file: String,
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Create one verify job per imported finding
+        #[arg(long)]
+        create_jobs: bool,
+        /// Queue created jobs immediately (default: create as pending only)
+        #[arg(long)]
+        queue: bool,
+        /// Skill/chain to run for verify jobs (only used with --create-jobs)
+        #[arg(long, default_value = "flow-trace")]
+        skill: String,
+        /// Primary agent id (e.g. "claude")
+        #[arg(long)]
+        agent: Option<String>,
+        /// Optional list of agents for parallel execution (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        agents: Vec<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import SARIF output (generic)
+    Sarif {
+        /// Path to SARIF output
+        file: String,
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Create one verify job per imported finding
+        #[arg(long)]
+        create_jobs: bool,
+        /// Queue created jobs immediately (default: create as pending only)
+        #[arg(long)]
+        queue: bool,
+        /// Skill/chain to run for verify jobs (only used with --create-jobs)
+        #[arg(long, default_value = "flow-trace")]
+        skill: String,
+        /// Primary agent id (e.g. "claude")
+        #[arg(long)]
+        agent: Option<String>,
+        /// Optional list of agents for parallel execution (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        agents: Vec<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import Snyk JSON output
+    Snyk {
+        /// Path to Snyk JSON output
+        file: String,
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Create one verify job per imported finding
+        #[arg(long)]
+        create_jobs: bool,
+        /// Queue created jobs immediately (default: create as pending only)
+        #[arg(long)]
+        queue: bool,
+        /// Skill/chain to run for verify jobs (only used with --create-jobs)
+        #[arg(long, default_value = "flow-trace")]
+        skill: String,
+        /// Primary agent id (e.g. "claude")
+        #[arg(long)]
+        agent: Option<String>,
+        /// Optional list of agents for parallel execution (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        agents: Vec<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import Nuclei JSON/JSONL output
+    Nuclei {
+        /// Path to Nuclei JSON/JSONL output
+        file: String,
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Create one verify job per imported finding
+        #[arg(long)]
+        create_jobs: bool,
+        /// Queue created jobs immediately (default: create as pending only)
+        #[arg(long)]
+        queue: bool,
+        /// Skill/chain to run for verify jobs (only used with --create-jobs)
+        #[arg(long, default_value = "flow-trace")]
+        skill: String,
+        /// Primary agent id (e.g. "claude")
+        #[arg(long)]
+        agent: Option<String>,
+        /// Optional list of agents for parallel execution (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        agents: Vec<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Auto-detect and import output (SARIF/Semgrep/Snyk/Nuclei)
+    Auto {
+        /// Path to the file to import
+        file: String,
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Create one verify job per imported finding
+        #[arg(long)]
+        create_jobs: bool,
+        /// Queue created jobs immediately (default: create as pending only)
+        #[arg(long)]
+        queue: bool,
+        /// Skill/chain to run for verify jobs (only used with --create-jobs)
+        #[arg(long, default_value = "flow-trace")]
+        skill: String,
+        /// Primary agent id (e.g. "claude")
+        #[arg(long)]
+        agent: Option<String>,
+        /// Optional list of agents for parallel execution (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        agents: Vec<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ProjectCommands {
+    /// List all projects
+    List {
+        /// Filter by platform (hackerone, intigriti, bugcrowd)
+        #[arg(long)]
+        platform: Option<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show a project by ID
+    Show {
+        /// Project ID (e.g., hackerone-nextcloud)
+        id: String,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Discover projects from BugBounty/programs/ directory
+    Discover {
+        /// Path to scan (defaults to current directory)
+        #[arg(long)]
+        path: Option<String>,
+        /// Dry run - show what would be discovered without creating
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Select a project as the active project
+    Select {
+        /// Project ID to select
+        id: String,
+    },
+    /// Initialize a new project
+    Init {
+        /// Project ID (e.g., hackerone-nextcloud)
+        #[arg(long)]
+        id: String,
+        /// Root path for the project
+        #[arg(long = "root")]
+        root_path: String,
+        /// Platform (hackerone, intigriti, bugcrowd)
+        #[arg(long)]
+        platform: Option<String>,
+    },
+    /// Delete a project
+    Delete {
+        /// Project ID
+        id: String,
+        /// Skip confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Generate project overview (findings summary, status, etc.)
+    Overview {
+        /// Project ID (optional, generates for all if omitted)
+        #[arg(long)]
+        project: Option<String>,
+        /// Output file path (stdout if not specified)
+        #[arg(long, short = 'o')]
+        output: Option<String>,
+        /// Also update BugBounty/OVERVIEW.md
+        #[arg(long)]
+        update_global: bool,
+        /// Print JSON instead of markdown
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ScopeCommands {
+    /// Show scope for a project
+    Show {
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Check if a URL/asset is in scope
+    Check {
+        /// URL or asset to check
+        url: String,
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+    },
+    /// Show tool policy for a project
+    Policy {
+        /// Project ID (uses active project if not specified)
+        #[arg(long)]
+        project: Option<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
 }

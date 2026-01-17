@@ -253,6 +253,38 @@ pub fn handle_control_job_create(
         return;
     };
 
+    // Apply optional BugBounty metadata to created jobs (for prompt injection + linking).
+    if req.bugbounty_project_id.as_deref().is_some_and(|s| !s.trim().is_empty())
+        || req
+            .bugbounty_finding_ids
+            .as_ref()
+            .is_some_and(|v| v.iter().any(|s| !s.trim().is_empty()))
+    {
+        if let Ok(mut manager) = control.job_manager.lock() {
+            for job_id in &created.job_ids {
+                if let Some(job) = manager.get_mut(*job_id) {
+                    if let Some(ref project_id) = req.bugbounty_project_id {
+                        let trimmed = project_id.trim();
+                        if !trimmed.is_empty() {
+                            job.bugbounty_project_id = Some(trimmed.to_string());
+                        }
+                    }
+                    if let Some(ref finding_ids) = req.bugbounty_finding_ids {
+                        let cleaned = finding_ids
+                            .iter()
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect::<Vec<_>>();
+                        if !cleaned.is_empty() {
+                            job.bugbounty_finding_ids = cleaned;
+                        }
+                    }
+                }
+            }
+            manager.touch();
+        }
+    }
+
     if req.queue {
         for job_id in &created.job_ids {
             jobs::queue_job(&control.job_manager, *job_id, &mut logs);

@@ -186,4 +186,13 @@ pub struct Job {
     /// Name of the chain being executed (None if not a chain job)
     #[serde(default)]
     pub chain_name: Option<String>,
+
+    /// BugBounty project ID for automatic finding extraction
+    /// When set, the executor will attempt to extract findings from the job output
+    #[serde(default)]
+    pub bugbounty_project_id: Option<String>,
+
+    /// BugBounty finding IDs explicitly linked to this job (e.g., verification/triage runs)
+    #[serde(default)]
+    pub bugbounty_finding_ids: Vec<String>,
 }

@@ -307,4 +307,8 @@ pub struct KycoApp {
     pub(crate) player_stats: Option<crate::stats::PlayerStats>,
     /// Cached streaks for display
     pub(crate) streaks: Option<crate::stats::Streaks>,
+
+    // BugBounty Kanban state
+    /// Kanban board state for security findings
+    pub(crate) kanban_state: super::kanban::KanbanState,
 }

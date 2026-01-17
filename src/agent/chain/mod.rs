@@ -14,7 +14,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::config::{Config, ModeChain};
-use crate::{Job, LogEvent};
+use crate::bugbounty::BugBountyManager;
+use crate::{AgentConfig, Job, LogEvent};
 
 use super::AgentRegistry;
 
@@ -29,6 +30,113 @@ pub struct ChainRunner<'a> {
     config: &'a Config,
     agent_registry: &'a AgentRegistry,
     work_dir: &'a Path,
+}
+
+fn path_ends_with(full: &Path, suffix: &Path) -> bool {
+    use std::path::Component;
+
+    let full_parts: Vec<_> = full
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+    let suffix_parts: Vec<_> = suffix
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s),
+            _ => None,
+        })
+        .collect();
+
+    if suffix_parts.is_empty() {
+        return true;
+    }
+    if full_parts.len() < suffix_parts.len() {
+        return false;
+    }
+
+    let start = full_parts.len() - suffix_parts.len();
+    full_parts[start..] == suffix_parts[..]
+}
+
+fn apply_bugbounty_tooling_policy(step_job: &Job, work_dir: &Path, agent_config: &mut AgentConfig) {
+    let Some(project_id) = step_job.bugbounty_project_id.as_deref() else {
+        return;
+    };
+
+    let Ok(bb) = BugBountyManager::new() else {
+        return;
+    };
+    let Ok(Some(project)) = bb.get_project(project_id) else {
+        return;
+    };
+
+    agent_config
+        .env
+        .insert("KYCO_BUGBOUNTY_ENFORCE".to_string(), "1".to_string());
+    agent_config.env.insert(
+        "KYCO_BUGBOUNTY_PROJECT_ID".to_string(),
+        project.id.clone(),
+    );
+
+    let root_raw = std::path::PathBuf::from(&project.root_path);
+    let root_abs = if root_raw.is_absolute() {
+        root_raw
+    } else {
+        let candidate = work_dir.join(&root_raw);
+        if candidate.exists() {
+            candidate
+        } else if path_ends_with(work_dir, &root_raw) {
+            work_dir.to_path_buf()
+        } else {
+            candidate
+        }
+    };
+    let root_abs = root_abs.canonicalize().unwrap_or(root_abs);
+    agent_config.env.insert(
+        "KYCO_BUGBOUNTY_PROJECT_ROOT".to_string(),
+        root_abs.to_string_lossy().to_string(),
+    );
+
+    if let Some(ref scope) = project.scope {
+        if let Ok(json) = serde_json::to_string(scope) {
+            agent_config
+                .env
+                .insert("KYCO_BUGBOUNTY_SCOPE_JSON".to_string(), json);
+        }
+    }
+    if let Some(ref policy) = project.tool_policy {
+        if let Ok(json) = serde_json::to_string(policy) {
+            agent_config
+                .env
+                .insert("KYCO_BUGBOUNTY_TOOL_POLICY_JSON".to_string(), json);
+        }
+    }
+
+    // Convert ToolPolicy into tool-level blocks (best-effort).
+    if let Some(policy) = project.tool_policy {
+        let mut blocked = policy.blocked_commands.clone();
+        if policy.network_wrapper.is_some() {
+            for cmd in ["curl", "wget", "nc", "nmap"] {
+                if !blocked.iter().any(|c| c.eq_ignore_ascii_case(cmd)) {
+                    blocked.push(cmd.to_string());
+                }
+            }
+        }
+
+        for cmd in &blocked {
+            let cmd = cmd.trim();
+            if cmd.is_empty() {
+                continue;
+            }
+            let pattern = format!("Bash({}:*)", cmd);
+            if !agent_config.disallowed_tools.contains(&pattern) {
+                agent_config.disallowed_tools.push(pattern);
+            }
+        }
+    }
 }
 
 impl<'a> ChainRunner<'a> {
@@ -195,10 +303,12 @@ impl<'a> ChainRunner<'a> {
             // Get the agent config and adapter
             let default_agent = self.config.get_agent_for_mode(&step.skill);
             let agent_id: &str = step.agent.as_deref().unwrap_or(&default_agent);
-            let agent_config = self
+            let mut agent_config = self
                 .config
                 .get_agent_for_job(agent_id, &step.skill)
                 .unwrap_or_default();
+
+            apply_bugbounty_tooling_policy(&step_job, self.work_dir, &mut agent_config);
 
             let adapter = match self.agent_registry.get_for_config(&agent_config) {
                 Some(a) => a,

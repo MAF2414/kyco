@@ -329,6 +329,9 @@ impl KycoApp {
             current_toast: None,
             player_stats: None,
             streaks: None,
+
+            // BugBounty Kanban
+            kanban_state: super::kanban::KanbanState::new(),
         }
     }
 }

@@ -10,6 +10,7 @@ import { cleanupSessionApprovals } from './approvals.js';
 import { buildQueryOptions } from './options-builder.js';
 import { createCanUseToolCallback } from './can-use-tool.js';
 import type { EventEmitter } from './types.js';
+import { parseBugbountyPolicy, redactSensitiveText } from '../policy/bugbounty.js';
 
 /** Active queries that can be interrupted */
 const activeQueries = new Map<string, Query>();
@@ -65,8 +66,35 @@ export async function* executeClaudeQuery(
   let resolveNext: (() => void) | null = null;
   let sessionCompleted = false;
 
+  const bugbountyPolicy = parseBugbountyPolicy(request.env);
+  const shouldRedact = !!bugbountyPolicy;
+
+  const redactEvent = (event: BridgeEvent): BridgeEvent => {
+    if (!shouldRedact) return event;
+    switch (event.type) {
+      case 'text':
+        return { ...event, content: redactSensitiveText(event.content) };
+      case 'tool.result':
+        return { ...event, output: redactSensitiveText(event.output) };
+      case 'tool.use':
+        return {
+          ...event,
+          toolInput: Object.fromEntries(
+            Object.entries(event.toolInput).map(([k, v]) => [
+              k,
+              typeof v === 'string' ? redactSensitiveText(v) : v,
+            ]),
+          ),
+        };
+      case 'error':
+        return { ...event, message: redactSensitiveText(event.message) };
+      default:
+        return event;
+    }
+  };
+
   const emitEvent = (event: BridgeEvent) => {
-    eventQueue.push(event);
+    eventQueue.push(redactEvent(event));
     if (resolveNext) {
       resolveNext();
       resolveNext = null;

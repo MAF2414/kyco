@@ -37,3 +37,61 @@ aliases = ["x", "cx"]
 sdk = "codex"
 session_mode = "oneshot"
 system_prompt_mode = "append"
+
+# ============================================================================
+# CHAINS - BugBounty / Security
+# ============================================================================
+
+[chain.audit-file]
+version = 1
+description = "Security audit pipeline for a single file (bugbounty-oriented)"
+states = []
+stop_on_failure = false
+pass_full_response = true
+max_loops = 1
+
+[[chain.audit-file.steps]]
+mode = "authz-bypass-hunter"
+
+[[chain.audit-file.steps]]
+mode = "injection-hunter"
+
+[[chain.audit-file.steps]]
+mode = "secrets-hunter"
+
+[[chain.audit-file.steps]]
+mode = "crypto-audit"
+
+[[chain.audit-file.steps]]
+mode = "jwt-attack-surface"
+
+[[chain.audit-file.steps]]
+mode = "dos-resource-exhaustion"
+
+[[chain.audit-file.steps]]
+mode = "flow-trace"
+inject_context = "If findings were identified, aggregate cross-file flow_edges for each finding_id. Keep edges minimal and precise."
+
+[chain.audit-project]
+version = 1
+description = "Security audit pipeline for an entire project (bugbounty-oriented)"
+states = []
+stop_on_failure = false
+pass_full_response = true
+max_loops = 1
+
+[[chain.audit-project.steps]]
+mode = "secrets-hunter"
+
+[[chain.audit-project.steps]]
+mode = "injection-hunter"
+
+[[chain.audit-project.steps]]
+mode = "authz-bypass-hunter"
+
+[[chain.audit-project.steps]]
+mode = "crypto-audit"
+
+[[chain.audit-project.steps]]
+mode = "flow-trace"
+inject_context = "Aggregate cross-file flow_edges across all discovered findings. Use finding_id on each edge when possible."

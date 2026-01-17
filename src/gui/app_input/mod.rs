@@ -73,6 +73,12 @@ impl KycoApp {
             ViewMode::Achievements => {
                 self.handle_achievements_input(i);
             }
+            ViewMode::Kanban => {
+                // Kanban board - ESC returns to job list
+                if i.key_pressed(Key::Escape) {
+                    self.view_mode = ViewMode::JobList;
+                }
+            }
         }
 
         // Global shortcut for auto_run toggle (Shift+A)

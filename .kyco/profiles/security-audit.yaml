@@ -1,0 +1,36 @@
+profile: security-audit
+version: 1
+description: >
+  Structured output contract for BugBounty security audits.
+  This profile is injected into BugBounty jobs and enforced strictly by KYCo
+  for security-focused skills (and when a job is explicitly linked to a finding).
+
+output:
+  format: yaml
+  root_keys:
+    - findings
+    - flow_edges
+    - artifacts
+    - state
+    - summary
+
+findings:
+  required_fields:
+    - title
+    - attack_scenario
+    - preconditions
+    - reachability
+    - impact
+    - confidence
+  optional_fields:
+    - id
+    - severity
+    - cwe_id
+    - cvss_score
+    - affected_assets
+    - taint_path
+
+enforcement:
+  mode: strict
+  unknown_placeholder: "UNKNOWN - <reason>"
+

@@ -96,6 +96,21 @@ impl KycoApp {
             ViewMode::Achievements => {
                 self.render_achievements(ctx);
             }
+            ViewMode::Kanban => {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(8.0))
+                    .show(ctx, |ui| {
+                        super::kanban::render_kanban_view(
+                            ui,
+                            &mut self.kanban_state,
+                            &self.work_dir,
+                            &self.cached_jobs,
+                            &self.job_manager,
+                            &self.group_manager,
+                            &mut self.logs,
+                        );
+                    });
+            }
         }
     }
 

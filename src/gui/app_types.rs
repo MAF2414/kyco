@@ -31,6 +31,8 @@ pub enum ViewMode {
     Stats,
     /// Achievements gallery view
     Achievements,
+    /// BugBounty Kanban board view
+    Kanban,
 }
 
 // Keep old types for compatibility

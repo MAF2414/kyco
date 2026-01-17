@@ -1096,7 +1096,8 @@ Secure `{target}`: {description}
 1. Analyze code for security vulnerabilities
 2. Fix identified issues
 3. Add input validation where missing
-4. Set state to "secured" or "vulnerabilities_remain"
+4. Register findings with kyco: `kyco finding create --title "..." --project PROJECT --severity SEVERITY`
+5. Set state to "secured" or "vulnerabilities_remain"
 """
 system_prompt = """
 You fix security issues. OWASP Top 10 focus.
@@ -1112,11 +1113,18 @@ DO:
 - Use parameterized queries
 - Encode outputs appropriately
 - Apply principle of least privilege
+- Register findings with kyco CLI when you find vulnerabilities
 
 DON'T:
 - Security through obscurity
 - Roll your own crypto
 - Trust client-side validation alone
+
+KYCO INTEGRATION:
+When you find a vulnerability, register it:
+  kyco finding create --title "VULN TITLE" --project PROJECT_ID --severity critical|high|medium|low --cwe CWE-XXX --attack-scenario "Description"
+
+Check existing project: kyco project list
 """
 session_mode = "oneshot"
 max_turns = 0
@@ -1136,6 +1144,86 @@ allowed_tools = [
     "Glob",
     "Grep",
     "Bash",
+    "Bash(kyco:*)",
+]
+
+[mode.audit]
+prompt = """
+Security audit of `{target}`: {description}
+
+{ide_context}
+
+PROCESS:
+1. Check active BugBounty project: `kyco project list`
+2. Analyze code for security vulnerabilities (READ-ONLY)
+3. For each finding:
+   - Register with `kyco finding create --title "..." --project PROJECT --severity SEVERITY --cwe CWE-XXX`
+   - Trace data flow from source to sink
+4. Output structured findings in YAML format
+5. Set state to "findings_reported" or "no_findings"
+"""
+system_prompt = """
+You perform security audits. READ-ONLY - no code changes.
+
+AUDIT SCOPE (OWASP Top 10 + More):
+- Injection (SQL, XSS, command, path traversal, template)
+- Authentication/Authorization bypass (IDOR, BOLA, BFLA)
+- Sensitive data exposure
+- Insecure deserialization
+- Server-side request forgery (SSRF)
+- Cryptographic weaknesses
+- Race conditions
+- Business logic flaws
+
+OUTPUT FORMAT (per finding):
+```yaml
+findings:
+  - title: "SQL Injection in getUserById"
+    severity: critical
+    attack_scenario: "Attacker injects SQL via id parameter"
+    preconditions: "Authenticated user"
+    reachability: auth_required
+    impact: "Database compromise, data exfiltration"
+    confidence: high
+    cwe_id: "CWE-89"
+    affected_assets:
+      - "src/db/users.rs:42"
+    taint_path: "request.params['id'] -> db.query()"
+```
+
+KYCO INTEGRATION (REQUIRED):
+1. Check project: `kyco project list`
+2. For each finding: `kyco finding create --title "TITLE" --project PROJECT_ID --severity SEVERITY --cwe CWE-XXX --attack-scenario "DESCRIPTION"`
+3. List findings: `kyco finding list --project PROJECT_ID`
+
+SEVERITY MAPPING:
+- Critical: RCE, auth bypass to admin, mass data exfil
+- High: SQLi, IDOR to PII, stored XSS
+- Medium: Reflected XSS, information disclosure
+- Low: Self-XSS, verbose errors
+"""
+session_mode = "oneshot"
+max_turns = 0
+disallowed_tools = [
+    "Write",
+    "Edit",
+]
+aliases = [
+    "sa",
+    "secaudit",
+    "vuln",
+]
+output_states = [
+    "findings_reported",
+    "no_findings",
+]
+allowed_tools = [
+    "Read",
+    "Glob",
+    "Grep",
+    "Bash(kyco:*)",
+    "Bash(git log:*)",
+    "Bash(git show:*)",
 ]
 
 [mode.migrate]

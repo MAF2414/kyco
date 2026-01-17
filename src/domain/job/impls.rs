@@ -63,6 +63,8 @@ impl Job {
             chain_current_step: None,
             chain_total_steps: None,
             chain_name: None,
+            bugbounty_project_id: None,
+            bugbounty_finding_ids: Vec::new(),
         }
     }
 

@@ -13,7 +13,7 @@ pub(super) struct JobGetResponse {
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
-pub(super) struct JobCreateResponse {
+pub(crate) struct JobCreateResponse {
     pub job_ids: Vec<JobId>,
     #[allow(dead_code)]
     pub group_id: Option<u64>,
@@ -28,11 +28,15 @@ pub(super) struct JobContinueResponse {
 #[derive(Debug, Clone)]
 pub struct JobStartArgs {
     pub file_path: Option<String>,
+    pub input: Vec<String>,
+    pub batch: bool,
     pub line_start: Option<usize>,
     pub line_end: Option<usize>,
     pub selected_text: Option<String>,
     pub mode: String,
     pub prompt: Option<String>,
+    pub bugbounty_project_id: Option<String>,
+    pub bugbounty_finding_ids: Vec<String>,
     pub agent: Option<String>,
     pub agents: Vec<String>,
     pub queue: bool,

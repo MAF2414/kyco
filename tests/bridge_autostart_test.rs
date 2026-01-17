@@ -10,6 +10,22 @@ use std::time::Duration;
 
 use kyco::agent::bridge::{BridgeClient, BridgeProcess};
 
+fn can_listen_localhost() -> bool {
+    match std::net::TcpListener::bind("127.0.0.1:0") {
+        Ok(listener) => {
+            drop(listener);
+            true
+        }
+        Err(err) => {
+            eprintln!(
+                "Skipping bridge autostart test (cannot bind localhost in this environment): {}",
+                err
+            );
+            false
+        }
+    }
+}
+
 /// Helper to check if bridge is running
 fn is_bridge_running() -> bool {
     BridgeClient::new().health_check().is_ok()
@@ -30,6 +46,10 @@ fn wait_for_bridge(timeout: Duration) -> bool {
 /// Test that BridgeProcess::spawn() works - either starting new or reusing existing
 #[test]
 fn test_bridge_spawn_works() {
+    if !can_listen_localhost() {
+        return;
+    }
+
     // Spawn the bridge - it should work whether or not a bridge is already running
     let bridge = BridgeProcess::spawn();
     assert!(bridge.is_ok(), "BridgeProcess::spawn() should succeed: {:?}", bridge.err());
@@ -51,6 +71,10 @@ fn test_bridge_spawn_works() {
 /// Test that multiple spawn calls work correctly
 #[test]
 fn test_bridge_spawn_multiple_times() {
+    if !can_listen_localhost() {
+        return;
+    }
+
     // First spawn
     let first_bridge = BridgeProcess::spawn();
     assert!(first_bridge.is_ok(), "First spawn should succeed");
@@ -80,6 +104,10 @@ fn test_bridge_spawn_multiple_times() {
 /// Test that status endpoint works when bridge is running
 #[test]
 fn test_bridge_status_endpoint() {
+    if !can_listen_localhost() {
+        return;
+    }
+
     // Ensure bridge is running
     let _bridge = BridgeProcess::spawn().expect("Bridge should spawn");
     assert!(wait_for_bridge(Duration::from_secs(10)), "Bridge should be healthy");
@@ -119,6 +147,10 @@ fn test_bridge_spawn_finds_bridge_directory() {
 /// Integration test that verifies the full flow works with multiple health checks
 #[test]
 fn test_multiple_health_checks() {
+    if !can_listen_localhost() {
+        return;
+    }
+
     // Spawn bridge (or reuse existing)
     let _bridge = BridgeProcess::spawn().expect("Spawn should succeed");
 
