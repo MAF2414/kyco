@@ -240,7 +240,8 @@ export async function* executeCodexQuery(
     // Cleanup after successful completion or max retries
     await cleanup();
 
-    const structuredResult = request.outputSchema && lastAgentMessage
+    // Parse structured output from last agent message when outputSchema was provided
+    const structuredOutput = request.outputSchema && lastAgentMessage
       ? tryParseJsonObject(lastAgentMessage)
       : null;
 
@@ -249,7 +250,7 @@ export async function* executeCodexQuery(
       sessionId: threadId ?? 'unknown',
       timestamp: Date.now(),
       success,
-      ...(structuredResult ? { result: structuredResult } : {}),
+      structuredOutput: structuredOutput ?? undefined,
       usage: {
         inputTokens: Math.max(0, totalInputTokens - totalCacheReadTokens),
         outputTokens: totalOutputTokens,

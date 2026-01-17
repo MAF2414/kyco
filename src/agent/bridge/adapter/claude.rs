@@ -389,7 +389,7 @@ impl AgentRunner for ClaudeBridgeAdapter {
                         }
                         break;
                     }
-                    BridgeEvent::SessionComplete { success, cost_usd, duration_ms, usage, result: sr, .. } => {
+                    BridgeEvent::SessionComplete { success, cost_usd, duration_ms, usage, structured_output: sr, .. } => {
                         received_session_complete = true;
                         result.success = success; result.cost_usd = cost_usd; result.duration_ms = Some(duration_ms); structured_result = sr;
                         if let Some(ref u) = usage {

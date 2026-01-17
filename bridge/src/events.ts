@@ -30,8 +30,10 @@ export interface SessionStartEvent extends BaseEvent {
 export interface SessionCompleteEvent extends BaseEvent {
   type: 'session.complete';
   success: boolean;
-  /** Final result (if structured output was requested) */
+  /** Final result text */
   result?: unknown;
+  /** SDK Structured Output (validated JSON from json_schema outputFormat) */
+  structuredOutput?: Record<string, unknown>;
   /** Usage statistics */
   usage?: {
     inputTokens: number;

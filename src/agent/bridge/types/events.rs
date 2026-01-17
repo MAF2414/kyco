@@ -115,6 +115,9 @@ pub enum BridgeEvent {
         timestamp: u64,
         success: bool,
         result: Option<serde_json::Value>,
+        /// SDK Structured Output (validated JSON from json_schema outputFormat)
+        #[serde(rename = "structuredOutput")]
+        structured_output: Option<serde_json::Value>,
         usage: Option<UsageStats>,
         #[serde(rename = "costUsd")]
         cost_usd: Option<f64>,

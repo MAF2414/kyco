@@ -203,12 +203,15 @@ export async function* executeClaudeQuery(
                 totalInputTokens = message.usage.input_tokens;
                 totalOutputTokens = message.usage.output_tokens;
                 costUsd = message.total_cost_usd;
+                // Extract structured_output from SDK (validated JSON from json_schema)
+                const structuredOutput = (message as { structured_output?: Record<string, unknown> }).structured_output;
                 emitEvent({
                   type: 'session.complete',
                   sessionId: sessionState.id,
                   timestamp: Date.now(),
                   success: true,
                   result: message.result,
+                  structuredOutput,
                   usage: {
                     inputTokens: totalInputTokens,
                     outputTokens: totalOutputTokens,
