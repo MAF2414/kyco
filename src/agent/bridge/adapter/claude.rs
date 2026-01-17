@@ -5,10 +5,11 @@ use async_trait::async_trait;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-use super::super::client::BridgeClient;
+use super::super::client::{BridgeClient, BridgeProcess};
 use super::super::types::*;
 use super::util::{bridge_cwd, extract_output_from_result, format_tool_call, parse_claude_permission_mode, parse_json_schema, resolve_prompt_paths};
 use crate::agent::runner::{AgentResult, AgentRunner};
@@ -25,6 +26,42 @@ static RETRY_AFTER_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)retry[- ]after\s*[:=]?\s*(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes)?")
         .expect("valid retry-after regex")
 });
+
+/// Global bridge process for lazy initialization.
+/// Stored in OnceLock so it persists for the lifetime of the application.
+static BRIDGE_PROCESS: OnceLock<Mutex<Option<BridgeProcess>>> = OnceLock::new();
+
+/// Ensure the bridge server is running, starting it if necessary.
+/// This is called lazily on first use if the GUI didn't start it.
+pub(super) fn ensure_bridge_running(client: &BridgeClient) {
+    // Fast path: check if already running
+    if client.health_check().is_ok() {
+        return;
+    }
+
+    // Slow path: try to start the bridge
+    let lock = BRIDGE_PROCESS.get_or_init(|| Mutex::new(None));
+    let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    // Double-check after acquiring lock (another thread may have started it)
+    if client.health_check().is_ok() {
+        return;
+    }
+
+    // Only try to spawn if we haven't already
+    if guard.is_none() {
+        tracing::info!("Lazy-starting SDK Bridge server...");
+        match BridgeProcess::spawn() {
+            Ok(process) => {
+                tracing::info!("SDK Bridge server started successfully (lazy)");
+                *guard = Some(process);
+            }
+            Err(e) => {
+                tracing::error!("Failed to lazy-start SDK Bridge server: {}", e);
+            }
+        }
+    }
+}
 
 fn is_rate_limited(code: Option<&str>, message: &str) -> bool {
     if code.is_some_and(|c| c.eq_ignore_ascii_case("429") || c.eq_ignore_ascii_case("rate_limit")) {
@@ -243,6 +280,10 @@ impl Default for ClaudeBridgeAdapter {
 impl AgentRunner for ClaudeBridgeAdapter {
     async fn run(&self, job: &Job, worktree: &Path, config: &AgentConfig, event_tx: mpsc::Sender<LogEvent>) -> Result<AgentResult> {
         let job_id = job.id;
+
+        // Ensure bridge server is running (lazy-start if needed)
+        ensure_bridge_running(&self.client);
+
         let prompt = self.build_prompt(job, config);
         let cwd = bridge_cwd(worktree);
 

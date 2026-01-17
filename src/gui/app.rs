@@ -17,7 +17,7 @@ use super::permission::PermissionPopupState;
 use super::selection::{AutocompleteState, SelectionContext};
 use super::update::UpdateChecker;
 use super::voice::VoiceManager;
-use crate::agent::bridge::{BridgeClient, PermissionMode};
+use crate::agent::bridge::{BridgeClient, BridgeProcess, PermissionMode};
 use crate::config::Config;
 use crate::job::{GroupManager, JobManager};
 use crate::{Job, JobId, LogEvent};
@@ -101,6 +101,9 @@ pub struct KycoApp {
     pub(crate) permission_state: PermissionPopupState,
     /// Last time we polled the bridge for pending tool approvals
     pub(crate) last_permission_poll: std::time::Instant,
+    /// Bridge server process (keeps Node.js server alive)
+    #[allow(dead_code)]
+    pub(crate) bridge_process: Option<BridgeProcess>,
     /// Bridge client for sending tool approval responses
     pub(crate) bridge_client: BridgeClient,
     /// Current Claude permission mode overrides per job (UI state)

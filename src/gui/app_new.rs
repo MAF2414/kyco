@@ -14,7 +14,7 @@ use super::selection::{AutocompleteState, SelectionContext};
 use super::update::UpdateChecker;
 use super::voice::{VoiceConfig, VoiceInputMode, VoiceManager};
 use crate::LogEvent;
-use crate::agent::bridge::BridgeClient;
+use crate::agent::bridge::{BridgeClient, BridgeProcess};
 use crate::config::{default_orchestrator_system_prompt, Config};
 use crate::job::{GroupManager, JobManager};
 use std::collections::HashMap;
@@ -173,6 +173,18 @@ impl KycoApp {
         // Clone work_dir once for struct field; move original to voice_manager
         let work_dir_owned = work_dir.clone();
 
+        // Start the SDK bridge server (Node.js sidecar for Claude/Codex SDKs)
+        let bridge_process = match BridgeProcess::spawn() {
+            Ok(process) => {
+                tracing::info!("SDK Bridge server started successfully");
+                Some(process)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to start SDK Bridge server: {}. Will retry lazily on first use.", e);
+                None
+            }
+        };
+
         Self {
             work_dir: work_dir_owned,
             config,
@@ -207,6 +219,7 @@ impl KycoApp {
             comparison_state: ComparisonState::default(),
             permission_state: PermissionPopupState::default(),
             last_permission_poll: std::time::Instant::now(),
+            bridge_process,
             bridge_client: BridgeClient::new(),
             permission_mode_overrides: HashMap::new(),
             auto_run: settings_auto_run,

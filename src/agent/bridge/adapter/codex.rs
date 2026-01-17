@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 
 use super::super::client::BridgeClient;
 use super::super::types::*;
+use super::claude::ensure_bridge_running;
 use super::util::{ResolvedPaths, bridge_cwd, extract_output_from_result, format_tool_call, parse_json_schema, resolve_prompt_paths};
 use crate::agent::runner::{AgentResult, AgentRunner};
 use crate::{AgentConfig, Job, LogEvent};
@@ -281,6 +282,10 @@ impl Default for CodexBridgeAdapter {
 impl AgentRunner for CodexBridgeAdapter {
     async fn run(&self, job: &Job, worktree: &Path, config: &AgentConfig, event_tx: mpsc::Sender<LogEvent>) -> Result<AgentResult> {
         let job_id = job.id;
+
+        // Ensure bridge server is running (lazy-start if needed)
+        ensure_bridge_running(&self.client);
+
         let prompt = self.build_prompt(job, config, worktree);
         let cwd = bridge_cwd(worktree);
 
