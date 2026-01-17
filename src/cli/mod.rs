@@ -6,6 +6,7 @@ pub mod finding;
 pub mod import;
 pub mod init;
 pub mod job;
+pub mod memory;
 pub mod mode;
 pub mod project;
 pub mod scope;

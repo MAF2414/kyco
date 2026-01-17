@@ -45,6 +45,7 @@ pub mod install;
 pub mod jobs;
 pub mod kanban;
 pub mod skills;
+pub mod unified_board;
 pub mod output_schema;
 pub mod permission;
 pub mod runner;

@@ -12,6 +12,10 @@ use std::path::Path;
 /// Result of Semgrep import
 pub type SemgrepResult = ImportResult;
 
+// ============================================
+// SEMGREP JSON TYPES (shared with memory_semgrep)
+// ============================================
+
 /// Semgrep JSON output root
 #[derive(Debug, Deserialize)]
 pub struct SemgrepOutput {
@@ -21,6 +25,7 @@ pub struct SemgrepOutput {
     pub paths: Option<SemgrepPaths>,
 }
 
+/// Single result item from Semgrep
 #[derive(Debug, Deserialize)]
 pub struct SemgrepResultItem {
     pub check_id: String,
@@ -30,6 +35,7 @@ pub struct SemgrepResultItem {
     pub extra: SemgrepExtra,
 }
 
+/// Position in source code
 #[derive(Debug, Deserialize)]
 pub struct SemgrepPosition {
     pub line: u32,
@@ -37,6 +43,7 @@ pub struct SemgrepPosition {
     pub offset: Option<u32>,
 }
 
+/// Extra metadata for a result
 #[derive(Debug, Deserialize)]
 pub struct SemgrepExtra {
     pub message: String,
@@ -49,6 +56,7 @@ pub struct SemgrepExtra {
     pub is_ignored: Option<bool>,
 }
 
+/// Rule metadata
 #[derive(Debug, Deserialize)]
 pub struct SemgrepMetadata {
     pub category: Option<String>,
@@ -63,6 +71,7 @@ pub struct SemgrepMetadata {
     pub vulnerability_class: Option<Vec<String>>,
 }
 
+/// CWE can be single string or array
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub enum SemgrepCwe {
@@ -79,6 +88,7 @@ impl SemgrepCwe {
     }
 }
 
+/// Dataflow trace for taint tracking
 #[derive(Debug, Deserialize)]
 pub struct SemgrepDataflowTrace {
     pub taint_source: Option<SemgrepTaintLocation>,
@@ -86,12 +96,14 @@ pub struct SemgrepDataflowTrace {
     pub taint_sink: Option<SemgrepTaintLocation>,
 }
 
+/// Taint location with optional content
 #[derive(Debug, Deserialize)]
 pub struct SemgrepTaintLocation {
     pub location: SemgrepLocation,
     pub content: Option<String>,
 }
 
+/// Source location
 #[derive(Debug, Deserialize)]
 pub struct SemgrepLocation {
     pub path: String,
@@ -99,6 +111,7 @@ pub struct SemgrepLocation {
     pub end: SemgrepPosition,
 }
 
+/// Semgrep error entry
 #[derive(Debug, Deserialize)]
 pub struct SemgrepError {
     pub code: Option<i32>,
@@ -109,12 +122,14 @@ pub struct SemgrepError {
     pub error_type: Option<String>,
 }
 
+/// Paths scanned and skipped
 #[derive(Debug, Deserialize)]
 pub struct SemgrepPaths {
     pub scanned: Option<Vec<String>>,
     pub skipped: Option<Vec<SemgrepSkippedPath>>,
 }
 
+/// Skipped path with reason
 #[derive(Debug, Deserialize)]
 pub struct SemgrepSkippedPath {
     pub path: String,

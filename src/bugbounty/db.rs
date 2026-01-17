@@ -87,6 +87,7 @@ impl BugBountyDb {
         let conn = self.conn();
         conn.execute_batch(
             r#"
+            DELETE FROM project_memory;
             DELETE FROM flow_edges;
             DELETE FROM artifacts;
             DELETE FROM job_findings;
@@ -242,6 +243,49 @@ CREATE TABLE IF NOT EXISTS flow_edges (
     FOREIGN KEY (finding_id) REFERENCES findings(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_flow_edges_finding ON flow_edges(finding_id);
+
+-- ============================================
+-- PROJECT MEMORY (Taint Sources, Sinks, Dataflow, Notes)
+-- ============================================
+CREATE TABLE IF NOT EXISTS project_memory (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+
+    -- Classification
+    memory_type TEXT NOT NULL,        -- source, sink, dataflow, note, context
+    source_kind TEXT NOT NULL,        -- agent, semgrep, codeql, manual, tsserver, rust_analyzer
+
+    -- Content
+    title TEXT NOT NULL,
+    content TEXT,
+
+    -- Location (optional)
+    file_path TEXT,
+    line_start INTEGER,
+    line_end INTEGER,
+    symbol TEXT,
+
+    -- Dataflow edges (for type=dataflow)
+    from_file TEXT,
+    from_line INTEGER,
+    to_file TEXT,
+    to_line INTEGER,
+
+    -- Metadata
+    confidence TEXT,                  -- high, medium, low
+    tags_json TEXT,                   -- JSON array of tags
+    source_job_id TEXT,               -- Job that created this memory entry
+
+    -- Timestamps
+    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
+    is_active INTEGER DEFAULT 1,
+
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_project_memory_project ON project_memory(project_id);
+CREATE INDEX IF NOT EXISTS idx_project_memory_type ON project_memory(memory_type);
+CREATE INDEX IF NOT EXISTS idx_project_memory_source_kind ON project_memory(source_kind);
+CREATE INDEX IF NOT EXISTS idx_project_memory_file ON project_memory(file_path);
 "#;
 
 #[cfg(test)]
@@ -271,6 +315,7 @@ mod tests {
         assert!(tables.contains(&"jobs".to_string()));
         assert!(tables.contains(&"artifacts".to_string()));
         assert!(tables.contains(&"flow_edges".to_string()));
+        assert!(tables.contains(&"project_memory".to_string()));
     }
 
     #[test]

@@ -332,6 +332,9 @@ impl KycoApp {
 
             // BugBounty Kanban
             kanban_state: super::kanban::KanbanState::new(),
+
+            // Unified Board (Jobs + Findings)
+            unified_board_state: super::unified_board::UnifiedBoardState::new(),
         }
     }
 }

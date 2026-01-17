@@ -6,7 +6,10 @@
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use super::{Artifact, ArtifactType, Confidence, Finding, FlowEdge, Reachability, Severity};
+use super::{
+    Artifact, ArtifactType, Confidence, Finding, FlowEdge, MemoryConfidence, MemoryLocation,
+    MemorySourceKind, MemoryType, ProjectMemory, Reachability, Severity,
+};
 
 /// Structured output from an agent job
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -22,6 +25,10 @@ pub struct NextContext {
     /// Artifacts (evidence, screenshots, logs)
     #[serde(default)]
     pub artifacts: Vec<ArtifactOutput>,
+
+    /// Memory entries (sources, sinks, dataflows, notes)
+    #[serde(default)]
+    pub memory: Vec<MemoryOutput>,
 
     /// State summary for chaining
     #[serde(default)]
@@ -113,6 +120,112 @@ pub struct ArtifactOutput {
     pub hash: Option<String>,
 }
 
+/// Memory entry as output by an agent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryOutput {
+    /// Memory type: source, sink, dataflow, note, context
+    #[serde(rename = "type")]
+    pub memory_type: String,
+
+    /// Short title/description
+    pub title: String,
+
+    /// Optional detailed content
+    pub content: Option<String>,
+
+    /// File path (for source, sink, note)
+    pub file: Option<String>,
+
+    /// Line number
+    pub line: Option<u32>,
+
+    /// Symbol name (function, variable, etc.)
+    pub symbol: Option<String>,
+
+    /// Confidence level: high, medium, low
+    pub confidence: Option<String>,
+
+    /// Tags for categorization
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    // Dataflow specific fields
+    /// Source file for dataflow
+    pub from_file: Option<String>,
+
+    /// Source line for dataflow
+    pub from_line: Option<u32>,
+
+    /// Destination file for dataflow
+    pub to_file: Option<String>,
+
+    /// Destination line for dataflow
+    pub to_line: Option<u32>,
+}
+
+impl MemoryOutput {
+    /// Convert to domain ProjectMemory model
+    pub fn to_memory(&self, project_id: &str, job_id: Option<&str>) -> ProjectMemory {
+        let memory_type = MemoryType::from_str(&self.memory_type).unwrap_or(MemoryType::Note);
+
+        let mut mem = ProjectMemory::new(
+            project_id,
+            memory_type,
+            MemorySourceKind::Agent,
+            &self.title,
+        );
+
+        if let Some(ref content) = self.content {
+            mem = mem.with_content(content);
+        }
+
+        if let Some(ref file) = self.file {
+            mem = mem.with_file(file);
+        }
+
+        if let Some(line) = self.line {
+            mem = mem.with_line(line);
+        }
+
+        if let Some(ref symbol) = self.symbol {
+            mem = mem.with_symbol(symbol);
+        }
+
+        if let Some(ref conf) = self.confidence {
+            if let Some(c) = MemoryConfidence::from_str(conf) {
+                mem = mem.with_confidence(c);
+            }
+        }
+
+        if !self.tags.is_empty() {
+            mem = mem.with_tags(self.tags.clone());
+        }
+
+        // Dataflow locations
+        if let Some(ref from_file) = self.from_file {
+            let mut loc = MemoryLocation::new(from_file);
+            if let Some(line) = self.from_line {
+                loc = loc.with_line(line);
+            }
+            mem = mem.with_from_location(loc);
+        }
+
+        if let Some(ref to_file) = self.to_file {
+            let mut loc = MemoryLocation::new(to_file);
+            if let Some(line) = self.to_line {
+                loc = loc.with_line(line);
+            }
+            mem = mem.with_to_location(loc);
+        }
+
+        if let Some(job_id) = job_id {
+            mem = mem.with_source_job(job_id);
+        }
+
+        mem
+    }
+}
+
 impl NextContext {
     /// Parse next_context from JSON string
     pub fn from_json(json: &str) -> Result<Self> {
@@ -193,7 +306,11 @@ impl NextContext {
             if depth == 0 && end > start {
                 let json = &text[start..end];
                 // Check if it looks like next_context
-                if json.contains("findings") || json.contains("flow_edges") || json.contains("artifacts") {
+                if json.contains("findings")
+                    || json.contains("flow_edges")
+                    || json.contains("artifacts")
+                    || json.contains("memory")
+                {
                     return Some(json.to_string());
                 }
             }
@@ -215,7 +332,7 @@ impl NextContext {
         }
 
         // Look for YAML-like structure starting with "findings:" or "next_context:"
-        let yaml_markers = ["findings:", "next_context:", "flow_edges:", "artifacts:"];
+        let yaml_markers = ["findings:", "next_context:", "flow_edges:", "artifacts:", "memory:"];
         for marker in yaml_markers {
             if let Some(start) = text.find(marker) {
                 // Take from marker to end of text or next markdown block
@@ -230,7 +347,10 @@ impl NextContext {
 
     /// Check if this context has any meaningful content
     pub fn is_empty(&self) -> bool {
-        self.findings.is_empty() && self.flow_edges.is_empty() && self.artifacts.is_empty()
+        self.findings.is_empty()
+            && self.flow_edges.is_empty()
+            && self.artifacts.is_empty()
+            && self.memory.is_empty()
     }
 
     /// Validate the "security-audit" output contract (strict).
@@ -326,6 +446,14 @@ impl NextContext {
         self.artifacts
             .iter()
             .map(|a| a.to_artifact(finding_id, job_id))
+            .collect()
+    }
+
+    /// Convert memory entries to domain model
+    pub fn to_memory(&self, project_id: &str, job_id: Option<&str>) -> Vec<ProjectMemory> {
+        self.memory
+            .iter()
+            .map(|m| m.to_memory(project_id, job_id))
             .collect()
     }
 }

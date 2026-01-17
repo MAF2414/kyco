@@ -11,6 +11,19 @@ use super::skill_discovery::SkillDiscovery;
 use super::Config;
 
 impl Config {
+    fn migrate_legacy_orchestrator_prompt(&mut self) -> bool {
+        let is_legacy = super::settings::is_legacy_orchestrator_system_prompt(
+            &self.settings.gui.orchestrator.system_prompt,
+        );
+        if is_legacy {
+            // Use the built-in default prompt by leaving the config value empty.
+            // This keeps existing configs working while ensuring the orchestrator
+            // always has the latest CLI reference.
+            self.settings.gui.orchestrator.system_prompt.clear();
+        }
+        is_legacy
+    }
+
     /// Get the global config directory path (~/.kyco/)
     pub fn global_config_dir() -> PathBuf {
         dirs::home_dir()
@@ -50,6 +63,7 @@ impl Config {
 
         // Always merge internal defaults so user gets new modes/chains/agents
         config.merge_internal_defaults();
+        config.migrate_legacy_orchestrator_prompt();
 
         Ok(config)
     }
@@ -121,8 +135,10 @@ impl Config {
         // Use from_file_raw() to get the config without merging first
         let mut config = Self::from_file_raw(&global_path)?;
 
-        // Merge internal defaults and save if changes were made
-        if config.merge_internal_defaults() {
+        // Merge internal defaults / migrate settings and save if changes were made
+        let mut changed = config.merge_internal_defaults();
+        changed |= config.migrate_legacy_orchestrator_prompt();
+        if changed {
             // Save the updated config with new internal modes/chains/agents
             if let Err(e) = config.save_to_file(&global_path) {
                 tracing::warn!("Failed to save config after merging internal defaults: {}", e);

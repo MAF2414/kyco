@@ -33,6 +33,8 @@ pub enum ViewMode {
     Achievements,
     /// BugBounty Kanban board view
     Kanban,
+    /// Unified Board (Jobs + Findings combined)
+    UnifiedBoard,
 }
 
 // Keep old types for compatibility

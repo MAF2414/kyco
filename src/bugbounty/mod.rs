@@ -52,7 +52,7 @@ mod scope_parser;
 
 pub use context_injector::{ContextInjector, InjectedContext};
 pub use db::BugBountyDb;
-pub use import::{ImportResult, import_sarif, import_semgrep};
+pub use import::{ImportResult, MemoryImportResult, import_sarif, import_semgrep, import_semgrep_memory};
 pub use models::*;
 pub use next_context::NextContext;
 pub use repository::*;
@@ -109,6 +109,11 @@ impl BugBountyManager {
     /// Get the job<->finding link repository
     pub fn job_findings(&self) -> JobFindingRepository {
         JobFindingRepository::new(self.db.clone())
+    }
+
+    /// Get the memory repository for project memory CRUD operations
+    pub fn memory(&self) -> MemoryRepository {
+        MemoryRepository::new(self.db.clone())
     }
 
     /// Reset all data (for testing)
@@ -448,6 +453,17 @@ impl BugBountyManager {
             }
         }
 
+        // Process memory entries (automatic from agent output)
+        if !ctx.memory.is_empty() {
+            let memory_entries = ctx.to_memory(project_id, job_id);
+            for mem in memory_entries {
+                // Deduplication: check if same type + file + line exists
+                if !self.memory().exists_duplicate(&mem)? {
+                    self.memory().create(&mem)?;
+                }
+            }
+        }
+
         // Link findings to the job (Kanban provenance)
         if let Some(job_id) = job_id {
             for finding_id in &touched_finding_ids {
@@ -674,6 +690,7 @@ mod tests {
                 notes: Some("note".to_string()),
             }],
             artifacts: vec![],
+            memory: vec![],
             state: None,
             summary: None,
         };
@@ -741,6 +758,7 @@ mod tests {
                 description: Some("PoC request".to_string()),
                 hash: Some("deadbeef".to_string()),
             }],
+            memory: vec![],
             state: None,
             summary: None,
         };

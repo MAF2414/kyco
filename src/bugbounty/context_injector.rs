@@ -8,7 +8,9 @@
 
 use anyhow::Result;
 
-use super::{BugBountyManager, Finding, FindingStatus, Project, Severity};
+use super::{
+    BugBountyManager, Finding, FindingStatus, MemoryType, Project, ProjectMemory, Severity,
+};
 
 /// Context to inject into agent prompts
 #[derive(Debug, Clone)]
@@ -30,6 +32,9 @@ pub struct InjectedContext {
 
     /// Output schema requirements
     pub output_schema: Option<String>,
+
+    /// Project memory (sources, sinks, dataflow, notes)
+    pub project_memory: Option<String>,
 }
 
 impl InjectedContext {
@@ -42,6 +47,7 @@ impl InjectedContext {
             scope_info: None,
             tool_policy: None,
             output_schema: None,
+            project_memory: None,
         }
     }
 
@@ -73,6 +79,10 @@ impl InjectedContext {
             sections.push(format!("## Output Requirements\n\n{}", schema));
         }
 
+        if let Some(ref memory) = self.project_memory {
+            sections.push(format!("## Project Memory\n\n{}", memory));
+        }
+
         if sections.is_empty() {
             String::new()
         } else {
@@ -91,6 +101,7 @@ impl InjectedContext {
             && self.scope_info.is_none()
             && self.tool_policy.is_none()
             && self.output_schema.is_none()
+            && self.project_memory.is_none()
     }
 }
 
@@ -122,6 +133,12 @@ impl ContextInjector {
         // Known findings
         if !findings.is_empty() {
             ctx.known_findings = Some(self.format_known_findings(&findings));
+        }
+
+        // Load and inject project memory
+        let memory_entries = self.manager.memory().list_by_project(project_id)?;
+        if !memory_entries.is_empty() {
+            ctx.project_memory = Some(self.format_memory(&memory_entries));
         }
 
         // Output schema (always include for security audits)
@@ -329,28 +346,140 @@ impl ContextInjector {
     }
 
     fn get_output_schema(&self) -> String {
-        r#"When reporting security findings, use this structured format:
+        // Output format is enforced via JSON Schema (SDK structured output).
+        // This text provides semantic guidance for the agent.
+        r#"Your response will be validated against a JSON Schema. Include:
 
-```yaml
-findings:
-  - title: "Short descriptive title"
-    severity: critical|high|medium|low|info
-    attack_scenario: "How an attacker exploits this"
-    preconditions: "What must be true for exploitation"
-    reachability: public|auth_required|internal_only
-    impact: "CIA impact + business impact"
-    confidence: high|medium|low
-    cwe_id: "CWE-XXX"  # optional
-    affected_assets:
-      - "/api/endpoint"
-      - "src/file.rs:123"
-    taint_path: "user_input -> process() -> db.query()"  # optional
-```
+**findings** - Security vulnerabilities found:
+- title (required): Short descriptive title
+- severity: critical, high, medium, low, or info
+- attack_scenario: How an attacker exploits this
+- preconditions: What must be true for exploitation
+- reachability: public, auth_required, or internal_only
+- impact: CIA impact + business impact
+- confidence: high, medium, or low
+- cwe_id: CWE identifier (e.g., CWE-89)
+- affected_assets: List of affected files/endpoints
+- taint_path: Data flow path (e.g., "user_input -> db.query()")
 
-**REQUIRED fields:** title, attack_scenario, preconditions, reachability, impact, confidence
-**If you cannot determine a required field, write:** "UNKNOWN - [reason]"
+**memory** - Track sources, sinks, and dataflow for project memory:
+- type (required): source, sink, dataflow, note, or context
+- title (required): Short description
+- file: File path
+- line: Line number
+- symbol: Function/variable name
+- confidence: high, medium, or low
+- tags: Category tags
+- from_file/from_line/to_file/to_line: For dataflow edges
+
+**Memory type guidance:**
+- source: User input entry points (request.body, argv, query params)
+- sink: Dangerous operations (SQL execute, shell exec, file write)
+- dataflow: Taint path from source to sink
+- note: Important observations
+- context: Architecture/design knowledge
 "#
         .to_string()
+    }
+
+    /// Format project memory entries for injection into prompts
+    fn format_memory(&self, entries: &[ProjectMemory]) -> String {
+        if entries.is_empty() {
+            return String::new();
+        }
+
+        // Group by memory type
+        let sources: Vec<_> = entries
+            .iter()
+            .filter(|e| e.memory_type == MemoryType::Source)
+            .collect();
+        let sinks: Vec<_> = entries
+            .iter()
+            .filter(|e| e.memory_type == MemoryType::Sink)
+            .collect();
+        let dataflows: Vec<_> = entries
+            .iter()
+            .filter(|e| e.memory_type == MemoryType::Dataflow)
+            .collect();
+        let notes: Vec<_> = entries
+            .iter()
+            .filter(|e| e.memory_type == MemoryType::Note || e.memory_type == MemoryType::Context)
+            .collect();
+
+        let mut sections = Vec::new();
+
+        if !sources.is_empty() {
+            let mut lines = vec!["### Known Sources (User Input Entry Points)\n".to_string()];
+            for src in sources.iter().take(20) {
+                // Limit to 20 to avoid token bloat
+                let conf = src
+                    .confidence
+                    .map(|c| format!(" [{}]", c.as_str()))
+                    .unwrap_or_default();
+                let loc = src.location_string().unwrap_or_default();
+                lines.push(format!("- **{}**{}: {}", src.title, conf, loc));
+            }
+            if sources.len() > 20 {
+                lines.push(format!("... and {} more sources", sources.len() - 20));
+            }
+            sections.push(lines.join("\n"));
+        }
+
+        if !sinks.is_empty() {
+            let mut lines = vec!["### Known Sinks (Dangerous Operations)\n".to_string()];
+            for sink in sinks.iter().take(20) {
+                let conf = sink
+                    .confidence
+                    .map(|c| format!(" [{}]", c.as_str()))
+                    .unwrap_or_default();
+                let loc = sink.location_string().unwrap_or_default();
+                lines.push(format!("- **{}**{}: {}", sink.title, conf, loc));
+            }
+            if sinks.len() > 20 {
+                lines.push(format!("... and {} more sinks", sinks.len() - 20));
+            }
+            sections.push(lines.join("\n"));
+        }
+
+        if !dataflows.is_empty() {
+            let mut lines = vec!["### Known Dataflow Paths\n".to_string()];
+            for df in dataflows.iter().take(15) {
+                let from_loc = df
+                    .from_location
+                    .as_ref()
+                    .map(|l| l.format())
+                    .unwrap_or_else(|| "?".to_string());
+                let to_loc = df
+                    .to_location
+                    .as_ref()
+                    .map(|l| l.format())
+                    .unwrap_or_else(|| "?".to_string());
+                let desc = df.content.as_deref().unwrap_or(&df.title);
+                lines.push(format!("- {} → {}: {}", from_loc, to_loc, desc));
+            }
+            if dataflows.len() > 15 {
+                lines.push(format!("... and {} more dataflow paths", dataflows.len() - 15));
+            }
+            sections.push(lines.join("\n"));
+        }
+
+        if !notes.is_empty() {
+            let mut lines = vec!["### Notes & Context\n".to_string()];
+            for note in notes.iter().take(10) {
+                let content = note.content.as_deref().unwrap_or("");
+                if content.is_empty() {
+                    lines.push(format!("- {}", note.title));
+                } else {
+                    lines.push(format!("- **{}**: {}", note.title, truncate(content, 100)));
+                }
+            }
+            if notes.len() > 10 {
+                lines.push(format!("... and {} more notes", notes.len() - 10));
+            }
+            sections.push(lines.join("\n"));
+        }
+
+        sections.join("\n\n")
     }
 }
 
@@ -420,6 +549,7 @@ mod tests {
             scope_info: None,
             tool_policy: None,
             output_schema: None,
+            project_memory: None,
         };
 
         assert!(!ctx.is_empty());

@@ -4,7 +4,11 @@ use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
 
 use super::db::BugBountyDb;
-use super::models::*;
+use super::models::{
+    Artifact, ArtifactType, BugBountyJob, CodeLocation, Confidence, Finding, FindingStatus,
+    FlowEdge, FlowKind, FlowTrace, MemoryConfidence, MemoryLocation, MemorySourceKind, MemoryType,
+    Project, ProjectMemory, Reachability, Severity,
+};
 
 // ============================================
 // PROJECT REPOSITORY
@@ -1095,5 +1099,348 @@ impl JobFindingRepository {
             |row| row.get(0),
         )?;
         Ok(count > 0)
+    }
+}
+
+// ============================================
+// MEMORY REPOSITORY
+// ============================================
+
+/// Repository for ProjectMemory CRUD operations
+pub struct MemoryRepository {
+    db: BugBountyDb,
+}
+
+impl MemoryRepository {
+    pub fn new(db: BugBountyDb) -> Self {
+        Self { db }
+    }
+
+    /// Create a new memory entry
+    pub fn create(&self, mem: &ProjectMemory) -> Result<i64> {
+        let conn = self.db.conn();
+        let tags_json = if mem.tags.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(&mem.tags)?)
+        };
+
+        conn.execute(
+            r#"
+            INSERT INTO project_memory (
+                project_id, memory_type, source_kind, title, content,
+                file_path, line_start, line_end, symbol,
+                from_file, from_line, to_file, to_line,
+                confidence, tags_json, source_job_id, created_at, is_active
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5,
+                ?6, ?7, ?8, ?9,
+                ?10, ?11, ?12, ?13,
+                ?14, ?15, ?16, ?17, ?18
+            )
+            "#,
+            params![
+                mem.project_id,
+                mem.memory_type.as_str(),
+                mem.source_kind.as_str(),
+                mem.title,
+                mem.content,
+                mem.file_path,
+                mem.line_start,
+                mem.line_end,
+                mem.symbol,
+                mem.from_location.as_ref().map(|l| &l.file),
+                mem.from_location.as_ref().and_then(|l| l.line),
+                mem.to_location.as_ref().map(|l| &l.file),
+                mem.to_location.as_ref().and_then(|l| l.line),
+                mem.confidence.map(|c| c.as_str()),
+                tags_json,
+                mem.source_job_id,
+                mem.created_at,
+                mem.is_active as i32,
+            ],
+        )
+        .context("Failed to create memory entry")?;
+
+        let id = conn.last_insert_rowid();
+        Ok(id)
+    }
+
+    /// Get a memory entry by ID
+    pub fn get(&self, id: i64) -> Result<Option<ProjectMemory>> {
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, project_id, memory_type, source_kind, title, content,
+                   file_path, line_start, line_end, symbol,
+                   from_file, from_line, to_file, to_line,
+                   confidence, tags_json, source_job_id, created_at, is_active
+            FROM project_memory WHERE id = ?1
+            "#,
+        )?;
+
+        let result = stmt.query_row(params![id], |row| Ok(self.row_to_memory(row)));
+        match result {
+            Ok(mem) => Ok(Some(mem)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// List all memory entries for a project
+    pub fn list_by_project(&self, project_id: &str) -> Result<Vec<ProjectMemory>> {
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, project_id, memory_type, source_kind, title, content,
+                   file_path, line_start, line_end, symbol,
+                   from_file, from_line, to_file, to_line,
+                   confidence, tags_json, source_job_id, created_at, is_active
+            FROM project_memory
+            WHERE project_id = ?1 AND is_active = 1
+            ORDER BY created_at DESC
+            "#,
+        )?;
+
+        let entries = stmt
+            .query_map(params![project_id], |row| Ok(self.row_to_memory(row)))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(entries)
+    }
+
+    /// List memory entries by type
+    pub fn list_by_type(&self, project_id: &str, memory_type: MemoryType) -> Result<Vec<ProjectMemory>> {
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, project_id, memory_type, source_kind, title, content,
+                   file_path, line_start, line_end, symbol,
+                   from_file, from_line, to_file, to_line,
+                   confidence, tags_json, source_job_id, created_at, is_active
+            FROM project_memory
+            WHERE project_id = ?1 AND memory_type = ?2 AND is_active = 1
+            ORDER BY created_at DESC
+            "#,
+        )?;
+
+        let entries = stmt
+            .query_map(params![project_id, memory_type.as_str()], |row| {
+                Ok(self.row_to_memory(row))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(entries)
+    }
+
+    /// List memory entries by source kind
+    pub fn list_by_source_kind(
+        &self,
+        project_id: &str,
+        source_kind: MemorySourceKind,
+    ) -> Result<Vec<ProjectMemory>> {
+        let conn = self.db.conn();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, project_id, memory_type, source_kind, title, content,
+                   file_path, line_start, line_end, symbol,
+                   from_file, from_line, to_file, to_line,
+                   confidence, tags_json, source_job_id, created_at, is_active
+            FROM project_memory
+            WHERE project_id = ?1 AND source_kind = ?2 AND is_active = 1
+            ORDER BY created_at DESC
+            "#,
+        )?;
+
+        let entries = stmt
+            .query_map(params![project_id, source_kind.as_str()], |row| {
+                Ok(self.row_to_memory(row))
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(entries)
+    }
+
+    /// Check if a duplicate memory entry exists
+    pub fn exists_duplicate(&self, mem: &ProjectMemory) -> Result<bool> {
+        let conn = self.db.conn();
+
+        // For dataflow, check from/to locations
+        if mem.memory_type == MemoryType::Dataflow {
+            let from_file = mem.from_location.as_ref().map(|l| &l.file);
+            let from_line = mem.from_location.as_ref().and_then(|l| l.line);
+            let to_file = mem.to_location.as_ref().map(|l| &l.file);
+            let to_line = mem.to_location.as_ref().and_then(|l| l.line);
+
+            let count: i64 = conn.query_row(
+                r#"
+                SELECT COUNT(*) FROM project_memory
+                WHERE project_id = ?1
+                  AND memory_type = ?2
+                  AND from_file = ?3
+                  AND from_line = ?4
+                  AND to_file = ?5
+                  AND to_line = ?6
+                  AND is_active = 1
+                "#,
+                params![
+                    mem.project_id,
+                    mem.memory_type.as_str(),
+                    from_file,
+                    from_line,
+                    to_file,
+                    to_line,
+                ],
+                |row| row.get(0),
+            )?;
+            return Ok(count > 0);
+        }
+
+        // For source/sink/note, check file + line
+        if mem.file_path.is_some() && mem.line_start.is_some() {
+            let count: i64 = conn.query_row(
+                r#"
+                SELECT COUNT(*) FROM project_memory
+                WHERE project_id = ?1
+                  AND memory_type = ?2
+                  AND file_path = ?3
+                  AND line_start = ?4
+                  AND is_active = 1
+                "#,
+                params![
+                    mem.project_id,
+                    mem.memory_type.as_str(),
+                    mem.file_path,
+                    mem.line_start,
+                ],
+                |row| row.get(0),
+            )?;
+            return Ok(count > 0);
+        }
+
+        // For entries without file/line, check by title (notes, context)
+        if mem.file_path.is_none() {
+            let count: i64 = conn.query_row(
+                r#"
+                SELECT COUNT(*) FROM project_memory
+                WHERE project_id = ?1
+                  AND memory_type = ?2
+                  AND title = ?3
+                  AND is_active = 1
+                "#,
+                params![mem.project_id, mem.memory_type.as_str(), mem.title,],
+                |row| row.get(0),
+            )?;
+            return Ok(count > 0);
+        }
+
+        Ok(false)
+    }
+
+    /// Delete a memory entry
+    pub fn delete(&self, id: i64) -> Result<()> {
+        let conn = self.db.conn();
+        conn.execute("DELETE FROM project_memory WHERE id = ?1", params![id])?;
+        Ok(())
+    }
+
+    /// Soft-delete a memory entry (set is_active = 0)
+    pub fn deactivate(&self, id: i64) -> Result<()> {
+        let conn = self.db.conn();
+        conn.execute(
+            "UPDATE project_memory SET is_active = 0 WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
+    /// Clear all memory entries of a specific source kind for a project
+    pub fn clear_by_source_kind(
+        &self,
+        project_id: &str,
+        source_kind: MemorySourceKind,
+    ) -> Result<usize> {
+        let conn = self.db.conn();
+        let count = conn.execute(
+            "DELETE FROM project_memory WHERE project_id = ?1 AND source_kind = ?2",
+            params![project_id, source_kind.as_str()],
+        )?;
+        Ok(count)
+    }
+
+    /// Clear all memory entries for a project
+    pub fn clear_all(&self, project_id: &str) -> Result<usize> {
+        let conn = self.db.conn();
+        let count = conn.execute(
+            "DELETE FROM project_memory WHERE project_id = ?1",
+            params![project_id],
+        )?;
+        Ok(count)
+    }
+
+    // Helper to convert a row to ProjectMemory
+    fn row_to_memory(&self, row: &rusqlite::Row) -> ProjectMemory {
+        let from_file: Option<String> = row.get(10).ok().flatten();
+        let from_line: Option<u32> = row.get(11).ok().flatten();
+        let to_file: Option<String> = row.get(12).ok().flatten();
+        let to_line: Option<u32> = row.get(13).ok().flatten();
+
+        let from_location = from_file.map(|f| {
+            let mut loc = MemoryLocation::new(f);
+            if let Some(line) = from_line {
+                loc = loc.with_line(line);
+            }
+            loc
+        });
+
+        let to_location = to_file.map(|f| {
+            let mut loc = MemoryLocation::new(f);
+            if let Some(line) = to_line {
+                loc = loc.with_line(line);
+            }
+            loc
+        });
+
+        let tags: Vec<String> = row
+            .get::<_, Option<String>>(15)
+            .ok()
+            .flatten()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+
+        ProjectMemory {
+            id: row.get(0).ok(),
+            project_id: row.get(1).unwrap_or_default(),
+            memory_type: row
+                .get::<_, String>(2)
+                .ok()
+                .and_then(|s| MemoryType::from_str(&s))
+                .unwrap_or(MemoryType::Note),
+            source_kind: row
+                .get::<_, String>(3)
+                .ok()
+                .and_then(|s| MemorySourceKind::from_str(&s))
+                .unwrap_or(MemorySourceKind::Manual),
+            title: row.get(4).unwrap_or_default(),
+            content: row.get(5).ok().flatten(),
+            file_path: row.get(6).ok().flatten(),
+            line_start: row.get(7).ok().flatten(),
+            line_end: row.get(8).ok().flatten(),
+            symbol: row.get(9).ok().flatten(),
+            from_location,
+            to_location,
+            confidence: row
+                .get::<_, Option<String>>(14)
+                .ok()
+                .flatten()
+                .and_then(|s| MemoryConfidence::from_str(&s)),
+            tags,
+            source_job_id: row.get(16).ok().flatten(),
+            created_at: row.get(17).unwrap_or(0),
+            is_active: row.get::<_, i32>(18).unwrap_or(1) == 1,
+        }
     }
 }

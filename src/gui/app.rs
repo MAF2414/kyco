@@ -311,4 +311,8 @@ pub struct KycoApp {
     // BugBounty Kanban state
     /// Kanban board state for security findings
     pub(crate) kanban_state: super::kanban::KanbanState,
+
+    // Unified Board state (Jobs + Findings combined)
+    /// Unified board state for combined jobs and findings view
+    pub(crate) unified_board_state: super::unified_board::UnifiedBoardState,
 }

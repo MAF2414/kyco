@@ -7,8 +7,8 @@ use kyco::cli;
 
 mod commands;
 use commands::{
-    AgentCommands, ChainCommands, Commands, FindingCommands, ImportCommands, JobCommands, ModeCommands,
-    ProjectCommands, ScopeCommands, SkillCommands,
+    AgentCommands, ChainCommands, Commands, FindingCommands, ImportCommands, JobCommands,
+    MemoryCommands, ModeCommands, ProjectCommands, ScopeCommands, SkillCommands,
 };
 
 #[derive(Parser)]
@@ -639,6 +639,32 @@ async fn main() -> Result<()> {
             }
             ScopeCommands::Policy { project, json } => {
                 cli::scope::policy(project, json)?;
+            }
+        },
+        Some(Commands::Memory { command }) => match command {
+            MemoryCommands::List {
+                project,
+                r#type,
+                source,
+                json,
+            } => {
+                cli::memory::list(project, r#type, source, json)?;
+            }
+            MemoryCommands::Import {
+                tool,
+                file,
+                project,
+            } => {
+                cli::memory::import(&tool, &file, &project)?;
+            }
+            MemoryCommands::Delete { id } => {
+                cli::memory::delete(id)?;
+            }
+            MemoryCommands::Clear { project, source } => {
+                cli::memory::clear(&project, source)?;
+            }
+            MemoryCommands::Summary { project } => {
+                cli::memory::summary(&project)?;
             }
         },
         None => {

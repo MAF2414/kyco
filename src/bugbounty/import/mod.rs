@@ -7,17 +7,22 @@
 //! - Snyk JSON output
 //! - Nuclei JSON/JSONL output
 
+mod memory_semgrep;
 mod nuclei;
 mod sarif;
 mod semgrep;
 mod snyk;
 
+pub use memory_semgrep::import_semgrep_memory;
 pub use nuclei::{import_nuclei, NucleiResult};
 pub use sarif::{import_sarif, SarifResult};
-pub use semgrep::{import_semgrep, SemgrepResult};
+pub use semgrep::{
+    import_semgrep, SemgrepDataflowTrace, SemgrepOutput, SemgrepResult, SemgrepResultItem,
+    SemgrepTaintLocation,
+};
 pub use snyk::{import_snyk, SnykResult};
 
-use crate::bugbounty::{Finding, FlowEdge, Severity, Confidence};
+use crate::bugbounty::{Finding, FlowEdge, ProjectMemory, Severity, Confidence};
 
 /// Generic import result from any source
 #[derive(Debug, Clone)]
@@ -66,6 +71,68 @@ impl ImportResult {
 }
 
 impl Default for ImportResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Result of memory import from external tools
+#[derive(Debug, Clone)]
+pub struct MemoryImportResult {
+    /// Memory entries imported
+    pub memory: Vec<ProjectMemory>,
+    /// Number of entries skipped (duplicates, etc.)
+    pub skipped: usize,
+    /// Warnings during import
+    pub warnings: Vec<String>,
+}
+
+impl MemoryImportResult {
+    pub fn new() -> Self {
+        Self {
+            memory: Vec::new(),
+            skipped: 0,
+            warnings: Vec::new(),
+        }
+    }
+
+    pub fn add_memory(&mut self, mem: ProjectMemory) {
+        self.memory.push(mem);
+    }
+
+    pub fn add_warning(&mut self, msg: impl Into<String>) {
+        self.warnings.push(msg.into());
+    }
+
+    pub fn summary(&self) -> String {
+        let sources = self
+            .memory
+            .iter()
+            .filter(|m| m.memory_type == crate::bugbounty::MemoryType::Source)
+            .count();
+        let sinks = self
+            .memory
+            .iter()
+            .filter(|m| m.memory_type == crate::bugbounty::MemoryType::Sink)
+            .count();
+        let dataflows = self
+            .memory
+            .iter()
+            .filter(|m| m.memory_type == crate::bugbounty::MemoryType::Dataflow)
+            .count();
+
+        format!(
+            "Imported {} sources, {} sinks, {} dataflows ({} skipped, {} warnings)",
+            sources,
+            sinks,
+            dataflows,
+            self.skipped,
+            self.warnings.len()
+        )
+    }
+}
+
+impl Default for MemoryImportResult {
     fn default() -> Self {
         Self::new()
     }

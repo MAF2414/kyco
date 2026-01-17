@@ -74,6 +74,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: ScopeCommands,
     },
+
+    /// Manage project memory (sources, sinks, dataflow paths, notes)
+    Memory {
+        #[command(subcommand)]
+        command: MemoryCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -902,5 +908,54 @@ pub enum ScopeCommands {
         /// Print JSON output
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemoryCommands {
+    /// List memory entries (sources, sinks, dataflows, notes)
+    List {
+        /// Project ID (required)
+        #[arg(long)]
+        project: Option<String>,
+        /// Filter by type (source, sink, dataflow, note, context)
+        #[arg(long, short = 't')]
+        r#type: Option<String>,
+        /// Filter by source (agent, semgrep, codeql, manual)
+        #[arg(long)]
+        source: Option<String>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import memory from external tools
+    Import {
+        /// Tool to import from (semgrep, codeql)
+        tool: String,
+        /// Path to the tool output file
+        file: String,
+        /// Project ID
+        #[arg(long)]
+        project: String,
+    },
+    /// Delete a memory entry by ID
+    Delete {
+        /// Memory entry ID
+        id: i64,
+    },
+    /// Clear memory entries for a project
+    Clear {
+        /// Project ID
+        #[arg(long)]
+        project: String,
+        /// Clear only entries from a specific source (agent, semgrep, codeql, manual)
+        #[arg(long)]
+        source: Option<String>,
+    },
+    /// Show memory summary for a project
+    Summary {
+        /// Project ID
+        #[arg(long)]
+        project: String,
     },
 }

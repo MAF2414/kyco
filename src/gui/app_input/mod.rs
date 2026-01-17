@@ -79,6 +79,12 @@ impl KycoApp {
                     self.view_mode = ViewMode::JobList;
                 }
             }
+            ViewMode::UnifiedBoard => {
+                // Unified board - ESC returns to job list
+                if i.key_pressed(Key::Escape) {
+                    self.view_mode = ViewMode::JobList;
+                }
+            }
         }
 
         // Global shortcut for auto_run toggle (Shift+A)
