@@ -91,7 +91,8 @@ STATE VALUES: issues_found, no_issues, fixed, unfixable, tests_pass, tests_fail,
     .to_string()
 }
 
-fn default_structured_output_schema() -> String {
+/// Default JSON Schema for SDK structured output (findings, memory, flow_edges, artifacts)
+pub fn default_structured_output_schema() -> String {
     r#"{
   "type": "object",
   "description": "BugBounty security audit structured output",

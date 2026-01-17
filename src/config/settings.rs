@@ -5,7 +5,7 @@ mod orchestrator;
 mod registry;
 mod voice;
 
-pub use gui::GuiSettings;
+pub use gui::{default_structured_output_schema, GuiSettings};
 pub use orchestrator::{default_orchestrator_system_prompt, OrchestratorSettings};
 pub(crate) use orchestrator::is_legacy_orchestrator_system_prompt;
 pub use registry::RegistrySettings;
