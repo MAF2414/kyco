@@ -81,6 +81,9 @@ pub fn render_unified_board(
 
     ui.add_space(8.0);
 
+    // Detail panel MUST be rendered BEFORE main content (egui SidePanel requirement)
+    render_detail_panel(ui, state, cached_jobs, work_dir, job_manager, group_manager, logs);
+
     // Main content
     if state.selected_project.is_some() {
         match state.selected_tab {
@@ -94,9 +97,6 @@ pub fn render_unified_board(
     } else {
         render_project_list(ui, state);
     }
-
-    // Detail panel
-    render_detail_panel(ui, state, cached_jobs, work_dir, job_manager, group_manager, logs);
 
     // Dialogs
     render_fp_dialog(ui.ctx(), state);
