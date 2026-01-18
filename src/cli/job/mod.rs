@@ -46,13 +46,52 @@ fn expand_tilde(path: &str) -> Option<PathBuf> {
     None
 }
 
-fn resolve_file_path(work_dir: &Path, raw: &str) -> PathBuf {
+fn is_explicit_relative(raw: &str) -> bool {
+    raw == "."
+        || raw == ".."
+        || raw.starts_with("./")
+        || raw.starts_with("../")
+        || raw.starts_with(".\\")
+        || raw.starts_with("..\\")
+}
+
+fn resolve_path_candidates(work_dir: &Path, cwd: &Path, raw: &str) -> Vec<PathBuf> {
     let path = expand_tilde(raw).unwrap_or_else(|| PathBuf::from(raw));
     if path.is_absolute() {
-        path
-    } else {
-        work_dir.join(path)
+        return vec![path];
     }
+
+    // Backwards compatibility: by default resolve relative paths against `work_dir` (the CLI
+    // workspace root). For orchestrators that `cd` into a subdir and pass `./file`, treat that as
+    // explicitly relative to the process CWD.
+    let prefer_cwd = is_explicit_relative(raw);
+    let first_base = if prefer_cwd { cwd } else { work_dir };
+    let second_base = if prefer_cwd { work_dir } else { cwd };
+
+    let mut candidates = Vec::new();
+    candidates.push(first_base.join(&path));
+    if second_base != first_base {
+        candidates.push(second_base.join(path));
+    }
+    candidates
+}
+
+fn resolve_existing_path(work_dir: &Path, cwd: &Path, raw: &str) -> Result<PathBuf> {
+    let candidates = resolve_path_candidates(work_dir, cwd, raw);
+    for candidate in &candidates {
+        if candidate.exists() {
+            return Ok(candidate.clone());
+        }
+    }
+
+    anyhow::bail!(
+        "Input not found: {raw} (tried: {})",
+        candidates
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
 }
 
 fn looks_like_glob_pattern(raw: &str) -> bool {
@@ -79,7 +118,91 @@ fn collect_files_recursively(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_dot_slash_relative_to_cwd() -> Result<()> {
+        let work_dir = tempfile::tempdir()?;
+        let cwd = tempfile::tempdir()?;
+
+        let file = cwd.path().join("chunk_ac.js");
+        std::fs::write(&file, "test")?;
+
+        let resolved = resolve_existing_path(work_dir.path(), cwd.path(), "./chunk_ac.js")?;
+        assert_eq!(resolved.canonicalize()?, file.canonicalize()?);
+        Ok(())
+    }
+
+    #[test]
+    fn falls_back_to_cwd_for_bare_relative() -> Result<()> {
+        let work_dir = tempfile::tempdir()?;
+        let cwd = tempfile::tempdir()?;
+
+        let file = cwd.path().join("chunk_al.js");
+        std::fs::write(&file, "test")?;
+
+        let resolved = resolve_existing_path(work_dir.path(), cwd.path(), "chunk_al.js")?;
+        assert_eq!(resolved.canonicalize()?, file.canonicalize()?);
+        Ok(())
+    }
+
+    #[test]
+    fn prefers_work_dir_for_bare_relative_when_both_exist() -> Result<()> {
+        let work_dir = tempfile::tempdir()?;
+        let cwd = tempfile::tempdir()?;
+
+        let work_file = work_dir.path().join("same.js");
+        let cwd_file = cwd.path().join("same.js");
+        std::fs::write(&work_file, "work")?;
+        std::fs::write(&cwd_file, "cwd")?;
+
+        let resolved = resolve_existing_path(work_dir.path(), cwd.path(), "same.js")?;
+        assert_eq!(resolved.canonicalize()?, work_file.canonicalize()?);
+
+        let resolved = resolve_existing_path(work_dir.path(), cwd.path(), "./same.js")?;
+        assert_eq!(resolved.canonicalize()?, cwd_file.canonicalize()?);
+        Ok(())
+    }
+
+    #[test]
+    fn glob_falls_back_to_cwd_when_work_dir_has_no_matches() -> Result<()> {
+        let work_dir = tempfile::tempdir()?;
+        let cwd = tempfile::tempdir()?;
+
+        let file = cwd.path().join("a.js");
+        std::fs::write(&file, "test")?;
+
+        let inputs = vec!["*.js".to_string()];
+        let resolved = expand_input_files_with_cwd(work_dir.path(), cwd.path(), &inputs)?;
+        assert_eq!(resolved, vec![file.canonicalize()?]);
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_relative_glob_prefers_cwd_even_if_work_dir_matches() -> Result<()> {
+        let work_dir = tempfile::tempdir()?;
+        let cwd = tempfile::tempdir()?;
+
+        let work_file = work_dir.path().join("w.js");
+        let cwd_file = cwd.path().join("c.js");
+        std::fs::write(&work_file, "work")?;
+        std::fs::write(&cwd_file, "cwd")?;
+
+        let inputs = vec!["./*.js".to_string()];
+        let resolved = expand_input_files_with_cwd(work_dir.path(), cwd.path(), &inputs)?;
+        assert_eq!(resolved, vec![cwd_file.canonicalize()?]);
+        Ok(())
+    }
+}
+
 fn expand_input_files(work_dir: &Path, inputs: &[String]) -> Result<Vec<PathBuf>> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| work_dir.to_path_buf());
+    expand_input_files_with_cwd(work_dir, &cwd, inputs)
+}
+
+fn expand_input_files_with_cwd(work_dir: &Path, cwd: &Path, inputs: &[String]) -> Result<Vec<PathBuf>> {
     let mut files: Vec<PathBuf> = Vec::new();
     let mut unmatched_globs: Vec<String> = Vec::new();
 
@@ -90,23 +213,32 @@ fn expand_input_files(work_dir: &Path, inputs: &[String]) -> Result<Vec<PathBuf>
         }
 
         if looks_like_glob_pattern(raw) {
-            let pattern_path = resolve_file_path(work_dir, raw);
-            let pattern = pattern_path.to_string_lossy().to_string();
             let mut matched_any = false;
-            for entry in glob::glob(&pattern).with_context(|| format!("Invalid glob: {raw}"))? {
-                let path = match entry {
-                    Ok(p) => p,
-                    Err(err) => {
-                        tracing::warn!("Glob match error for {}: {}", raw, err);
-                        continue;
+            for pattern_path in resolve_path_candidates(work_dir, cwd, raw) {
+                let pattern = pattern_path.to_string_lossy().to_string();
+                let mut matched_this_candidate = false;
+                for entry in glob::glob(&pattern).with_context(|| format!("Invalid glob: {raw}"))? {
+                    let path = match entry {
+                        Ok(p) => p,
+                        Err(err) => {
+                            tracing::warn!("Glob match error for {}: {}", raw, err);
+                            continue;
+                        }
+                    };
+                    if path.is_file() {
+                        files.push(path);
+                        matched_any = true;
+                        matched_this_candidate = true;
+                    } else if path.is_dir() {
+                        collect_files_recursively(&path, &mut files)?;
+                        matched_any = true;
+                        matched_this_candidate = true;
                     }
-                };
-                if path.is_file() {
-                    files.push(path);
-                    matched_any = true;
-                } else if path.is_dir() {
-                    collect_files_recursively(&path, &mut files)?;
-                    matched_any = true;
+                }
+
+                // Fallback only if the preferred base had zero matches.
+                if matched_this_candidate {
+                    break;
                 }
             }
             if !matched_any {
@@ -115,10 +247,7 @@ fn expand_input_files(work_dir: &Path, inputs: &[String]) -> Result<Vec<PathBuf>
             continue;
         }
 
-        let resolved = resolve_file_path(work_dir, raw);
-        if !resolved.exists() {
-            anyhow::bail!("Input not found: {}", resolved.display());
-        }
+        let resolved = resolve_existing_path(work_dir, cwd, raw)?;
         if resolved.is_file() {
             files.push(resolved);
         } else if resolved.is_dir() {
@@ -234,14 +363,13 @@ pub fn job_start_command(
     }
 
     // Resolve file path if provided (single file mode)
+    let cwd = std::env::current_dir().unwrap_or_else(|_| work_dir.to_path_buf());
     let single_file_path: Option<String> = if let Some(raw) = file_path_raw {
-        let resolved_path = resolve_file_path(work_dir, raw);
-        if !resolved_path.exists() {
-            anyhow::bail!("File not found: {}", resolved_path.display());
-        }
+        let resolved_path = resolve_existing_path(work_dir, &cwd, raw)?;
         if !resolved_path.is_file() {
             anyhow::bail!("Path is not a file: {}", resolved_path.display());
         }
+        let resolved_path = resolved_path.canonicalize().unwrap_or(resolved_path);
         Some(resolved_path.display().to_string())
     } else if !input_files.is_empty() {
         Some(input_files[0].display().to_string())
