@@ -241,9 +241,15 @@ export async function* executeCodexQuery(
     await cleanup();
 
     // Parse structured output from last agent message when outputSchema was provided
+    console.error(`[codex] outputSchema present: ${!!request.outputSchema}, lastAgentMessage length: ${lastAgentMessage?.length ?? 0}`);
     const structuredOutput = request.outputSchema && lastAgentMessage
       ? tryParseJsonObject(lastAgentMessage)
       : null;
+    if (structuredOutput) {
+      console.error(`[codex] Parsed structuredOutput keys: ${Object.keys(structuredOutput).join(', ')}`);
+    } else if (request.outputSchema && lastAgentMessage) {
+      console.error(`[codex] Failed to parse JSON from lastAgentMessage: ${lastAgentMessage.substring(0, 200)}...`);
+    }
 
     yield {
       type: 'session.complete',

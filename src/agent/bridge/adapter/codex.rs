@@ -265,7 +265,8 @@ impl CodexBridgeAdapter {
             thread_id: Some(thread_id),
             sandbox: config.sandbox.clone().or_else(|| Some("workspace-write".to_string())),
             env: None,
-            output_schema: None,
+            // Include output_schema in continuation requests too (for retry scenarios)
+            output_schema: parse_json_schema(config.structured_output_schema.as_deref()),
             model: config.model.clone(),
             effort: None,
             approval_policy: None,

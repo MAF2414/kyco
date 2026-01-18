@@ -218,7 +218,8 @@ impl ClaudeBridgeAdapter {
             max_turns: if config.max_turns > 0 { Some(config.max_turns) } else { None },
             max_thinking_tokens: None,
             model: config.model.clone(),
-            output_schema: None,
+            // Include output_schema in continuation requests too (for retry scenarios)
+            output_schema: parse_json_schema(config.structured_output_schema.as_deref()),
             kyco_callback_url: None,
             hooks: None,
         }
