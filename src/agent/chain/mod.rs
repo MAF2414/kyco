@@ -66,6 +66,16 @@ fn apply_bugbounty_tooling_policy(step_job: &Job, work_dir: &Path, agent_config:
         return;
     };
 
+    // BugBounty relies on SDK structured output for reliable backend ingestion.
+    if agent_config
+        .structured_output_schema
+        .as_deref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        agent_config.structured_output_schema = Some(crate::config::default_structured_output_schema());
+    }
+
     let Ok(bb) = BugBountyManager::new() else {
         return;
     };

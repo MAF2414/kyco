@@ -69,6 +69,9 @@ pub struct FindingOutput {
     /// CWE ID (e.g., "CWE-639")
     pub cwe_id: Option<String>,
 
+    /// CVSS score if calculated (optional)
+    pub cvss_score: Option<f64>,
+
     /// Affected assets/endpoints
     #[serde(default)]
     pub affected_assets: Vec<String>,
@@ -502,6 +505,10 @@ impl FindingOutput {
             finding = finding.with_cwe(s);
         }
 
+        if let Some(score) = self.cvss_score {
+            finding.cvss_score = Some(score);
+        }
+
         for asset in &self.affected_assets {
             finding = finding.with_affected_asset(asset.clone());
         }
@@ -673,6 +680,7 @@ This should be fixed immediately.
             impact: Some("Data breach".to_string()),
             confidence: Some("high".to_string()),
             cwe_id: Some("CWE-639".to_string()),
+            cvss_score: Some(7.5),
             affected_assets: vec!["/api/test".to_string()],
             taint_path: Some("input -> sink".to_string()),
         };

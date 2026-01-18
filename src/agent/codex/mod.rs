@@ -56,6 +56,13 @@ impl CodexAdapter {
         if job.git_worktree_path.is_some() {
             system_prompt.push_str("\n\nIMPORTANT: You are working in an isolated Git worktree. When you have completed the task, commit all your changes with a descriptive commit message. Do NOT push.");
         }
+        // Append output schema (YAML summary) if configured so the GUI/chain can reliably parse results.
+        if let Some(schema) = &config.output_schema {
+            if !schema.trim().is_empty() {
+                system_prompt.push_str("\n\n");
+                system_prompt.push_str(schema.trim());
+            }
+        }
         if !system_prompt.trim().is_empty() {
             prompt.push_str("## System Instructions\n\n");
             prompt.push_str(system_prompt.trim());

@@ -149,6 +149,32 @@ fn format_structured_output(value: &serde_json::Value) -> String {
         }
     }
 
+    // Format flow edges
+    if let Some(edges) = value.get("flow_edges").and_then(|e| e.as_array()) {
+        if !edges.is_empty() {
+            if !output.is_empty() {
+                output.push_str("\n---\n\n");
+            }
+            output.push_str("## Flow Edges\n\n");
+            for edge in edges {
+                format_flow_edge(&mut output, edge);
+            }
+        }
+    }
+
+    // Format artifacts
+    if let Some(artifacts) = value.get("artifacts").and_then(|a| a.as_array()) {
+        if !artifacts.is_empty() {
+            if !output.is_empty() {
+                output.push_str("\n---\n\n");
+            }
+            output.push_str("## Artifacts\n\n");
+            for artifact in artifacts {
+                format_artifact(&mut output, artifact);
+            }
+        }
+    }
+
     // Format memory entries
     if let Some(memory) = value.get("memory").and_then(|m| m.as_array()) {
         if !memory.is_empty() {
@@ -190,8 +216,10 @@ fn format_structured_output(value: &serde_json::Value) -> String {
 /// Format a single finding as markdown
 fn format_finding(output: &mut String, finding: &serde_json::Value) {
     let title = finding.get("title").and_then(|t| t.as_str()).unwrap_or("Untitled Finding");
+    let id = finding.get("id").and_then(|v| v.as_str());
     let severity = finding.get("severity").and_then(|s| s.as_str());
     let confidence = finding.get("confidence").and_then(|c| c.as_str());
+    let cvss = finding.get("cvss_score").and_then(|v| v.as_f64());
 
     // Title with severity badge
     output.push_str("### ");
@@ -209,8 +237,18 @@ fn format_finding(output: &mut String, finding: &serde_json::Value) {
     output.push_str(title);
     output.push('\n');
 
+    if let Some(fid) = id {
+        if !fid.is_empty() {
+            output.push_str(&format!("**ID:** `{}`\n", fid));
+        }
+    }
+
     if let Some(conf) = confidence {
         output.push_str(&format!("**Confidence:** {}\n", conf));
+    }
+
+    if let Some(score) = cvss {
+        output.push_str(&format!("**CVSS:** {:.1}\n", score));
     }
 
     // Attack scenario
@@ -261,6 +299,102 @@ fn format_finding(output: &mut String, finding: &serde_json::Value) {
                     output.push_str(&format!("- `{}`\n", a));
                 }
             }
+        }
+    }
+
+    // Taint path / flow summary
+    if let Some(taint) = finding.get("taint_path").and_then(|t| t.as_str()) {
+        if !taint.is_empty() {
+            output.push_str("\n**Flow:**\n");
+            output.push_str(taint);
+            output.push('\n');
+        }
+    }
+
+    output.push('\n');
+}
+
+fn format_flow_edge(output: &mut String, edge: &serde_json::Value) {
+    let kind = edge.get("kind").and_then(|k| k.as_str()).unwrap_or("dataflow");
+    let finding_id = edge.get("finding_id").and_then(|v| v.as_str());
+
+    let from_file = edge.get("from_file").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let from_line = edge.get("from_line").and_then(|v| v.as_u64());
+    let from_symbol = edge.get("from_symbol").and_then(|v| v.as_str());
+
+    let to_file = edge.get("to_file").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let to_line = edge.get("to_line").and_then(|v| v.as_u64());
+    let to_symbol = edge.get("to_symbol").and_then(|v| v.as_str());
+
+    output.push_str(&format!("### {}\n", kind.to_uppercase()));
+
+    let from_loc = if let Some(l) = from_line {
+        format!("`{}:{}`", from_file, l)
+    } else {
+        format!("`{}`", from_file)
+    };
+    let to_loc = if let Some(l) = to_line {
+        format!("`{}:{}`", to_file, l)
+    } else {
+        format!("`{}`", to_file)
+    };
+
+    output.push_str(&format!("{} → {}\n", from_loc, to_loc));
+
+    if let Some(sym) = from_symbol {
+        if !sym.is_empty() {
+            output.push_str(&format!("**From:** `{}`\n", sym));
+        }
+    }
+    if let Some(sym) = to_symbol {
+        if !sym.is_empty() {
+            output.push_str(&format!("**To:** `{}`\n", sym));
+        }
+    }
+    if let Some(fid) = finding_id {
+        if !fid.is_empty() {
+            output.push_str(&format!("**Finding:** `{}`\n", fid));
+        }
+    }
+
+    if let Some(notes) = edge.get("notes").and_then(|n| n.as_str()) {
+        if !notes.is_empty() {
+            output.push_str("\n**Notes:**\n");
+            output.push_str(notes);
+            output.push('\n');
+        }
+    }
+
+    output.push('\n');
+}
+
+fn format_artifact(output: &mut String, artifact: &serde_json::Value) {
+    let path = artifact.get("path").and_then(|p| p.as_str()).unwrap_or("unknown");
+    let artifact_type = artifact.get("type").and_then(|t| t.as_str());
+    let finding_id = artifact.get("finding_id").and_then(|v| v.as_str());
+
+    output.push_str(&format!("### `{}`\n", path));
+
+    if let Some(t) = artifact_type {
+        if !t.is_empty() {
+            output.push_str(&format!("**Type:** {}\n", t));
+        }
+    }
+    if let Some(fid) = finding_id {
+        if !fid.is_empty() {
+            output.push_str(&format!("**Finding:** `{}`\n", fid));
+        }
+    }
+    if let Some(desc) = artifact.get("description").and_then(|d| d.as_str()) {
+        if !desc.is_empty() {
+            output.push_str("\n");
+            output.push_str(desc);
+            output.push('\n');
+        }
+    }
+    if let Some(hash) = artifact.get("hash").and_then(|h| h.as_str()) {
+        if !hash.is_empty() {
+            output.push_str(&format!("**Hash:** `{}`\n", hash));
         }
     }
 

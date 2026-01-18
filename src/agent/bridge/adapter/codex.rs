@@ -253,6 +253,15 @@ impl CodexBridgeAdapter {
             }
         }
 
+        // Ensure the agent outputs a parseable summary for the GUI/chain (YAML footer template).
+        if let Some(schema) = &config.output_schema {
+            let schema = schema.trim();
+            if !schema.is_empty() {
+                prompt.push_str("\n\n## Output Requirements\n\n");
+                prompt.push_str(schema);
+            }
+        }
+
         prompt
     }
 

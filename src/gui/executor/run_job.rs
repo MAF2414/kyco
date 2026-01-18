@@ -581,6 +581,18 @@ pub async fn run_job(
         .get_agent_for_job(&job.agent_id, &job.skill)
         .unwrap_or_default();
 
+    // BugBounty relies on SDK structured output for reliable backend ingestion.
+    // Keep it enabled for BugBounty jobs even if the user cleared the global schema.
+    if bugbounty_project_id.is_some()
+        && agent_config
+            .structured_output_schema
+            .as_deref()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(true)
+    {
+        agent_config.structured_output_schema = Some(crate::config::default_structured_output_schema());
+    }
+
     // When using a worktree, automatically allow git commands for committing
     if is_in_worktree {
         let git_tools = [

@@ -93,29 +93,35 @@ STATE VALUES: issues_found, no_issues, fixed, unfixable, tests_pass, tests_fail,
 
 /// Default JSON Schema for SDK structured output (findings, memory, flow_edges, artifacts)
 pub fn default_structured_output_schema() -> String {
-    // Lenient schema - no required fields, no enum constraints, additionalProperties allowed
-    // Descriptions kept to guide the model
+    // Strict-enough schema to keep backend ingestion reliable:
+    // - Top-level keys are fixed (no accidental typos like flowEdges vs flow_edges)
+    // - Finding items require the security-audit contract fields when present
+    // - Memory items require (type, title), artifacts require (path)
     r#"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "description": "BugBounty security audit structured output",
-  "additionalProperties": true,
+  "description": "KYCo NextContext structured output for BugBounty jobs",
+  "additionalProperties": false,
   "properties": {
     "findings": {
       "type": "array",
       "description": "Security findings discovered during analysis",
+      "default": [],
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "required": ["title", "attack_scenario", "preconditions", "reachability", "impact", "confidence"],
         "properties": {
-          "id": { "type": "string", "description": "Finding ID (e.g., VULN-001)" },
-          "title": { "type": "string", "description": "Short descriptive title" },
-          "severity": { "type": "string", "description": "Severity: critical, high, medium, low, or info" },
-          "attack_scenario": { "type": "string", "description": "Step-by-step exploitation description" },
-          "preconditions": { "type": "string", "description": "Conditions required for exploitation" },
-          "reachability": { "type": "string", "description": "Who can reach: public, auth_required, or internal_only" },
-          "impact": { "type": "string", "description": "CIA triad and business impact" },
-          "confidence": { "type": "string", "description": "Confidence: high, medium, or low" },
+          "id": { "type": "string", "description": "Finding ID (e.g., <project>-VULN-001) if updating an existing finding" },
+          "title": { "type": "string", "minLength": 1, "description": "Short descriptive title" },
+          "severity": { "type": "string", "description": "critical|high|medium|low|info (or UNKNOWN - <reason>)" },
+          "attack_scenario": { "type": "string", "minLength": 1, "description": "How an attacker exploits this (or UNKNOWN - <reason>)" },
+          "preconditions": { "type": "string", "minLength": 1, "description": "What must be true for exploitation (or UNKNOWN - <reason>)" },
+          "reachability": { "type": "string", "minLength": 1, "description": "public|auth_required|internal_only (or UNKNOWN - <reason>)" },
+          "impact": { "type": "string", "minLength": 1, "description": "CIA impact + business impact (or UNKNOWN - <reason>)" },
+          "confidence": { "type": "string", "minLength": 1, "description": "high|medium|low (or UNKNOWN - <reason>)" },
           "cwe_id": { "type": "string", "description": "CWE identifier (e.g., CWE-89)" },
+          "cvss_score": { "type": "number", "description": "Optional CVSS score (e.g., 7.5)" },
           "affected_assets": { "type": "array", "items": { "type": "string" }, "description": "Affected files/endpoints" },
           "taint_path": { "type": "string", "description": "Data flow from source to sink" }
         }
@@ -124,40 +130,43 @@ pub fn default_structured_output_schema() -> String {
     "memory": {
       "type": "array",
       "description": "Project memory for tracking sources, sinks, dataflows across sessions",
+      "default": [],
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "required": ["type", "title"],
         "properties": {
-          "type": { "type": "string", "description": "Type: source, sink, dataflow, note, or context" },
-          "title": { "type": "string", "description": "Short description" },
+          "type": { "type": "string", "minLength": 1, "description": "source|sink|dataflow|note|context" },
+          "title": { "type": "string", "minLength": 1, "description": "Short description" },
           "content": { "type": "string", "description": "Detailed content or code snippet" },
           "file": { "type": "string", "description": "File path" },
-          "line": { "type": "integer", "description": "Line number" },
+          "line": { "type": "integer", "minimum": 1, "description": "Line number (1-based)" },
           "symbol": { "type": "string", "description": "Symbol name (function, variable)" },
-          "confidence": { "type": "string", "description": "Confidence: high, medium, or low" },
+          "confidence": { "type": "string", "description": "high|medium|low" },
           "tags": { "type": "array", "items": { "type": "string" }, "description": "Category tags" },
           "from_file": { "type": "string", "description": "Source file (for dataflow)" },
-          "from_line": { "type": "integer", "description": "Source line (for dataflow)" },
+          "from_line": { "type": "integer", "minimum": 1, "description": "Source line (for dataflow)" },
           "to_file": { "type": "string", "description": "Sink file (for dataflow)" },
-          "to_line": { "type": "integer", "description": "Sink line (for dataflow)" }
+          "to_line": { "type": "integer", "minimum": 1, "description": "Sink line (for dataflow)" }
         }
       }
     },
     "flow_edges": {
       "type": "array",
       "description": "Dataflow edges between code locations",
+      "default": [],
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
         "properties": {
-          "finding_id": { "type": "string", "description": "Associated finding ID" },
+          "finding_id": { "type": "string", "description": "Associated finding ID (optional)" },
           "from_file": { "type": "string", "description": "Source file path" },
-          "from_line": { "type": "integer", "description": "Source line number" },
+          "from_line": { "type": "integer", "minimum": 1, "description": "Source line number (1-based)" },
           "from_symbol": { "type": "string", "description": "Source symbol" },
           "to_file": { "type": "string", "description": "Destination file path" },
-          "to_line": { "type": "integer", "description": "Destination line number" },
+          "to_line": { "type": "integer", "minimum": 1, "description": "Destination line number (1-based)" },
           "to_symbol": { "type": "string", "description": "Destination symbol" },
-          "kind": { "type": "string", "description": "Edge type: taint, dataflow, controlflow, or authz" },
+          "kind": { "type": "string", "description": "taint|dataflow|controlflow|authz" },
           "notes": { "type": "string", "description": "Additional notes" }
         }
       }
@@ -165,15 +174,17 @@ pub fn default_structured_output_schema() -> String {
     "artifacts": {
       "type": "array",
       "description": "Evidence files (requests, screenshots, PoCs)",
+      "default": [],
       "items": {
         "type": "object",
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "required": ["path"],
         "properties": {
-          "finding_id": { "type": "string", "description": "Associated finding ID" },
-          "type": { "type": "string", "description": "Type: http_request, http_response, screenshot, log, poc_file, other" },
-          "path": { "type": "string", "description": "Path to artifact file" },
+          "finding_id": { "type": "string", "description": "Associated finding ID (optional)" },
+          "type": { "type": "string", "description": "http_request|http_response|screenshot|log|poc_file|other" },
+          "path": { "type": "string", "minLength": 1, "description": "Path to artifact file" },
           "description": { "type": "string", "description": "What this demonstrates" },
-          "hash": { "type": "string", "description": "SHA256 hash" }
+          "hash": { "type": "string", "description": "SHA256 hash (optional)" }
         }
       }
     },

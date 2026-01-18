@@ -57,11 +57,10 @@ impl JobResult {
             .unwrap_or(Cow::Borrowed(trimmed));
         let output = output.as_ref().trim();
 
-        // Try standard YAML markers first, then legacy ---kyco
-        if let Some(result) = Self::parse_yaml_block(output, "---") {
+        if let Some(result) = Self::parse_yaml_block(output, "---kyco") {
             return Some(result);
         }
-        if let Some(result) = Self::parse_yaml_block(output, "---kyco") {
+        if let Some(result) = Self::parse_yaml_block(output, "---") {
             return Some(result);
         }
 
@@ -140,30 +139,8 @@ impl JobResult {
         if has_structured { Some(result) } else { None }
     }
 
-    /// Parse a YAML block with a specific start marker
-    fn parse_yaml_block(output: &str, start_marker: &str) -> Option<Self> {
-        let end_marker = "---";
-
-        // Find the start marker
-        let start_idx = output.find(start_marker)?;
-        let content_start = start_idx + start_marker.len();
-
-        // Find the closing --- after the start marker
-        let remaining = &output[content_start..];
-
-        // For standard `---`, we need to find the NEXT `---` (not the same one)
-        // For `---kyco`, the next `---` is always the closing one
-        let end_idx = if start_marker == "---" {
-            // Skip whitespace and find next ---
-            remaining.trim_start().find(end_marker).map(|i| {
-                // Adjust for trimmed whitespace
-                remaining.len() - remaining.trim_start().len() + i
-            })?
-        } else {
-            remaining.find(end_marker)?
-        };
-
-        let yaml_content = remaining[..end_idx].trim();
+    fn parse_yaml_content(yaml_content: &str) -> Option<Self> {
+        let yaml_content = yaml_content.trim();
 
         if yaml_content.is_empty() || yaml_content.len() < 5 {
             return None;
@@ -192,11 +169,16 @@ impl JobResult {
                     }
                 }
 
-                if result.title.is_some()
-                    || result.status.is_some()
+                let has_structured = result.title.is_some()
                     || result.commit_subject.is_some()
                     || result.commit_body.is_some()
-                {
+                    || result.details.is_some()
+                    || result.status.is_some()
+                    || result.summary.is_some()
+                    || result.state.is_some()
+                    || result.next_context.is_some();
+
+                if has_structured {
                     return Some(result);
                 }
             }
@@ -224,15 +206,79 @@ impl JobResult {
             }
         }
 
-        if result.title.is_some()
-            || result.status.is_some()
+        let has_structured = result.title.is_some()
             || result.commit_subject.is_some()
             || result.commit_body.is_some()
-        {
-            Some(result)
-        } else {
-            None
+            || result.details.is_some()
+            || result.status.is_some()
+            || result.summary.is_some()
+            || result.state.is_some()
+            || result.next_context.is_some();
+
+        if has_structured { Some(result) } else { None }
+    }
+
+    /// Parse a YAML block with a specific start marker
+    fn parse_yaml_block(output: &str, start_marker: &str) -> Option<Self> {
+        let end_marker = "---";
+
+        // Prefer line-based markers to avoid matching markdown separators or code examples.
+        let lines: Vec<&str> = output.lines().collect();
+
+        if start_marker == "---kyco" {
+            // Find the last valid `---kyco` ... `---` block.
+            let start_lines: Vec<usize> = lines
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, line)| (line.trim() == start_marker).then_some(idx))
+                .collect();
+
+            for &start_line in start_lines.iter().rev() {
+                let mut end_line: Option<usize> = None;
+                for idx in (start_line + 1)..lines.len() {
+                    if lines[idx].trim() == end_marker {
+                        end_line = Some(idx);
+                        break;
+                    }
+                }
+                let Some(end_line) = end_line else { continue; };
+                let block = lines[(start_line + 1)..end_line].join("\n");
+                if let Some(result) = Self::parse_yaml_content(&block) {
+                    return Some(result);
+                }
+            }
+            return None;
         }
+
+        if start_marker == "---" {
+            // Find the last valid `---` ... `---` pair that parses as our JobResult mapping.
+            let marker_lines: Vec<usize> = lines
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, line)| (line.trim() == start_marker).then_some(idx))
+                .collect();
+
+            if marker_lines.len() < 2 {
+                return None;
+            }
+
+            // Try from the end to pick the summary block the agent was instructed to append last.
+            for pair_idx in (1..marker_lines.len()).rev() {
+                let start_line = marker_lines[pair_idx - 1];
+                let end_line = marker_lines[pair_idx];
+                if end_line <= start_line {
+                    continue;
+                }
+                let block = lines[(start_line + 1)..end_line].join("\n");
+                if let Some(result) = Self::parse_yaml_content(&block) {
+                    return Some(result);
+                }
+            }
+
+            return None;
+        };
+
+        None
     }
 }
 
@@ -273,5 +319,46 @@ state: blocked
         let result = JobResult::parse(&wrapped).expect("parse");
 
         assert_eq!(result.raw_text.as_deref(), Some("hello\nworld"));
+    }
+
+    #[test]
+    fn parse_picks_last_yaml_block_when_multiple_markers_exist() {
+        let output = r#"
+Some explanation
+
+---
+not: "the summary block"
+---
+
+More text
+
+---
+title: Final summary
+status: success
+state: tests_pass
+---
+"#;
+
+        let result = JobResult::parse(output).expect("parse");
+        assert_eq!(result.title.as_deref(), Some("Final summary"));
+        assert_eq!(result.status.as_deref(), Some("success"));
+        assert_eq!(result.state.as_deref(), Some("tests_pass"));
+    }
+
+    #[test]
+    fn parse_accepts_state_only_yaml_block() {
+        let output = r#"
+Done.
+
+---
+state: implemented
+summary: |
+  Implemented the feature.
+---
+"#;
+
+        let result = JobResult::parse(output).expect("parse");
+        assert_eq!(result.state.as_deref(), Some("implemented"));
+        assert!(result.title.is_none());
     }
 }

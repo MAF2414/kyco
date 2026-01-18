@@ -34,8 +34,8 @@ pub use skill_parser::{create_skill_template, parse_skill_content, parse_skill_f
 pub use skill_registry::{RegistrySkill, SkillRegistry};
 pub use lookup::SkillOrChainRef;
 pub use settings::{
-    default_orchestrator_system_prompt, GuiSettings, OrchestratorSettings, RegistrySettings,
-    Settings, VoiceSettings,
+    default_orchestrator_system_prompt, default_structured_output_schema, GuiSettings,
+    OrchestratorSettings, RegistrySettings, Settings, VoiceSettings,
 };
 pub use target::TargetConfig;
 pub use token::generate_http_token;

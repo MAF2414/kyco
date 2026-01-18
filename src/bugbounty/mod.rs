@@ -675,6 +675,7 @@ mod tests {
                 impact: Some("Impact".to_string()),
                 confidence: Some("high".to_string()),
                 cwe_id: Some("CWE-123".to_string()),
+                cvss_score: None,
                 affected_assets: vec!["src/main.rs:1".to_string()],
                 taint_path: Some("a -> b".to_string()),
             }],

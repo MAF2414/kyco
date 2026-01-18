@@ -347,30 +347,45 @@ impl ContextInjector {
 
     fn get_output_schema(&self) -> String {
         // Output format is enforced via JSON Schema (SDK structured output).
-        // This text provides semantic guidance for the agent.
-        r#"Your response will be validated against a JSON Schema. Include:
+        // This text provides semantic guidance for the agent to match the backend contract.
+        r#"Your response will be validated against a JSON Schema (SDK structured output). Return a JSON object with these top-level keys:
 
-**findings** - Security vulnerabilities found:
-- title (required): Short descriptive title
-- severity: critical, high, medium, low, or info
-- attack_scenario: How an attacker exploits this
-- preconditions: What must be true for exploitation
-- reachability: public, auth_required, or internal_only
-- impact: CIA impact + business impact
-- confidence: high, medium, or low
-- cwe_id: CWE identifier (e.g., CWE-89)
-- affected_assets: List of affected files/endpoints
-- taint_path: Data flow path (e.g., "user_input -> db.query()")
+**findings** (array) - security vulnerabilities discovered/updated.
+Required per finding (when you emit a finding):
+- title
+- attack_scenario
+- preconditions
+- reachability (public|auth_required|internal_only OR `UNKNOWN - <reason>`)
+- impact
+- confidence (high|medium|low OR `UNKNOWN - <reason>`)
+Optional:
+- id (include when updating an existing finding)
+- severity (critical|high|medium|low|info)
+- cwe_id, cvss_score, affected_assets[], taint_path
 
-**memory** - Track sources, sinks, and dataflow for project memory:
-- type (required): source, sink, dataflow, note, or context
-- title (required): Short description
-- file: File path
-- line: Line number
-- symbol: Function/variable name
-- confidence: high, medium, or low
-- tags: Category tags
-- from_file/from_line/to_file/to_line: For dataflow edges
+**flow_edges** (array) - cross-file trace edges (optional).
+- finding_id (optional)
+- from_file/from_line/from_symbol
+- to_file/to_line/to_symbol
+- kind (taint|dataflow|controlflow|authz)
+- notes
+
+**artifacts** (array) - evidence files (optional).
+Required:
+- path
+Optional:
+- finding_id, type, description, hash
+
+**memory** (array) - project memory (optional).
+Required:
+- type (source|sink|dataflow|note|context)
+- title
+Optional:
+- file, line, symbol, confidence, tags[]
+- from_file/from_line/to_file/to_line (for dataflow entries)
+
+Optional:
+- state, summary
 
 **Memory type guidance:**
 - source: User input entry points (request.body, argv, query params)

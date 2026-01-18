@@ -69,8 +69,7 @@ impl Config {
                 if !self.settings.gui.structured_output_schema.trim().is_empty() {
                     Some(self.settings.gui.structured_output_schema.clone())
                 } else {
-                    // Use default schema when not configured
-                    Some(super::settings::default_structured_output_schema())
+                    None
                 };
 
             let sdk_type = toml.sdk;
