@@ -723,16 +723,37 @@ pub async fn run_job(
             if bugbounty_project_id.is_some() {
                 // Preferred: use SDK structured_output (validated JSON from outputFormat)
                 if let Some(ref value) = structured_output {
+                    let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
+                        format!("SDK structured_output received: {} bytes", value.to_string().len())
+                    )));
                     bugbounty_next_context_value = Some(value.clone());
-                    if let Ok(ctx) = crate::bugbounty::NextContext::from_value(value.clone()) {
-                        if !ctx.is_empty() {
-                            bugbounty_ctx = Some(ctx);
+                    match crate::bugbounty::NextContext::from_value(value.clone()) {
+                        Ok(ctx) => {
+                            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
+                                format!("NextContext parsed: {} findings, {} memory", ctx.findings.len(), ctx.memory.len())
+                            )));
+                            if !ctx.is_empty() {
+                                bugbounty_ctx = Some(ctx);
+                            } else {
+                                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
+                                    "NextContext is empty (no findings/memory/flow_edges/artifacts)".to_string()
+                                )));
+                            }
+                        }
+                        Err(e) => {
+                            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
+                                format!("Failed to parse NextContext from structured_output: {}", e)
+                            )));
                         }
                     }
                     // Extract state from structured output
                     if let Some(state) = value.get("state").and_then(|s| s.as_str()) {
                         bugbounty_result_state = Some(state.to_string());
                     }
+                } else {
+                    let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
+                        "No SDK structured_output received from agent".to_string()
+                    )));
                 }
 
                 // Fallback 1: parse from text output (YAML --- blocks)
