@@ -93,88 +93,92 @@ STATE VALUES: issues_found, no_issues, fixed, unfixable, tests_pass, tests_fail,
 
 /// Default JSON Schema for SDK structured output (findings, memory, flow_edges, artifacts)
 pub fn default_structured_output_schema() -> String {
+    // Lenient schema - no required fields, no enum constraints, additionalProperties allowed
+    // Descriptions kept to guide the model
     r#"{
   "type": "object",
   "description": "BugBounty security audit structured output",
+  "additionalProperties": true,
   "properties": {
     "findings": {
       "type": "array",
       "description": "Security findings discovered during analysis",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
           "id": { "type": "string", "description": "Finding ID (e.g., VULN-001)" },
-          "title": { "type": "string", "description": "Short descriptive title (max 100 chars)" },
-          "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "info"], "description": "Severity rating based on CVSS-like impact" },
-          "attack_scenario": { "type": "string", "description": "Step-by-step description of how an attacker exploits this vulnerability" },
-          "preconditions": { "type": "string", "description": "What conditions must be true for successful exploitation (e.g., auth state, config)" },
-          "reachability": { "type": "string", "enum": ["public", "auth_required", "internal_only"], "description": "Who can reach this vulnerability: public (unauthenticated), auth_required (any authenticated user), internal_only (admin/internal)" },
-          "impact": { "type": "string", "description": "CIA triad impact (Confidentiality, Integrity, Availability) plus business impact" },
-          "confidence": { "type": "string", "enum": ["high", "medium", "low"], "description": "Confidence level: high (verified/PoC), medium (likely but unverified), low (theoretical)" },
-          "cwe_id": { "type": "string", "description": "CWE identifier (e.g., CWE-89 for SQL Injection)" },
-          "affected_assets": { "type": "array", "items": { "type": "string" }, "description": "List of affected files, endpoints, or components (e.g., '/api/login', 'src/auth.rs:42')" },
-          "taint_path": { "type": "string", "description": "Data flow path from source to sink (e.g., 'request.body.username -> sql.query()')" }
-        },
-        "required": ["title"]
+          "title": { "type": "string", "description": "Short descriptive title" },
+          "severity": { "type": "string", "description": "Severity: critical, high, medium, low, or info" },
+          "attack_scenario": { "type": "string", "description": "Step-by-step exploitation description" },
+          "preconditions": { "type": "string", "description": "Conditions required for exploitation" },
+          "reachability": { "type": "string", "description": "Who can reach: public, auth_required, or internal_only" },
+          "impact": { "type": "string", "description": "CIA triad and business impact" },
+          "confidence": { "type": "string", "description": "Confidence: high, medium, or low" },
+          "cwe_id": { "type": "string", "description": "CWE identifier (e.g., CWE-89)" },
+          "affected_assets": { "type": "array", "items": { "type": "string" }, "description": "Affected files/endpoints" },
+          "taint_path": { "type": "string", "description": "Data flow from source to sink" }
+        }
       }
     },
     "memory": {
       "type": "array",
-      "description": "Project memory entries for tracking sources, sinks, dataflow paths, and context across audit sessions",
+      "description": "Project memory for tracking sources, sinks, dataflows across sessions",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
-          "type": { "type": "string", "enum": ["source", "sink", "dataflow", "note", "context"], "description": "Memory type: source (user input entry), sink (dangerous operation), dataflow (taint path), note (observation), context (architecture knowledge)" },
-          "title": { "type": "string", "description": "Short description of this memory entry" },
-          "content": { "type": "string", "description": "Detailed content, explanation, or code snippet" },
-          "file": { "type": "string", "description": "File path where this was found" },
-          "line": { "type": "integer", "description": "Line number in file" },
-          "symbol": { "type": "string", "description": "Symbol name (function, method, variable)" },
-          "confidence": { "type": "string", "enum": ["high", "medium", "low"], "description": "Confidence level for this memory entry" },
-          "tags": { "type": "array", "items": { "type": "string" }, "description": "Category tags (e.g., 'http', 'sql', 'auth', 'crypto')" },
-          "from_file": { "type": "string", "description": "Source file path (for dataflow type)" },
-          "from_line": { "type": "integer", "description": "Source line number (for dataflow type)" },
-          "to_file": { "type": "string", "description": "Destination/sink file path (for dataflow type)" },
-          "to_line": { "type": "integer", "description": "Destination/sink line number (for dataflow type)" }
-        },
-        "required": ["type", "title"]
+          "type": { "type": "string", "description": "Type: source, sink, dataflow, note, or context" },
+          "title": { "type": "string", "description": "Short description" },
+          "content": { "type": "string", "description": "Detailed content or code snippet" },
+          "file": { "type": "string", "description": "File path" },
+          "line": { "type": "integer", "description": "Line number" },
+          "symbol": { "type": "string", "description": "Symbol name (function, variable)" },
+          "confidence": { "type": "string", "description": "Confidence: high, medium, or low" },
+          "tags": { "type": "array", "items": { "type": "string" }, "description": "Category tags" },
+          "from_file": { "type": "string", "description": "Source file (for dataflow)" },
+          "from_line": { "type": "integer", "description": "Source line (for dataflow)" },
+          "to_file": { "type": "string", "description": "Sink file (for dataflow)" },
+          "to_line": { "type": "integer", "description": "Sink line (for dataflow)" }
+        }
       }
     },
     "flow_edges": {
       "type": "array",
-      "description": "Dataflow/taint edges between specific code locations for visualization",
+      "description": "Dataflow edges between code locations",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
-          "finding_id": { "type": "string", "description": "Associated finding ID if this edge relates to a vulnerability" },
+          "finding_id": { "type": "string", "description": "Associated finding ID" },
           "from_file": { "type": "string", "description": "Source file path" },
           "from_line": { "type": "integer", "description": "Source line number" },
-          "from_symbol": { "type": "string", "description": "Source symbol (function, variable)" },
+          "from_symbol": { "type": "string", "description": "Source symbol" },
           "to_file": { "type": "string", "description": "Destination file path" },
           "to_line": { "type": "integer", "description": "Destination line number" },
           "to_symbol": { "type": "string", "description": "Destination symbol" },
-          "kind": { "type": "string", "enum": ["taint", "dataflow", "controlflow", "authz"], "description": "Edge type: taint (untrusted data), dataflow (any data), controlflow (execution path), authz (authorization check)" },
-          "notes": { "type": "string", "description": "Additional notes about this edge" }
+          "kind": { "type": "string", "description": "Edge type: taint, dataflow, controlflow, or authz" },
+          "notes": { "type": "string", "description": "Additional notes" }
         }
       }
     },
     "artifacts": {
       "type": "array",
-      "description": "Evidence files such as HTTP requests/responses, screenshots, PoC code, or logs",
+      "description": "Evidence files (requests, screenshots, PoCs)",
       "items": {
         "type": "object",
+        "additionalProperties": true,
         "properties": {
           "finding_id": { "type": "string", "description": "Associated finding ID" },
-          "type": { "type": "string", "enum": ["http_request", "http_response", "screenshot", "log", "poc_file", "other"], "description": "Type of artifact" },
+          "type": { "type": "string", "description": "Type: http_request, http_response, screenshot, log, poc_file, other" },
           "path": { "type": "string", "description": "Path to artifact file" },
-          "description": { "type": "string", "description": "What this artifact demonstrates" },
-          "hash": { "type": "string", "description": "Content hash for deduplication (SHA256)" }
-        },
-        "required": ["path"]
+          "description": { "type": "string", "description": "What this demonstrates" },
+          "hash": { "type": "string", "description": "SHA256 hash" }
+        }
       }
     },
-    "state": { "type": "string", "description": "State identifier for chain control flow (e.g., 'issues_found', 'no_issues', 'fixed', 'tests_pass')" },
-    "summary": { "type": "string", "description": "Human-readable summary of findings and actions, also passed to next agent in chain" }
+    "state": { "type": "string", "description": "State for chain control (e.g., issues_found, no_issues)" },
+    "summary": { "type": "string", "description": "Human-readable summary" }
   }
 }"#
     .to_string()
