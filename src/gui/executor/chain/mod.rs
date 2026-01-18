@@ -517,25 +517,26 @@ pub async fn run_chain_job(
                     ctx = NextContext::extract_from_text(output);
                 }
 
-                let enforce_contract =
+                // Check contract but don't fail - structured output is optional
+                let check_contract =
                     is_bugbounty_security_skill(step.skill.as_ref()) || !job.bugbounty_finding_ids.is_empty();
-                if enforce_contract {
+                if check_contract {
                     match ctx.as_ref() {
                         Some(parsed) => {
                             if let Err(err) = parsed.validate_security_audit() {
-                                bugbounty_contract_error = Some(format!(
-                                    "BugBounty output contract violated in step '{}': {}",
+                                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+                                    "BugBounty output in step '{}': {}",
                                     step.skill, err
-                                ));
-                                continue;
+                                ))));
+                                // Don't fail - just log warning
                             }
                         }
                         None => {
-                            bugbounty_contract_error = Some(format!(
-                                "BugBounty output contract violated in step '{}': missing next_context block",
+                            // No structured output - that's okay for now
+                            let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(format!(
+                                "BugBounty: no structured output in step '{}'",
                                 step.skill
-                            ));
-                            continue;
+                            ))));
                         }
                     }
                 }

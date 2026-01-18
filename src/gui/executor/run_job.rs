@@ -746,28 +746,26 @@ pub async fn run_job(
                 }
             }
 
-            // Strict output contract enforcement (security-audit profile).
+            // Output contract check (security-audit profile).
             // Only enabled for explicit security skills (or when the user linked a finding).
-            let enforce_bugbounty_contract = bugbounty_project_id.is_some()
+            // Now just warns instead of failing - structured output is optional.
+            let check_bugbounty_contract = bugbounty_project_id.is_some()
                 && (is_bugbounty_security_skill(&job.skill) || !job.bugbounty_finding_ids.is_empty());
-            if enforce_bugbounty_contract && result.success {
+            if check_bugbounty_contract && result.success {
                 match bugbounty_ctx.as_ref() {
                     Some(ctx) => {
                         if let Err(err) = ctx.validate_security_audit() {
-                            let msg = format!("BugBounty output contract violated: {}", err);
+                            let msg = format!("BugBounty output: {}", err);
                             let _ = event_tx
-                                .send(ExecutorEvent::Log(LogEvent::error(msg.clone())));
-                            result.success = false;
-                            result.error = Some(msg);
-                            bugbounty_ctx = None;
+                                .send(ExecutorEvent::Log(LogEvent::system(msg)));
+                            // Don't fail - just log warning
                         }
                     }
                     None => {
-                        let msg =
-                            "BugBounty output contract violated: missing next_context block".to_string();
-                        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(msg.clone())));
-                        result.success = false;
-                        result.error = Some(msg);
+                        // No structured output - that's okay, just log it
+                        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
+                            "BugBounty: no structured output (next_context) found".to_string()
+                        )));
                     }
                 }
             }
