@@ -232,6 +232,7 @@ impl AgentRunner for TerminalAdapter {
             duration_ms: None,
             sent_prompt: Some(prompt.clone()),
             output_text: None,
+            structured_output: None,
             session_id: None, // Terminal mode doesn't support session continuation
         })
     }

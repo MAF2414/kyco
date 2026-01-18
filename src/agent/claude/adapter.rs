@@ -252,6 +252,7 @@ impl AgentRunner for ClaudeAdapter {
             duration_ms: None,
             sent_prompt: Some(prompt.clone()),
             output_text: None,
+            structured_output: None,
             session_id: job.bridge_session_id.clone(),
         };
 

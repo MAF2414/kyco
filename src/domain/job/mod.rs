@@ -195,4 +195,9 @@ pub struct Job {
     /// BugBounty finding IDs explicitly linked to this job (e.g., verification/triage runs)
     #[serde(default)]
     pub bugbounty_finding_ids: Vec<String>,
+
+    /// SDK Structured Output (validated JSON from json_schema outputFormat)
+    /// Used for displaying findings, memory, and other structured data
+    #[serde(default)]
+    pub structured_output: Option<serde_json::Value>,
 }

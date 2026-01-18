@@ -65,6 +65,7 @@ impl Job {
             chain_name: None,
             bugbounty_project_id: None,
             bugbounty_finding_ids: Vec::new(),
+            structured_output: None,
         }
     }
 

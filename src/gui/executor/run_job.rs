@@ -716,27 +716,51 @@ pub async fn run_job(
             let mut bugbounty_next_context_value: Option<serde_json::Value> = None;
             let mut bugbounty_result_state: Option<String> = None;
 
-            // Extract structured next_context for BugBounty ingestion without cloning the full output.
+            // Extract structured next_context for BugBounty ingestion.
             let mut output_text = result.output_text.take();
+            let structured_output = result.structured_output.take();
+
             if bugbounty_project_id.is_some() {
-                if let Some(ref output) = output_text {
-                    // Preferred: use the parsed job result's `next_context` (supports nested YAML under ---).
-                    if let Some(job_result) = crate::JobResult::parse(output) {
-                        bugbounty_result_state = job_result.state.clone();
-                        if let Some(ref value) = job_result.next_context {
-                            bugbounty_next_context_value = Some(value.clone());
+                // Preferred: use SDK structured_output (validated JSON from outputFormat)
+                if let Some(ref value) = structured_output {
+                    bugbounty_next_context_value = Some(value.clone());
+                    if let Ok(ctx) = crate::bugbounty::NextContext::from_value(value.clone()) {
+                        if !ctx.is_empty() {
+                            bugbounty_ctx = Some(ctx);
                         }
-                        if let Some(value) = job_result.next_context {
-                            if let Ok(ctx) = crate::bugbounty::NextContext::from_value(value) {
-                                if !ctx.is_empty() {
-                                    bugbounty_ctx = Some(ctx);
+                    }
+                    // Extract state from structured output
+                    if let Some(state) = value.get("state").and_then(|s| s.as_str()) {
+                        bugbounty_result_state = Some(state.to_string());
+                    }
+                }
+
+                // Fallback 1: parse from text output (YAML --- blocks)
+                if bugbounty_ctx.is_none() {
+                    if let Some(ref output) = output_text {
+                        if let Some(job_result) = crate::JobResult::parse(output) {
+                            if bugbounty_result_state.is_none() {
+                                bugbounty_result_state = job_result.state.clone();
+                            }
+                            if bugbounty_next_context_value.is_none() {
+                                if let Some(ref value) = job_result.next_context {
+                                    bugbounty_next_context_value = Some(value.clone());
+                                }
+                            }
+                            if let Some(value) = job_result.next_context {
+                                if let Ok(ctx) = crate::bugbounty::NextContext::from_value(value) {
+                                    if !ctx.is_empty() {
+                                        bugbounty_ctx = Some(ctx);
+                                    }
                                 }
                             }
                         }
                     }
+                }
 
-                    // Fallback: accept standalone next_context blocks (json/yaml) in the raw output.
-                    if bugbounty_ctx.is_none() {
+                // Fallback 2: extract standalone next_context blocks from raw output
+                if bugbounty_ctx.is_none() {
+                    if let Some(ref output) = output_text {
                         if let Some(ctx) = crate::bugbounty::NextContext::extract_from_text(output) {
                             if !ctx.is_empty() {
                                 bugbounty_ctx = Some(ctx);
@@ -748,26 +772,31 @@ pub async fn run_job(
 
             // Output contract check (security-audit profile).
             // Only enabled for explicit security skills (or when the user linked a finding).
-            // Now just warns instead of failing - structured output is optional.
+            // Structured output is REQUIRED for security skills, but fields within can be null/empty.
+            let mut bugbounty_contract_error: Option<String> = None;
             let check_bugbounty_contract = bugbounty_project_id.is_some()
                 && (is_bugbounty_security_skill(&job.skill) || !job.bugbounty_finding_ids.is_empty());
             if check_bugbounty_contract && result.success {
                 match bugbounty_ctx.as_ref() {
                     Some(ctx) => {
+                        // Validate structure (nullable fields are OK via NextContext parsing)
                         if let Err(err) = ctx.validate_security_audit() {
-                            let msg = format!("BugBounty output: {}", err);
-                            let _ = event_tx
-                                .send(ExecutorEvent::Log(LogEvent::system(msg)));
-                            // Don't fail - just log warning
+                            bugbounty_contract_error = Some(format!("BugBounty output contract violated: {}", err));
                         }
                     }
                     None => {
-                        // No structured output - that's okay, just log it
-                        let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
-                            "BugBounty: no structured output (next_context) found".to_string()
-                        )));
+                        // No structured output at all - this is an error
+                        bugbounty_contract_error = Some(
+                            "BugBounty output contract violated: missing structured output (next_context)".to_string()
+                        );
                     }
                 }
+            }
+            // Log and apply contract error
+            if let Some(ref err_msg) = bugbounty_contract_error {
+                let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(err_msg.clone())));
+                result.success = false;
+                result.error = Some(err_msg.clone());
             }
 
             {
@@ -798,6 +827,9 @@ pub async fn run_job(
 
                     // Move session_id instead of cloning
                     j.bridge_session_id = result.session_id.take();
+
+                    // Store SDK structured output for display formatting
+                    j.structured_output = structured_output.clone();
 
                     // Restore worktree path so continuation jobs can reuse it
                     // (it was taken earlier with .take() to avoid cloning)

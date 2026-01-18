@@ -305,7 +305,7 @@ impl AgentRunner for CodexBridgeAdapter {
         let mut result = AgentResult {
             success: false, error: None, changed_files: Vec::new(), cost_usd: None,
             input_tokens: None, output_tokens: None, cache_read_tokens: None, cache_write_tokens: None,
-            duration_ms: None, sent_prompt: Some(prompt), output_text: None, session_id: None,
+            duration_ms: None, sent_prompt: Some(prompt), output_text: None, structured_output: None, session_id: None,
         };
 
         let mut output_text = String::new();
@@ -478,6 +478,9 @@ impl AgentRunner for CodexBridgeAdapter {
         }
 
         if !output_text.is_empty() { result.output_text = Some(output_text); }
+        // Keep structured_output as JSON for direct use
+        result.structured_output = structured_result.clone();
+        // Also extract as text fallback
         extract_output_from_result(&mut result.output_text, structured_result);
         result.session_id = captured_session_id.or_else(|| job.bridge_session_id.clone());
 

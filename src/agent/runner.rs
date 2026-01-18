@@ -87,6 +87,12 @@ pub struct AgentResult {
     /// job result metadata (title, status, summary, state).
     pub output_text: Option<String>,
 
+    /// SDK Structured Output (validated JSON from json_schema outputFormat).
+    ///
+    /// When the agent is configured with a JSON Schema via `structured_output_schema`,
+    /// the SDK returns validated JSON in this field. Used for BugBounty findings/memory.
+    pub structured_output: Option<serde_json::Value>,
+
     /// Session ID from the Bridge for session continuation.
     ///
     /// For session-mode jobs, this ID can be used to send follow-up prompts
