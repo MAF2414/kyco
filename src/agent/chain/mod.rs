@@ -67,13 +67,25 @@ fn apply_bugbounty_tooling_policy(step_job: &Job, work_dir: &Path, agent_config:
     };
 
     // BugBounty relies on SDK structured output for reliable backend ingestion.
-    if agent_config
+    let mut structured_schema_valid = agent_config
         .structured_output_schema
         .as_deref()
-        .map(|s| s.trim().is_empty())
-        .unwrap_or(true)
-    {
+        .is_some_and(|schema| {
+            let schema = schema.trim();
+            !schema.is_empty()
+                && schema.starts_with('{')
+                && serde_json::from_str::<serde_json::Value>(schema)
+                    .ok()
+                    .is_some_and(|v| v.is_object())
+        });
+    if !structured_schema_valid {
         agent_config.structured_output_schema = Some(crate::config::default_structured_output_schema());
+        structured_schema_valid = true;
+    }
+    // Avoid conflicting output formats: when SDK structured output is enabled, do not also require
+    // the YAML footer (it can cause invalid JSON and drop structuredOutput).
+    if structured_schema_valid {
+        agent_config.output_schema = None;
     }
 
     let Ok(bb) = BugBountyManager::new() else {

@@ -354,6 +354,16 @@ impl NextContext {
             && self.flow_edges.is_empty()
             && self.artifacts.is_empty()
             && self.memory.is_empty()
+            && self
+                .state
+                .as_deref()
+                .map(str::trim)
+                .map_or(true, |s| s.is_empty())
+            && self
+                .summary
+                .as_deref()
+                .map(str::trim)
+                .map_or(true, |s| s.is_empty())
     }
 
     /// Validate the "security-audit" output contract (strict).

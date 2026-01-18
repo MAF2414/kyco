@@ -59,18 +59,40 @@ impl Config {
                 );
             }
 
-            let output_schema = if !self.settings.gui.output_schema.trim().is_empty() {
+            // Structured output (JSON Schema) and the YAML footer are mutually exclusive:
+            // - If JSON Schema is enabled, the model should output JSON only (SDK structured output).
+            // - If JSON Schema is empty/invalid, fall back to YAML footer parsing for the GUI.
+            let structured_output_schema = {
+                let raw = self.settings.gui.structured_output_schema.trim();
+                if raw.is_empty() {
+                    None
+                } else {
+                    match serde_json::from_str::<serde_json::Value>(raw) {
+                        Ok(v) if v.is_object() => Some(self.settings.gui.structured_output_schema.clone()),
+                        Ok(_) => {
+                            tracing::warn!(
+                                "Ignoring settings.gui.structured_output_schema: must be a JSON object"
+                            );
+                            None
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                "Ignoring settings.gui.structured_output_schema: invalid JSON ({})",
+                                err
+                            );
+                            None
+                        }
+                    }
+                }
+            };
+
+            let output_schema = if structured_output_schema.is_none()
+                && !self.settings.gui.output_schema.trim().is_empty()
+            {
                 Some(self.settings.gui.output_schema.clone())
             } else {
                 None
             };
-
-            let structured_output_schema =
-                if !self.settings.gui.structured_output_schema.trim().is_empty() {
-                    Some(self.settings.gui.structured_output_schema.clone())
-                } else {
-                    None
-                };
 
             let sdk_type = toml.sdk;
             let permission_mode = toml.permission_mode.clone().unwrap_or_default();

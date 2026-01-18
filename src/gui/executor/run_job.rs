@@ -44,6 +44,16 @@ fn is_bugbounty_security_skill(skill: &str) -> bool {
     )
 }
 
+fn is_valid_json_schema_object(schema: &str) -> bool {
+    let schema = schema.trim();
+    if schema.is_empty() || !schema.starts_with('{') {
+        return false;
+    }
+    serde_json::from_str::<serde_json::Value>(schema)
+        .ok()
+        .is_some_and(|v| v.is_object())
+}
+
 /// Run a single job (non-chain)
 pub async fn run_job(
     work_dir: &PathBuf,
@@ -582,15 +592,21 @@ pub async fn run_job(
         .unwrap_or_default();
 
     // BugBounty relies on SDK structured output for reliable backend ingestion.
-    // Keep it enabled for BugBounty jobs even if the user cleared the global schema.
-    if bugbounty_project_id.is_some()
-        && agent_config
-            .structured_output_schema
-            .as_deref()
-            .map(|s| s.trim().is_empty())
-            .unwrap_or(true)
-    {
-        agent_config.structured_output_schema = Some(crate::config::default_structured_output_schema());
+    // Keep it enabled for BugBounty jobs even if the user cleared the global schema
+    // (or configured an invalid schema).
+    let mut structured_schema_valid = agent_config
+        .structured_output_schema
+        .as_deref()
+        .is_some_and(is_valid_json_schema_object);
+    if bugbounty_project_id.is_some() && !structured_schema_valid {
+        agent_config.structured_output_schema =
+            Some(crate::config::default_structured_output_schema());
+        structured_schema_valid = true;
+    }
+    // Avoid conflicting output formats: when SDK structured output is enabled, do not also require
+    // the YAML footer (it can cause invalid JSON and drop structuredOutput).
+    if bugbounty_project_id.is_some() && structured_schema_valid {
+        agent_config.output_schema = None;
     }
 
     // When using a worktree, automatically allow git commands for committing
@@ -744,13 +760,15 @@ pub async fn run_job(
                             let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
                                 format!("NextContext parsed: {} findings, {} memory", ctx.findings.len(), ctx.memory.len())
                             )));
-                            if !ctx.is_empty() {
-                                bugbounty_ctx = Some(ctx);
-                            } else {
+                            if ctx.is_empty() {
                                 let _ = event_tx.send(ExecutorEvent::Log(LogEvent::system(
-                                    "NextContext is empty (no findings/memory/flow_edges/artifacts)".to_string()
+                                    "NextContext is empty (no findings/memory/flow_edges/artifacts/state/summary)"
+                                        .to_string(),
                                 )));
                             }
+                            // For BugBounty contract enforcement, an empty NextContext is still a valid
+                            // structured output response (e.g., "no_issues").
+                            bugbounty_ctx = Some(ctx);
                         }
                         Err(e) => {
                             let _ = event_tx.send(ExecutorEvent::Log(LogEvent::error(
@@ -782,9 +800,7 @@ pub async fn run_job(
                             }
                             if let Some(value) = job_result.next_context {
                                 if let Ok(ctx) = crate::bugbounty::NextContext::from_value(value) {
-                                    if !ctx.is_empty() {
-                                        bugbounty_ctx = Some(ctx);
-                                    }
+                                    bugbounty_ctx = Some(ctx);
                                 }
                             }
                         }
