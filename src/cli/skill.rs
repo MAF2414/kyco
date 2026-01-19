@@ -339,14 +339,8 @@ pub fn skill_search_command(query: &str, limit: usize, json: bool) -> Result<()>
                     skill.author, skill.name, stars, marketplace
                 );
                 if !skill.description.is_empty() {
-                    // Truncate description to first line, max 80 chars
-                    let desc = skill.description.lines().next().unwrap_or("");
-                    let desc = if desc.len() > 80 {
-                        format!("{}...", &desc[..77])
-                    } else {
-                        desc.to_string()
-                    };
-                    println!("    {}", desc);
+                    // Truncate description to first line, max 80 chars (UTF-8 safe)
+                    println!("    {}", truncate_description(&skill.description, 80));
                 }
                 println!();
             }
@@ -521,11 +515,25 @@ fn download_skill_content(url: &str) -> Result<String> {
 /// Truncate description for display
 fn truncate_description(desc: &str, max_len: usize) -> String {
     let first_line = desc.lines().next().unwrap_or(desc);
-    if first_line.len() <= max_len {
-        first_line.to_string()
-    } else {
-        format!("{}...", &first_line[..max_len - 3])
+    truncate_chars(first_line, max_len)
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
     }
+
+    let count = s.chars().count();
+    if count <= max_chars {
+        return s.to_string();
+    }
+
+    if max_chars <= 3 {
+        return s.chars().take(max_chars).collect();
+    }
+
+    let truncated: String = s.chars().take(max_chars - 3).collect();
+    format!("{}...", truncated)
 }
 
 /// Sanitize skill name for use as directory name
@@ -672,5 +680,14 @@ mod tests {
 
         // Verify it's gone (entire directory)
         assert!(!skill_dir.exists(), "Skill directory should be deleted");
+    }
+
+    #[test]
+    fn test_truncate_description_utf8_safe() {
+        // Contains multibyte characters (Korean).
+        let s = "dotnet CLI를 사용하여 .NET 솔루션/프로젝트를 빌드합니다. 컴파일, 종속성 복원 또는 아티팩트 빌드 작업 시 사용합니다.";
+        let truncated = truncate_description(s, 80);
+        assert!(!truncated.is_empty());
+        assert!(truncated.chars().count() <= 80);
     }
 }

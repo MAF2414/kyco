@@ -55,9 +55,13 @@ pub struct RegistrySkill {
 impl RegistrySkill {
     /// Get the raw GitHub URL for downloading the SKILL.md content
     pub fn raw_skill_url(&self) -> Option<String> {
-        // Convert: https://github.com/author/repo/tree/branch/path/to/skill
-        // To:      https://raw.githubusercontent.com/author/repo/branch/path/to/skill/SKILL.md
-        let url = &self.github_url;
+        // Convert:
+        // - https://github.com/author/repo/tree/branch/path/to/skill
+        // - https://github.com/author/repo
+        // To:
+        // - https://raw.githubusercontent.com/author/repo/branch/path/to/skill/SKILL.md
+        // - https://raw.githubusercontent.com/author/repo/branch/SKILL.md
+        let url = self.github_url.trim_end_matches('/');
         if !url.starts_with("https://github.com/") {
             return None;
         }
@@ -66,24 +70,31 @@ impl RegistrySkill {
         let path = url.strip_prefix("https://github.com/")?;
         let parts: Vec<&str> = path.split('/').collect();
 
-        if parts.len() < 4 {
+        if parts.len() < 2 {
             return None;
         }
 
         let owner = parts[0];
         let repo = parts[1];
-        // parts[2] should be "tree"
-        let branch = if parts.len() > 3 { parts[3] } else { &self.branch };
-        let skill_path = if parts.len() > 4 {
+        let is_tree_url = parts.len() >= 4 && parts[2] == "tree";
+        let branch: &str = if is_tree_url {
+            parts[3]
+        } else {
+            self.branch.as_str()
+        };
+
+        let skill_dir_path = if is_tree_url && parts.len() > 4 {
             parts[4..].join("/")
         } else {
             String::new()
         };
 
-        let skill_md_path = if self.path.is_empty() || self.path == "SKILL.md" {
-            format!("{}/SKILL.md", skill_path)
+        let skill_md_path = if skill_dir_path.is_empty() {
+            self.path.clone()
+        } else if self.path.is_empty() || self.path == "SKILL.md" {
+            format!("{}/SKILL.md", skill_dir_path)
         } else {
-            format!("{}/{}", skill_path, self.path)
+            format!("{}/{}", skill_dir_path, self.path)
         };
 
         Some(format!(
@@ -341,11 +352,25 @@ impl SkillRegistry {
 fn truncate_description(desc: &str, max_len: usize) -> String {
     // Take first line only
     let first_line = desc.lines().next().unwrap_or(desc);
-    if first_line.len() <= max_len {
-        first_line.to_string()
-    } else {
-        format!("{}...", &first_line[..max_len - 3])
+    truncate_chars(first_line, max_len)
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
     }
+
+    let count = s.chars().count();
+    if count <= max_chars {
+        return s.to_string();
+    }
+
+    if max_chars <= 3 {
+        return s.chars().take(max_chars).collect();
+    }
+
+    let truncated: String = s.chars().take(max_chars - 3).collect();
+    format!("{}...", truncated)
 }
 
 #[cfg(test)]
@@ -389,6 +414,30 @@ mod tests {
         assert_eq!(
             url,
             "https://raw.githubusercontent.com/testauthor/repo/main/skills/test-skill/SKILL.md"
+        );
+    }
+
+    #[test]
+    fn test_raw_skill_url_repo_root() {
+        let skill = RegistrySkill {
+            id: "test".to_string(),
+            name: "test-skill".to_string(),
+            author: "testauthor".to_string(),
+            author_avatar: String::new(),
+            description: "Test".to_string(),
+            github_url: "https://github.com/testauthor/repo".to_string(),
+            stars: 0,
+            forks: 0,
+            updated_at: 0,
+            has_marketplace: false,
+            path: "SKILL.md".to_string(),
+            branch: "main".to_string(),
+        };
+
+        let url = skill.raw_skill_url().unwrap();
+        assert_eq!(
+            url,
+            "https://raw.githubusercontent.com/testauthor/repo/main/SKILL.md"
         );
     }
 
