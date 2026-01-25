@@ -80,6 +80,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: MemoryCommands,
     },
+
+    /// Manage agent sessions (Claude/Codex)
+    Session {
+        #[command(subcommand)]
+        command: SessionCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -162,6 +168,18 @@ pub enum JobCommands {
         /// Print JSON response
         #[arg(long)]
         json: bool,
+        /// Continue from existing session ID (Claude) or thread ID (Codex)
+        #[arg(long, short = 's')]
+        session: Option<String>,
+        /// Fork the session instead of continuing it (Claude only)
+        #[arg(long)]
+        fork: bool,
+        /// Enable plan mode (read-only exploration, no execution) - Claude only
+        #[arg(long, short = 'P')]
+        plan: bool,
+        /// Permission mode: default, acceptEdits, bypassPermissions, plan
+        #[arg(long, value_name = "MODE")]
+        permission_mode: Option<String>,
     },
     /// Queue a job (set status=queued)
     Queue { job_id: u64 },
@@ -188,6 +206,12 @@ pub enum JobCommands {
         /// Print JSON response
         #[arg(long)]
         json: bool,
+        /// Fork the session instead of continuing it (creates a branch)
+        #[arg(long)]
+        fork: bool,
+        /// Enable plan mode for this continuation (Claude only)
+        #[arg(long, short = 'P')]
+        plan: bool,
     },
     /// Wait until a job reaches a terminal state
     Wait {
@@ -957,5 +981,29 @@ pub enum MemoryCommands {
         /// Project ID
         #[arg(long)]
         project: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SessionCommands {
+    /// List stored sessions from the SDK Bridge
+    List {
+        /// Filter by type (claude, codex)
+        #[arg(long, short = 't')]
+        r#type: Option<String>,
+        /// Limit number of results
+        #[arg(long, short = 'n')]
+        limit: Option<usize>,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show details of a session
+    Show {
+        /// Session ID
+        session_id: String,
+        /// Print JSON output
+        #[arg(long)]
+        json: bool,
     },
 }

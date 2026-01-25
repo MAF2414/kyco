@@ -253,16 +253,40 @@ pub fn handle_control_job_create(
         return;
     };
 
+    // Apply session continuation and permission mode fields
+    let has_session_fields = req.session_id.as_deref().is_some_and(|s| !s.trim().is_empty())
+        || req.fork_session
+        || req.permission_mode.as_deref().is_some_and(|s| !s.trim().is_empty());
+
     // Apply optional BugBounty metadata to created jobs (for prompt injection + linking).
-    if req.bugbounty_project_id.as_deref().is_some_and(|s| !s.trim().is_empty())
+    let has_bugbounty_fields = req.bugbounty_project_id.as_deref().is_some_and(|s| !s.trim().is_empty())
         || req
             .bugbounty_finding_ids
             .as_ref()
-            .is_some_and(|v| v.iter().any(|s| !s.trim().is_empty()))
-    {
+            .is_some_and(|v| v.iter().any(|s| !s.trim().is_empty()));
+
+    if has_session_fields || has_bugbounty_fields {
         if let Ok(mut manager) = control.job_manager.lock() {
             for job_id in &created.job_ids {
                 if let Some(job) = manager.get_mut(*job_id) {
+                    // Session continuation fields
+                    if let Some(ref session_id) = req.session_id {
+                        let trimmed = session_id.trim();
+                        if !trimmed.is_empty() {
+                            job.bridge_session_id = Some(trimmed.to_string());
+                        }
+                    }
+                    if req.fork_session {
+                        job.fork_session = true;
+                    }
+                    if let Some(ref permission_mode) = req.permission_mode {
+                        let trimmed = permission_mode.trim();
+                        if !trimmed.is_empty() {
+                            job.permission_mode = Some(trimmed.to_string());
+                        }
+                    }
+
+                    // BugBounty fields
                     if let Some(ref project_id) = req.bugbounty_project_id {
                         let trimmed = project_id.trim();
                         if !trimmed.is_empty() {

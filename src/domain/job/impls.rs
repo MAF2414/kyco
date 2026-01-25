@@ -57,6 +57,8 @@ impl Job {
             force_worktree: false,
             is_repl: false,
             bridge_session_id: None,
+            fork_session: false,
+            permission_mode: None,
             blocked_by: None,
             blocked_file: None,
             chain_step_history: Vec::new(),

@@ -238,13 +238,18 @@ impl ClaudeBridgeAdapter {
             if m.is_empty() { None } else { Some(m.clone()) }
         }
 
+        // Job-level permission_mode overrides config
+        let effective_permission_mode = job.permission_mode
+            .as_deref()
+            .unwrap_or(&config.permission_mode);
+
         ClaudeQueryRequest {
             prompt,
             images: None,
             cwd,
             session_id: job.bridge_session_id.clone(),
-            fork_session: None,
-            permission_mode: Some(parse_claude_permission_mode(&config.permission_mode)),
+            fork_session: if job.fork_session { Some(true) } else { None },
+            permission_mode: Some(parse_claude_permission_mode(effective_permission_mode)),
             agents: clone_map_if_non_empty(&config.agents),
             allowed_tools: clone_if_non_empty(&config.allowed_tools),
             disallowed_tools: clone_if_non_empty(&config.disallowed_tools),

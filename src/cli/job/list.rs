@@ -177,7 +177,7 @@ pub fn job_list_command(
             "  #{} [{}] {} - {}{}",
             job.id, job.status, job.skill, job.target, project_suffix
         );
-        if let Some(desc) = job.description {
+        if let Some(desc) = &job.description {
             if !desc.trim().is_empty() {
                 let truncated = if desc.chars().count() > 100 {
                     let truncate_at = desc
@@ -187,13 +187,22 @@ pub fn job_list_command(
                         .unwrap_or(desc.len());
                     format!("{}...", &desc[..truncate_at])
                 } else {
-                    desc
+                    desc.clone()
                 };
                 println!("    {}", truncated.trim());
             }
         }
-        if let Some(err) = job.error_message {
+        if let Some(err) = &job.error_message {
             println!("    Error: {}", err);
+        }
+        // Show session ID for session continuation
+        if let Some(session_id) = &job.bridge_session_id {
+            let short_id = if session_id.len() > 20 {
+                format!("{}...", &session_id[..17])
+            } else {
+                session_id.clone()
+            };
+            println!("    Session: {}", short_id);
         }
         println!();
     }

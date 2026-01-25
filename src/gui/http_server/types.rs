@@ -116,6 +116,15 @@ pub struct ControlJobCreateRequest {
     /// If true, force running in a git worktree (like Shift+Enter in UI).
     #[serde(default)]
     pub force_worktree: bool,
+    /// Session ID to continue (Claude sessionId or Codex threadId).
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// Fork the session instead of continuing it (Claude only).
+    #[serde(default)]
+    pub fork_session: bool,
+    /// Permission mode override (default, acceptEdits, bypassPermissions, plan).
+    #[serde(default)]
+    pub permission_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,6 +143,12 @@ pub struct ControlJobContinueRequest {
     pub prompt: String,
     #[serde(default = "default_true")]
     pub queue: bool,
+    /// Fork the session instead of continuing it (creates a branch).
+    #[serde(default)]
+    pub fork_session: bool,
+    /// Enable plan mode for this continuation (Claude only).
+    #[serde(default)]
+    pub plan_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

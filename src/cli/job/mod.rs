@@ -294,13 +294,21 @@ pub fn job_get_command(
 
     let job = parsed.job;
     println!("#{} [{}] {} - {}", job.id, job.status, job.skill, job.target);
-    if let Some(desc) = job.description {
+    if let Some(desc) = &job.description {
         if !desc.trim().is_empty() {
             println!("{}", desc.trim());
         }
     }
-    if let Some(err) = job.error_message {
+    if let Some(err) = &job.error_message {
         println!("Error: {}", err);
+    }
+    // Show session ID for session continuation
+    if let Some(session_id) = &job.bridge_session_id {
+        println!("Session: {}", session_id);
+    }
+    // Show permission mode if overridden
+    if let Some(mode) = &job.permission_mode {
+        println!("Permission Mode: {}", mode);
     }
     Ok(())
 }
@@ -401,6 +409,13 @@ pub fn job_start_command(
 
     let mut batch_results: Vec<(Option<String>, JobCreateResponse)> = Vec::new();
 
+    // Compute effective permission mode (--plan takes precedence)
+    let effective_permission_mode = if args.plan_mode {
+        Some("plan".to_string())
+    } else {
+        args.permission_mode.clone()
+    };
+
     if args.batch {
         for path in &input_files {
             let payload = serde_json::json!({
@@ -416,6 +431,9 @@ pub fn job_start_command(
                 "agents": if agents.is_empty() { None::<Vec<String>> } else { Some(agents.clone()) },
                 "queue": args.queue,
                 "force_worktree": args.force_worktree,
+                "session_id": args.session_id.clone(),
+                "fork_session": args.fork_session,
+                "permission_mode": effective_permission_mode.clone(),
             });
             let parsed = ctl_create_jobs(work_dir, config_override, payload)?;
             batch_results.push((Some(path.display().to_string()), parsed));
@@ -434,6 +452,9 @@ pub fn job_start_command(
             "agents": if agents.is_empty() { None::<Vec<String>> } else { Some(agents) },
             "queue": args.queue,
             "force_worktree": args.force_worktree,
+            "session_id": args.session_id.clone(),
+            "fork_session": args.fork_session,
+            "permission_mode": effective_permission_mode,
         });
         let parsed = ctl_create_jobs(work_dir, config_override, payload)?;
         batch_results.push((single_file_path.clone(), parsed));
@@ -570,6 +591,8 @@ pub fn job_continue_command(
     prompt: String,
     queue: bool,
     json: bool,
+    fork: bool,
+    plan: bool,
 ) -> Result<()> {
     let prompt = prompt.trim().to_string();
     if prompt.is_empty() {
@@ -578,7 +601,12 @@ pub fn job_continue_command(
 
     let (port, token) = load_gui_http_settings(work_dir, config_override);
     let url = format!("http://127.0.0.1:{port}/ctl/jobs/{job_id}/continue");
-    let payload = serde_json::json!({ "prompt": prompt, "queue": queue });
+    let payload = serde_json::json!({
+        "prompt": prompt,
+        "queue": queue,
+        "fork_session": fork,
+        "plan_mode": plan
+    });
     let value = http_post_json(&url, token.as_deref(), payload)?;
     let parsed: JobContinueResponse =
         serde_json::from_value(value).context("Invalid /ctl/jobs/{id}/continue response")?;

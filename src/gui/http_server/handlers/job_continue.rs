@@ -98,6 +98,12 @@ pub fn handle_control_job_continue(
             job.raw_tag_line = None;
             job.bridge_session_id = Some(session_id);
 
+            // Apply fork_session and plan_mode from request
+            job.fork_session = req.fork_session;
+            if req.plan_mode {
+                job.permission_mode = Some("plan".to_string());
+            }
+
             // Reuse the same worktree and job context
             job.git_worktree_path = original.git_worktree_path.clone();
             job.branch_name = original.branch_name.clone();

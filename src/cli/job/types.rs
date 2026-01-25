@@ -42,4 +42,12 @@ pub struct JobStartArgs {
     pub queue: bool,
     pub force_worktree: bool,
     pub json: bool,
+    /// Session ID to continue (Claude sessionId or Codex threadId)
+    pub session_id: Option<String>,
+    /// Fork the session instead of continuing it
+    pub fork_session: bool,
+    /// Enable plan mode (sets permission_mode to "plan")
+    pub plan_mode: bool,
+    /// Permission mode override (default, acceptEdits, bypassPermissions, plan)
+    pub permission_mode: Option<String>,
 }

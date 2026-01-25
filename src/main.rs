@@ -8,7 +8,7 @@ use kyco::cli;
 mod commands;
 use commands::{
     AgentCommands, ChainCommands, Commands, FindingCommands, ImportCommands, JobCommands,
-    MemoryCommands, ModeCommands, ProjectCommands, ScopeCommands, SkillCommands,
+    MemoryCommands, ModeCommands, ProjectCommands, ScopeCommands, SessionCommands, SkillCommands,
 };
 
 #[derive(Parser)]
@@ -99,6 +99,10 @@ async fn main() -> Result<()> {
                 pending,
                 force_worktree,
                 json,
+                session,
+                fork,
+                plan,
+                permission_mode,
             } => {
                 cli::job::job_start_command(
                     &work_dir,
@@ -119,6 +123,10 @@ async fn main() -> Result<()> {
                         queue: !pending,
                         force_worktree,
                         json,
+                        session_id: session,
+                        fork_session: fork,
+                        plan_mode: plan,
+                        permission_mode,
                     },
                 )?;
             }
@@ -147,6 +155,8 @@ async fn main() -> Result<()> {
                 prompt,
                 pending,
                 json,
+                fork,
+                plan,
             } => {
                 cli::job::job_continue_command(
                     &work_dir,
@@ -155,6 +165,8 @@ async fn main() -> Result<()> {
                     prompt,
                     !pending,
                     json,
+                    fork,
+                    plan,
                 )?;
             }
             JobCommands::Wait {
@@ -665,6 +677,14 @@ async fn main() -> Result<()> {
             }
             MemoryCommands::Summary { project } => {
                 cli::memory::summary(&project)?;
+            }
+        },
+        Some(Commands::Session { command }) => match command {
+            SessionCommands::List { r#type, limit, json } => {
+                cli::session::list(r#type, limit, json)?;
+            }
+            SessionCommands::Show { session_id, json } => {
+                cli::session::show(&session_id, json)?;
             }
         },
         None => {

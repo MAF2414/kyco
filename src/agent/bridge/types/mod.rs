@@ -243,7 +243,7 @@ pub enum ToolDecision {
 }
 
 /// Stored session metadata
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredSession {
     pub id: String,

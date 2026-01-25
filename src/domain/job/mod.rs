@@ -162,6 +162,15 @@ pub struct Job {
     #[serde(default)]
     pub bridge_session_id: Option<String>,
 
+    /// Whether to fork the session instead of continuing it
+    #[serde(default)]
+    pub fork_session: bool,
+
+    /// Permission mode for this job (default, acceptEdits, bypassPermissions, plan)
+    /// When set, overrides the agent config's permission_mode for this specific job
+    #[serde(default)]
+    pub permission_mode: Option<String>,
+
     /// Job ID that is blocking this job (when status is Blocked)
     /// This happens when another job holds a file lock on the same file
     #[serde(default)]
