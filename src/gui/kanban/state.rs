@@ -288,12 +288,9 @@ impl KanbanState {
         };
 
         // Copy to clipboard if possible
-        #[cfg(feature = "clipboard")]
-        {
-            if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                let _ = clipboard.set_text(&content);
-                self.status_message = Some(("Copied to clipboard".to_string(), true));
-            }
+        if let Ok(mut clipboard) = arboard::Clipboard::new() {
+            let _ = clipboard.set_text(&content);
+            self.status_message = Some(("Copied to clipboard".to_string(), true));
         }
 
         self.last_export = Some(content);

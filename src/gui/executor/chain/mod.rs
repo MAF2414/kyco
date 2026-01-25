@@ -480,7 +480,7 @@ pub async fn run_chain_job(
         .await;
 
     // Best-effort BugBounty ingestion: parse next_context from each executed step.
-    let mut bugbounty_contract_error: Option<String> = None;
+    let bugbounty_contract_error: Option<String> = None;
     let mut aggregated_ctx = NextContext::default();
     let mut aggregated_value: Option<serde_json::Value> = None;
 
