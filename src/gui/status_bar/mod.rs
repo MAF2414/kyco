@@ -235,10 +235,6 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                         *state.view_mode = ViewMode::Stats;
                     }
                     ui.add_space(8.0);
-                    if animated_button(ui, "Board", ACCENT_CYAN, "statusbar_unified_board").clicked() {
-                        *state.view_mode = ViewMode::UnifiedBoard;
-                    }
-                    ui.add_space(8.0);
                     if animated_button(ui, "Achievements", ACCENT_YELLOW, "statusbar_achievements").clicked() {
                         *state.view_mode = ViewMode::Achievements;
                     }

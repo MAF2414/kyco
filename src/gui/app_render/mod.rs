@@ -96,42 +96,6 @@ impl KycoApp {
             ViewMode::Achievements => {
                 self.render_achievements(ctx);
             }
-            ViewMode::Kanban => {
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(8.0))
-                    .show(ctx, |ui| {
-                        super::kanban::render_kanban_view(
-                            ui,
-                            &mut self.kanban_state,
-                            &self.work_dir,
-                            &self.cached_jobs,
-                            &self.job_manager,
-                            &self.group_manager,
-                            &mut self.logs,
-                        );
-                    });
-            }
-            ViewMode::UnifiedBoard => {
-                egui::CentralPanel::default()
-                    .frame(egui::Frame::NONE.fill(BG_PRIMARY).inner_margin(8.0))
-                    .show(ctx, |ui| {
-                        super::unified_board::render_unified_board(
-                            ui,
-                            &mut self.unified_board_state,
-                            &self.work_dir,
-                            &self.cached_jobs,
-                            &self.job_manager,
-                            &self.group_manager,
-                            &mut self.logs,
-                        );
-                    });
-
-                // Handle close request
-                if self.unified_board_state.close_requested {
-                    self.unified_board_state.close_requested = false;
-                    self.view_mode = ViewMode::JobList;
-                }
-            }
         }
     }
 

@@ -310,11 +310,4 @@ pub struct KycoApp {
     /// Cached streaks for display
     pub(crate) streaks: Option<crate::stats::Streaks>,
 
-    // BugBounty Kanban state
-    /// Kanban board state for security findings
-    pub(crate) kanban_state: super::kanban::KanbanState,
-
-    // Unified Board state (Jobs + Findings combined)
-    /// Unified board state for combined jobs and findings view
-    pub(crate) unified_board_state: super::unified_board::UnifiedBoardState,
 }
