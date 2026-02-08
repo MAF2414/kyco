@@ -25,6 +25,7 @@ pub enum VoiceTestStatus {
 pub struct SettingsState<'a> {
     pub settings_max_concurrent: &'a mut String,
     pub settings_auto_run: &'a mut bool,
+    pub settings_auto_allow: &'a mut bool,
     pub settings_use_worktree: &'a mut bool,
     pub settings_output_schema: &'a mut String,
     pub settings_structured_output_schema: &'a mut String,

@@ -96,6 +96,7 @@ impl eframe::App for KycoApp {
             ctx,
             &mut super::status_bar::StatusBarState {
                 auto_run: &mut self.auto_run,
+                auto_allow: &mut self.auto_allow,
                 view_mode: &mut self.view_mode,
                 selected_mode: &mut self.selected_mode,
                 mode_edit_status: &mut self.mode_edit_status,

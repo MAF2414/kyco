@@ -64,6 +64,7 @@ pub fn save_settings_to_config(state: &mut SettingsState<'_>) {
 
     new_config.settings.max_concurrent_jobs = max_concurrent;
     new_config.settings.auto_run = *state.settings_auto_run;
+    new_config.settings.auto_allow = *state.settings_auto_allow;
     new_config.settings.use_worktree = *state.settings_use_worktree;
     new_config.settings.gui.output_schema = state.settings_output_schema.clone();
     new_config.settings.gui.structured_output_schema =

@@ -77,6 +77,14 @@ pub fn render_settings_general(ui: &mut egui::Ui, state: &mut SettingsState<'_>)
 
         render_checkbox_field(
             ui,
+            state.settings_auto_allow,
+            "Auto-Allow",
+            "(automatically approve tool call requests)",
+        );
+        ui.add_space(4.0);
+
+        render_checkbox_field(
+            ui,
             state.settings_use_worktree,
             "Use Git Worktrees",
             "(isolate each job in separate worktree)",

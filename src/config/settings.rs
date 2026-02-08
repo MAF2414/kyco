@@ -24,6 +24,10 @@ pub struct Settings {
     #[serde(default = "default_auto_run")]
     pub auto_run: bool,
 
+    /// Automatically allow all tool call approval requests (no popup)
+    #[serde(default = "default_auto_allow")]
+    pub auto_allow: bool,
+
     /// Use Git worktrees for job isolation
     /// When true, each job runs in a separate Git worktree
     /// When false (default), jobs run in the main working directory
@@ -69,6 +73,10 @@ fn default_auto_run() -> bool {
     true
 }
 
+fn default_auto_allow() -> bool {
+    false
+}
+
 fn default_use_worktree() -> bool {
     false
 }
@@ -82,6 +90,7 @@ impl Default for Settings {
         Self {
             max_concurrent_jobs: default_max_concurrent_jobs(),
             auto_run: default_auto_run(),
+            auto_allow: default_auto_allow(),
             use_worktree: default_use_worktree(),
             max_jobs_per_file: default_max_jobs_per_file(),
             gui: GuiSettings::default(),

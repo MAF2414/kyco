@@ -110,6 +110,8 @@ pub struct KycoApp {
     pub(crate) permission_mode_overrides: HashMap<JobId, PermissionMode>,
     /// Auto-run enabled
     pub(crate) auto_run: bool,
+    /// Auto-allow tool calls (skip permission popup)
+    pub(crate) auto_allow: bool,
     /// Log scroll to bottom
     pub(crate) log_scroll_to_bottom: bool,
     /// Activity log kind filters (UI state)
@@ -176,8 +178,8 @@ pub struct KycoApp {
     pub(crate) registry_install_location: crate::gui::skills::SkillInstallLocation,
     /// Settings editor: max concurrent jobs
     pub(crate) settings_max_concurrent: String,
-    /// Settings editor: auto run
-    pub(crate) settings_auto_run: bool,
+    // NOTE: auto_run and auto_allow are used directly by SettingsState
+    // (no separate settings_auto_run / settings_auto_allow fields needed).
     /// Settings editor: use worktree
     pub(crate) settings_use_worktree: bool,
     /// Settings editor: output schema template

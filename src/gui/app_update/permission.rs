@@ -9,6 +9,7 @@ use std::time::Duration;
 
 impl KycoApp {
     /// Poll the Bridge for pending tool approvals (fallback in case the streaming event was missed).
+    /// When auto_allow is enabled, approvals are sent immediately without showing the popup.
     pub(crate) fn poll_pending_tool_approvals(&mut self) {
         // Avoid spamming localhost with requests every frame.
         if self.last_permission_poll.elapsed() < Duration::from_millis(500) {
@@ -21,8 +22,45 @@ impl KycoApp {
             Err(_) => return,
         };
 
+        // When auto_allow is on, drain any already-queued popup requests once up front
+        // (handles the case where auto_allow was toggled on while requests were pending)
+        if self.auto_allow {
+            self.auto_approve_queued_requests();
+        }
+
         for approval in pending {
             if self.permission_state.contains_request_id(&approval.request_id) {
+                continue;
+            }
+
+            // Auto-allow: immediately approve without queueing into popup
+            if self.auto_allow {
+                let response = ToolApprovalResponse {
+                    request_id: approval.request_id.clone(),
+                    decision: ToolDecision::Allow,
+                    reason: None,
+                    modified_input: None,
+                };
+                match self.bridge_client.send_tool_approval(&response) {
+                    Ok(true) => {
+                        self.logs.push(LogEvent::system(format!(
+                            "⚡ Auto-allowed tool: {}",
+                            approval.tool_name
+                        )));
+                    }
+                    Ok(false) => {
+                        self.logs.push(LogEvent::error(format!(
+                            "Auto-allow rejected by bridge: {}",
+                            &approval.request_id[..12.min(approval.request_id.len())]
+                        )));
+                    }
+                    Err(e) => {
+                        self.logs.push(LogEvent::error(format!(
+                            "Failed to auto-allow tool: {}",
+                            e
+                        )));
+                    }
+                }
                 continue;
             }
 
@@ -49,6 +87,49 @@ impl KycoApp {
 
             self.permission_state.add_request(request);
         }
+    }
+
+    /// Drain and auto-approve any requests already queued in the permission popup.
+    /// Called when auto_allow is toggled on while requests are pending.
+    fn auto_approve_queued_requests(&mut self) {
+        // Collect all request IDs from current + pending
+        let mut request_ids = Vec::new();
+        if let Some(ref req) = self.permission_state.current_request {
+            request_ids.push(req.request_id.clone());
+        }
+        for req in &self.permission_state.pending_requests {
+            request_ids.push(req.request_id.clone());
+        }
+
+        if request_ids.is_empty() {
+            return;
+        }
+
+        let mut approved = 0usize;
+        for request_id in &request_ids {
+            let response = ToolApprovalResponse {
+                request_id: request_id.clone(),
+                decision: ToolDecision::Allow,
+                reason: None,
+                modified_input: None,
+            };
+            if let Ok(true) = self.bridge_client.send_tool_approval(&response) {
+                approved += 1;
+            }
+        }
+
+        if approved > 0 {
+            self.logs.push(LogEvent::system(format!(
+                "⚡ Auto-allowed {} queued tool request(s)",
+                approved
+            )));
+        }
+
+        // Clear popup state
+        self.permission_state.current_request = None;
+        self.permission_state.pending_requests.clear();
+        self.permission_state.visible = false;
+        self.permission_state.should_focus = false;
     }
 
     /// Render the permission popup modal (on top of everything)

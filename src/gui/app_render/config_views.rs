@@ -23,7 +23,8 @@ impl KycoApp {
             &mut settings::SettingsState {
                 // General settings
                 settings_max_concurrent: &mut self.settings_max_concurrent,
-                settings_auto_run: &mut self.settings_auto_run,
+                settings_auto_run: &mut self.auto_run,
+                settings_auto_allow: &mut self.auto_allow,
                 settings_use_worktree: &mut self.settings_use_worktree,
                 settings_output_schema: &mut self.settings_output_schema,
                 settings_structured_output_schema: &mut self.settings_structured_output_schema,

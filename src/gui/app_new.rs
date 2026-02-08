@@ -40,7 +40,8 @@ impl KycoApp {
         // This reduces memory allocation from O(config_size) to O(extracted_fields).
         let (
             settings_max_concurrent,
-            settings_auto_run,
+            auto_run_val,
+            auto_allow_val,
             settings_use_worktree,
             voice_config,
             voice_settings_mode,
@@ -98,6 +99,7 @@ impl KycoApp {
                 (
                     cfg.settings.max_concurrent_jobs.to_string(),
                     cfg.settings.auto_run,
+                    cfg.settings.auto_allow,
                     cfg.settings.use_worktree,
                     voice_config,
                     voice_settings_mode,
@@ -148,6 +150,7 @@ impl KycoApp {
                 (
                     defaults.settings.max_concurrent_jobs.to_string(),
                     defaults.settings.auto_run,
+                    defaults.settings.auto_allow,
                     defaults.settings.use_worktree,
                     voice_config,
                     voice_settings_mode,
@@ -222,7 +225,8 @@ impl KycoApp {
             bridge_process,
             bridge_client: BridgeClient::new(),
             permission_mode_overrides: HashMap::new(),
-            auto_run: settings_auto_run,
+            auto_run: auto_run_val,
+            auto_allow: auto_allow_val,
             log_scroll_to_bottom: true,
             activity_log_filters: ActivityLogFilters::default(),
             continuation_prompt: String::new(),
@@ -256,7 +260,6 @@ impl KycoApp {
             agent_edit_price_output: String::new(),
             agent_edit_allow_dangerous_bypass: false,
             settings_max_concurrent,
-            settings_auto_run,
             settings_use_worktree,
             settings_output_schema,
             settings_structured_output_schema,

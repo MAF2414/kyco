@@ -92,6 +92,11 @@ impl KycoApp {
             self.auto_run = !self.auto_run;
         }
 
+        // Global shortcut for auto_allow toggle (Shift+W)
+        if i.modifiers.shift && i.key_pressed(Key::W) {
+            self.auto_allow = !self.auto_allow;
+        }
+
         // Voice hotkey handling (configurable, default: Cmd+D / Ctrl+D)
         if self.view_mode == ViewMode::SelectionPopup {
             if let Some(voice_action) = self.handle_voice_hotkey(i) {

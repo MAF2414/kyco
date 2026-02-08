@@ -36,6 +36,7 @@ pub enum InstallStatus {
 /// Status bar state that can be modified by the status bar UI
 pub struct StatusBarState<'a> {
     pub auto_run: &'a mut bool,
+    pub auto_allow: &'a mut bool,
     pub view_mode: &'a mut ViewMode,
     pub selected_mode: &'a mut Option<String>,
     pub mode_edit_status: &'a mut Option<(String, bool)>,
@@ -79,6 +80,31 @@ pub fn render_status_bar(ctx: &egui::Context, state: &mut StatusBarState<'_>) {
                     .clicked()
                 {
                     *state.auto_run = !*state.auto_run;
+                }
+
+                ui.add_space(12.0);
+
+                let auto_allow_text = if *state.auto_allow {
+                    "AutoAllo[W]: ON"
+                } else {
+                    "AutoAllo[W]: off"
+                };
+                let auto_allow_color = if *state.auto_allow {
+                    ACCENT_YELLOW
+                } else {
+                    TEXT_MUTED
+                };
+                if ui
+                    .label(
+                        RichText::new(auto_allow_text)
+                            .small()
+                            .monospace()
+                            .color(auto_allow_color),
+                    )
+                    .on_hover_text("Auto-approve all tool call requests (Shift+W)")
+                    .clicked()
+                {
+                    *state.auto_allow = !*state.auto_allow;
                 }
 
                 // Profile level/title display

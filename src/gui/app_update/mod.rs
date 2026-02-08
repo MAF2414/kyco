@@ -13,6 +13,7 @@ use super::app_types::ViewMode;
 use super::executor::ExecutorEvent;
 use super::groups::{ComparisonAction, render_comparison_popup};
 use crate::LogEvent;
+use crate::agent::bridge::{ToolApprovalResponse, ToolDecision};
 use eframe::egui;
 
 impl KycoApp {
@@ -106,8 +107,42 @@ impl KycoApp {
                     tool_input,
                 } => {
                     tracing::info!("⚠️ GUI received PermissionNeeded: tool={}, job_id={}, request_id={}", tool_name, job_id, request_id);
-                    // Convert to PermissionRequest and add to popup queue (de-dupe by request_id).
-                    if !self.permission_state.contains_request_id(&request_id) {
+
+                    if self.permission_state.contains_request_id(&request_id) {
+                        // Already known — skip (polling fallback will handle if needed)
+                    } else if self.auto_allow {
+                        // Auto-allow: immediately approve without showing popup
+                        let response = ToolApprovalResponse {
+                            request_id: request_id.clone(),
+                            decision: ToolDecision::Allow,
+                            reason: None,
+                            modified_input: None,
+                        };
+                        match self.bridge_client.send_tool_approval(&response) {
+                            Ok(true) => {
+                                self.logs.push(
+                                    LogEvent::system(format!(
+                                        "⚡ Auto-allowed tool: {}",
+                                        tool_name
+                                    ))
+                                    .for_job(job_id),
+                                );
+                            }
+                            Ok(false) => {
+                                self.logs.push(LogEvent::error(format!(
+                                    "Auto-allow rejected by bridge: {}",
+                                    &request_id[..12.min(request_id.len())]
+                                )));
+                            }
+                            Err(e) => {
+                                self.logs.push(LogEvent::error(format!(
+                                    "Failed to auto-allow tool: {}",
+                                    e
+                                )));
+                            }
+                        }
+                    } else {
+                        // Queue into permission popup
                         let request = super::permission::PermissionRequest {
                             request_id,
                             session_id,
